@@ -77,21 +77,31 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
     meta: [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
-      { title: "Lovable App" },
-      { name: "description", content: "Lovable Generated Project" },
-      { name: "author", content: "Lovable" },
-      { property: "og:title", content: "Lovable App" },
-      { property: "og:description", content: "Lovable Generated Project" },
+      { title: "FUstore — Unstoppable Gateway to Tokenized Assets on Ink Chain" },
+      {
+        name: "description",
+        content:
+          "FUstore is an elite decentralized marketplace for tokenized stocks and crypto across Privacy, Defense, Chips, AI, Health and Store of Value — natively on Ink Chain.",
+      },
+      { name: "author", content: "FUstore" },
+      { property: "og:title", content: "FUstore — Future Store" },
+      {
+        property: "og:description",
+        content:
+          "Trade tokenized assets across Privacy, Defense, Chips, AI and more on Ink Chain. Powered by Kraken CLI and Nado CLOB.",
+      },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
-      { name: "twitter:site", content: "@Lovable" },
     ],
     links: [
+      { rel: "stylesheet", href: appCss },
+      { rel: "icon", href: "/favicon.ico", type: "image/x-icon" },
+      { rel: "preconnect", href: "https://fonts.googleapis.com" },
+      { rel: "preconnect", href: "https://fonts.gstatic.com", crossOrigin: "anonymous" },
       {
         rel: "stylesheet",
-        href: appCss,
+        href: "https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap",
       },
-      { rel: "icon", href: "/favicon.ico", type: "image/x-icon" },
     ],
   }),
   shellComponent: RootShell,
