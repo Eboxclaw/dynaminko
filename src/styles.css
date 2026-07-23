@@ -145,8 +145,33 @@
     border-color: var(--color-border);
   }
 
-  body {
-    background-color: var(--color-background);
-    color: var(--color-foreground);
+  html, body {
+    background-color: var(--color-obsidian);
+    color: #cbd5e1;
+    font-family: var(--font-sans);
   }
 }
+
+@keyframes fu-boot-fade {
+  0%, 85% { opacity: 1; }
+  100% { opacity: 0; visibility: hidden; }
+}
+@keyframes fu-loading-bar {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(300%); }
+}
+@keyframes fu-scanline {
+  0% { transform: translateY(-100%); }
+  100% { transform: translateY(100vh); }
+}
+@keyframes fu-blink {
+  0%, 49% { opacity: 1; }
+  50%, 100% { opacity: 0; }
+}
+@keyframes fu-pulse-dot {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.4; transform: scale(0.85); }
+}
+
+.fu-caret { animation: fu-blink 1s steps(1) infinite; }
+.fu-clob-row:hover { background: linear-gradient(90deg, transparent, rgba(0,255,157,0.06), transparent); }
