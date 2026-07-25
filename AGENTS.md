@@ -33,9 +33,7 @@ React UI
     │
     
 Typed Message Bus
-    │
 
-│        │        │        │
 Market   AI    Storage   Risk
 Worker  Worker  Worker   Worker
 
