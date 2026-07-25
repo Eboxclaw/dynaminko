@@ -25,11 +25,11 @@ export const Route = createFileRoute("/")({
         content:
           "Thesis-first trading journal for Ink Chain. Route trades through Nado CLOB, earn on Tydro, reconcile with a classified AI concierge.",
       },
-      { property: "og:title", content: "Dynaminko — Command Center" },
+      { property: "og:title", content: "Dynaminko — Command Center · Ink Chain" },
       {
         property: "og:description",
         content:
-          "Institutional-yet-cypherpunk trading terminal for tokenized sectors on Ink Chain.",
+          "Thesis-first trading journal for Ink Chain. Route trades through Nado CLOB, earn on Tydro, reconcile with a classified AI concierge.",
       },
     ],
   }),
