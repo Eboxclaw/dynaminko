@@ -1,33 +1,62 @@
-## FUstore — Swiss Obsidian Cipher build plan
+INKO Trading Journal
 
-Elite dark command-center for trading tokenized assets on Ink Chain, built as a single-page dashboard at `/` with the chosen visual language (obsidian/onyx surfaces, neon mint + ink purple accents, JetBrains Mono for data, Inter for UI).
+1. The Core Philosophy: The "Duolingo" of Trading
+Traditional trading journals suffer from low retention because they are treated strictly as utility tools—they are
+boring, time-consuming, and rely heavily on manual data entry. To solve this, the INKO Trading Journal flips
+the paradigm. It acts as an alarm and incentive layer first, and a teaching/accounting layer second.
+If users are not incentivized to open the app, they will neither log their trades nor learn from their habits.
+Therefore, the primary business logic is driven by interactivity, targeted notifications, and a highly gamified UI/
+UX that rewards engagement.
+2. Synergistic Input Layers
+To remove the friction of journaling, data entry is broken down into three distinct, interconnected layers:
+A. Manual Input (The "Thesis" Layer)
+Manual entry is stripped of tedious accounting. Instead, it is strictly focused on the trader's thesis, "shower
+thoughts," or quick ticker ideas. Users document the why before the trade even happens.
+B. Auto-Fetched Input (The "Action" Layer)
+The core journal is built passively from the user's on-chain actions. By connecting wallets and monitoring
+exchange APIs, new trades are fetched and inserted daily. This separates execution from accounting—users
+don't have to chase their trades to log them.
+C. Assisted Input (The "AI Concierge" Layer)
+When new auto-fetched actions arrive, they trigger an event-driven AI workflow. A deterministic personal
+assistant reaches out to the user to reconcile the fetched trades with the earlier manual thesis. This creates a
+complete journal entry with minimal friction.
 
-### Scope (frontend only, placeholder data)
+Architecture Note: The local AI framework splits responsibilities. A deterministic personal
+assistant handles the strict journaling and routine setup, ensuring accounting accuracy.
+Simultaneously, a separate sentiment/meme agent processes external community
+feedback and market sentiment to provide context to the trades. Product Vision, UI/UX Architecture, and Development Roadmap
 
-1. **Boot loader** — full-screen classified terminal boot overlay: "SECURE ENCLAVE / BIOMETRIC / KRAKEN SDK / DECRYPTING NADO PROTOCOL" with progress bar; fades out after ~3.5s.
-2. **Shell** — icon rail sidebar (Dashboard, Markets, CLI, Theses, Vault, Settings) + sticky header with Ink Chain indicator, total balance with privacy (asterisk) toggle, wallet chip.
-3. **Portfolio Breakdown** — SVG conic pie chart with sector slices (Privacy, Defense, Chips, AI, Health, SoV, Firearms) + legend.
-4. **Category Exposure Basket** — 2-col grid of sector exposure tiles.
-5. **Premium Selection / Nado CLOB market list** — table of tokenized assets grouped by sector (tLMT, tRTX, tSIG, XMR, ZEC, PAXG, tPFE, tMRNA, tTSM, tNVDA, tPLTR, FET) with price, 24h, sector tag, and three actions: BUY SPOT, GO LONG, PREDICT. Selecting an asset updates the CLOB order-book side panel.
-6. **Nado CLOB order book** — bid/ask ladder with depth bars for the selected asset.
-7. **Kraken CLI terminal** — slide-out right drawer with mock command history, blinking caret, input field that echoes typed commands and returns canned responses (`kraken trade …`, `nado clob list …`, `ink status`).
-8. **Thesis engine** — textarea list persisted to `localStorage` with add/delete; tie each thesis to an asset ticker.
-9. **Notification center** — small panel to create price / on-chain / thesis-validation alerts, listed with enable toggles, stored in `localStorage`. PWA wiring is out of scope this pass (per the PWA skill — manifest-only only if requested).
+3. The "Dynamic Performance" Metric
+Standard PNL (Profit & Loss) is insufficient for evaluating trader growth. INKO introduces the Dynamic
+Performance Status Graph. This multi-axis visualization evaluates trades across several vectors:
+Financial Performance: Raw ROI and risk-adjusted returns.
+Thesis Alignment: Did the execution match the original manual thesis?
+Sentiment & Ecosystem: Community feedback and broader market mood during the trade.
+Psychological Factors: Self-reported or AI-inferred emotional states (e.g., FOMO, conviction).
+4. UI/UX & Platform Architecture
 
-### Technical
+The application will be deployed as a Progressive Web App (PWA) on Inkchain, heavily themed around
+"INKO the meme" to foster community alignment.
+Persistent Bottom Bar: The primary navigation is anchored at the bottom of the screen for one-handed
+mobile use.
+Multi-modal FAB (Floating Action Button): A centralized action button that expands to offer instant input
+methods: AI chat, text logging, image/chart upload, and voice transcription for quick thesis capturing.
+Event-Driven Prompts: Push notifications that act as "check-ins" (e.g., "INKO noticed you bought $XYZ.
+Was this based on your thesis from Tuesday?").
+5. Development Roadmap
+To ensure a smooth rollout, the product will be developed in distinct phases, eventually evolving from an
+accounting tool into a complete decentralized execution environment.
+Phase 1: The Gamified Journal (Current Focus)
+Establish the PWA on Inkchain. Build the multi-modal FAB, wallet connection for auto-fetching trades,
+and the dual-agent AI system (deterministic assistant + sentiment meme agent). Launch the Dynamic
+Performance metric.
 
-- Replace `src/routes/index.tsx` placeholder with the full dashboard. Keep home at `/`.
-- Add fonts (Inter, JetBrains Mono) via `<link>` in `src/routes/__root.tsx` head; register `--font-sans` / `--font-mono` in `@theme` in `src/styles.css`. Add semantic dark tokens (`--color-obsidian`, `--color-onyx`, `--color-steel`, `--color-neon-mint`, `--color-ink-purple`) in `@theme` — no hardcoded hex in components.
-- Force dark palette globally (override `:root` background/foreground to obsidian/slate) so no theme toggle needed.
-- Update `__root.tsx` head with FUstore-specific title / description / og tags.
-- Components under `src/components/fustore/`: `BootLoader`, `Sidebar`, `TopBar`, `PortfolioPie`, `CategoryExposure`, `MarketTable`, `OrderBook`, `KrakenTerminal`, `ThesisPanel`, `AlertsPanel`.
-- State: local `useState` for selected asset, balance-privacy toggle, terminal open/closed, terminal history. `localStorage`-backed hooks for theses and alerts.
-- Placeholder data in `src/lib/fustore-data.ts` (assets by sector, seeded order-book rows).
-- No backend, no Supabase, no server functions.
+Phase 2: Execution & Framework Integration
+Transition from a passive journal to an active trading terminal. Introduce Nado Builder cores and
+integrate with swap layers. This allows users to journal and
+execute from a single, unified interface.
+•
 
-### Out of scope this pass
-
-- Real Kraken/Nado API integration (visual mock only).
-- Wallet connection / signing.
-- PWA install manifest and push notifications (can be a follow-up).
-- Auth / user accounts.
+Phase 3: Advanced Vaults
+Roll out Tydro vaults for automated strategy deployment, utilizing the historical data gathered in Phase 1
+to train personalized, local trading agents.
