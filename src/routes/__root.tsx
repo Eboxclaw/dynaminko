@@ -14,19 +14,19 @@ import { reportLovableError } from "../lib/lovable-error-reporting";
 
 function NotFoundComponent() {
   return (
-    <div className="flex min-h-screen items-center justify-center bg-background px-4">
+    <div className="flex min-h-screen items-center justify-center bg-onyx px-4">
       <div className="max-w-md text-center">
-        <h1 className="text-7xl font-bold text-foreground">404</h1>
-        <h2 className="mt-4 text-xl font-semibold text-foreground">Page not found</h2>
-        <p className="mt-2 text-sm text-muted-foreground">
-          The page you're looking for doesn't exist or has been moved.
+        <h1 className="text-7xl font-mono text-paper">404</h1>
+        <h2 className="mt-4 text-xl font-semibold text-paper">Signal not found</h2>
+        <p className="mt-2 text-sm text-ash">
+          The requested resource is off-grid or has been redacted.
         </p>
         <div className="mt-6">
           <Link
             to="/"
-            className="inline-flex items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
+            className="inline-flex items-center justify-center border border-lavender px-4 py-2 text-xs font-mono uppercase tracking-widest text-lavender hover:bg-lavender hover:text-onyx"
           >
-            Go home
+            Return to terminal
           </Link>
         </div>
       </div>
@@ -42,29 +42,24 @@ function ErrorComponent({ error, reset }: { error: Error; reset: () => void }) {
   }, [error]);
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-background px-4">
+    <div className="flex min-h-screen items-center justify-center bg-onyx px-4">
       <div className="max-w-md text-center">
-        <h1 className="text-xl font-semibold tracking-tight text-foreground">
-          This page didn't load
-        </h1>
-        <p className="mt-2 text-sm text-muted-foreground">
-          Something went wrong on our end. You can try refreshing or head back home.
+        <h1 className="text-xl font-semibold text-paper">Terminal fault</h1>
+        <p className="mt-2 text-sm text-ash">
+          A subsystem failed to resolve. Retry or return to base.
         </p>
         <div className="mt-6 flex flex-wrap justify-center gap-2">
           <button
-            onClick={() => {
-              router.invalidate();
-              reset();
-            }}
-            className="inline-flex items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
+            onClick={() => { router.invalidate(); reset(); }}
+            className="border border-lavender px-4 py-2 text-xs font-mono uppercase tracking-widest text-lavender hover:bg-lavender hover:text-onyx"
           >
-            Try again
+            Retry
           </button>
           <a
             href="/"
-            className="inline-flex items-center justify-center rounded-md border border-input bg-background px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-accent"
+            className="border border-hairline px-4 py-2 text-xs font-mono uppercase tracking-widest text-paper hover:border-lavender"
           >
-            Go home
+            Return
           </a>
         </div>
       </div>
@@ -76,31 +71,33 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
   head: () => ({
     meta: [
       { charSet: "utf-8" },
-      { name: "viewport", content: "width=device-width, initial-scale=1" },
-      { title: "FUstore — Unstoppable Gateway to Tokenized Assets on Ink Chain" },
+      { name: "viewport", content: "width=device-width, initial-scale=1, viewport-fit=cover" },
+      { name: "theme-color", content: "#0A0A0C" },
+      { title: "Dynaminko — Trading Journal for Ink Chain" },
       {
         name: "description",
         content:
-          "FUstore is an elite decentralized marketplace for tokenized stocks and crypto across Privacy, Defense, Chips, AI, Health and Store of Value — natively on Ink Chain.",
+          "Dynaminko is the classified trading journal for Ink Chain. Thesis-first capture, auto-fetched trades, and an AI concierge that reconciles conviction with execution.",
       },
-      { name: "author", content: "FUstore" },
-      { property: "og:title", content: "FUstore — Future Store" },
+      { name: "author", content: "Dynaminko" },
+      { property: "og:title", content: "Dynaminko — Trading Journal for Ink Chain" },
       {
         property: "og:description",
         content:
-          "Trade tokenized assets across Privacy, Defense, Chips, AI and more on Ink Chain. Powered by Kraken CLI and Nado CLOB.",
+          "Thesis-first trading journal on Ink Chain. Route through Nado CLOB, earn on Tydro, reconcile everything with an AI concierge.",
       },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
     ],
     links: [
       { rel: "stylesheet", href: appCss },
-      { rel: "icon", href: "/favicon.ico", type: "image/x-icon" },
+      { rel: "icon", type: "image/png", href: "/dynaminko-logo.png" },
+      { rel: "apple-touch-icon", href: "/dynaminko-logo.png" },
       { rel: "preconnect", href: "https://fonts.googleapis.com" },
       { rel: "preconnect", href: "https://fonts.gstatic.com", crossOrigin: "anonymous" },
       {
         rel: "stylesheet",
-        href: "https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap",
+        href: "https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@300;400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap",
       },
     ],
   }),
@@ -126,10 +123,8 @@ function RootShell({ children }: { children: ReactNode }) {
 
 function RootComponent() {
   const { queryClient } = Route.useRouteContext();
-
   return (
     <QueryClientProvider client={queryClient}>
-      {/* Required: nested routes render here. Removing <Outlet /> breaks all child routes. */}
       <Outlet />
     </QueryClientProvider>
   );
