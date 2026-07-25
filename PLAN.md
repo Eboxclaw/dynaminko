@@ -1,5 +1,6 @@
 INKO Trading Journal
 
+ORGINAL PLAN
 1. The Core Philosophy: The "Duolingo" of Trading
 Traditional trading journals suffer from low retention because they are treated strictly as utility tools—they are
 boring, time-consuming, and rely heavily on manual data entry. To solve this, the INKO Trading Journal flips
