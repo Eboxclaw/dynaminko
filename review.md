@@ -1,4 +1,4 @@
-# Dynaminko — ROADMAP AND IMPROVEMENT Plans
+# Dynaminko — Analyses AND IMPROVEMENT Plans
 
 **Vision → Architecture → Roadmap → Build Instructions, unified**
 
