@@ -44,7 +44,7 @@ export function TopBar({
             style={{ animation: "dyn-pulse-dot 1.8s ease-in-out infinite" }}
           />
           <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-paper">
-            Connected to Ink Chain
+            Ink Chain target · 57073
           </span>
         </div>
 
@@ -82,7 +82,7 @@ export function TopBar({
           <span
             className={"size-1.5 rounded-full " + (walletConnected ? "bg-mint" : "bg-ash")}
           />
-          {walletConnected ? "0xkraken.eth" : "Connect wallet"}
+          {walletConnected ? "Demo wallet" : "Connect wallet"}
         </button>
       </div>
     </header>

@@ -55,10 +55,13 @@ export function SettingsView({
         <div className="p-5 space-y-3">
           <div className="flex items-center justify-between">
             <div>
-              <div className="text-paper">{walletConnected ? "0xkraken.eth" : "Not connected"}</div>
+              <div className="text-paper">{walletConnected ? "Demo wallet" : "Not connected"}</div>
               <div className="font-mono text-[10px] text-ash mt-0.5">
-                {walletConnected ? "Ink Chain · 57073" : "Connect to route trades on Nado"}
+                {walletConnected ? "Ink Chain target · 57073" : "Placeholder wallet control"}
               </div>
+              <p className="mt-2 max-w-md text-xs leading-relaxed text-ash">
+                Wallet connection is currently a placeholder. Real read-only wallet connect will arrive in a later phase.
+              </p>
             </div>
             <button
               onClick={onToggleWallet}
