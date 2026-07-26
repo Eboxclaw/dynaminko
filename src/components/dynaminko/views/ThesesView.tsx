@@ -18,6 +18,8 @@ export type Thesis = {
 };
 
 const STALE_MS = 1000 * 60 * 60 * 24 * 7; // 7d
+const DAY_MS = 1000 * 60 * 60 * 24;
+const SEED_NOW = Date.UTC(2026, 0, 1);
 
 const SEED: Thesis[] = [
   {
@@ -25,12 +27,12 @@ const SEED: Thesis[] = [
     ticker: "tLMT",
     body:
       "Accumulating tLMT on Superchain dips — kinetic cycle beta plus tokenized-defense scarcity premium. Invalidation: sustained trade below $420 on volume.",
-    ts: Date.now() - 86400000 * 12,
-    reviewedAt: Date.now() - 86400000 * 12,
+    ts: SEED_NOW - DAY_MS * 12,
+    reviewedAt: SEED_NOW - DAY_MS * 12,
     status: "aligned",
     trades: [
-      { ts: Date.now() - 86400000 * 10, side: "BUY", qty: 20, price: 461.2 },
-      { ts: Date.now() - 86400000 * 3, side: "BUY", qty: 15, price: 478.8 },
+      { ts: SEED_NOW - DAY_MS * 10, side: "BUY", qty: 20, price: 461.2 },
+      { ts: SEED_NOW - DAY_MS * 3, side: "BUY", qty: 15, price: 478.8 },
     ],
   },
   {
@@ -38,17 +40,17 @@ const SEED: Thesis[] = [
     ticker: "XMR",
     body:
       "Privacy layer as sovereign hedge. Regulatory pressure is the buy signal, not the sell signal. Hold through drawdown.",
-    ts: Date.now() - 86400000 * 22,
-    reviewedAt: Date.now() - 86400000 * 22,
+    ts: SEED_NOW - DAY_MS * 22,
+    reviewedAt: SEED_NOW - DAY_MS * 22,
     status: "drifted",
-    trades: [{ ts: Date.now() - 86400000 * 20, side: "BUY", qty: 500, price: 158.4 }],
+    trades: [{ ts: SEED_NOW - DAY_MS * 20, side: "BUY", qty: 500, price: 158.4 }],
   },
   {
     id: "t3",
     ticker: "tTSM",
     body: "Semiconductor node leadership through 2027 — TSMC as monopoly on 2nm.",
-    ts: Date.now() - 86400000 * 2,
-    reviewedAt: Date.now() - 86400000 * 2,
+    ts: SEED_NOW - DAY_MS * 2,
+    reviewedAt: SEED_NOW - DAY_MS * 2,
     status: "pending",
     trades: [],
   },
@@ -143,8 +145,9 @@ export function ThesesView({ initialCompose }: { initialCompose?: boolean }) {
           <ThesisDetail
             thesis={selected}
             onDelete={() => {
-              setItems(items.filter((x) => x.id !== selected.id));
-              setSelectedId(items[0]?.id ?? null);
+              const nextItems = items.filter((x) => x.id !== selected.id);
+              setItems(nextItems);
+              setSelectedId(nextItems[0]?.id ?? null);
             }}
           />
         ) : (
