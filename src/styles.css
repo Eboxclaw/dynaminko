@@ -153,5 +153,17 @@
 .dyn-fade-in { animation: dyn-slide-in 0.35s ease-out both; }
 
 @media (prefers-reduced-motion: reduce) {
-  .dyn-rotate-3d, .dyn-diamond-rotate { animation: none !important; }
+  .dyn-rotate-3d,
+  .dyn-diamond-rotate,
+  .dyn-boot-overlay,
+  .dyn-boot-scanline,
+  .dyn-boot-assembly,
+  .dyn-fade-in,
+  [style*="dyn-boot-fade"],
+  [style*="dyn-scanline"],
+  [style*="dyn-assemble"],
+  [style*="dyn-pulse-dot"],
+  [style*="dyn-slide-in"] {
+    animation: none !important;
+  }
 }

@@ -22,6 +22,14 @@ export function BootSequence({ onDone }: { onDone?: () => void }) {
         onDone?.();
         return;
       }
+
+      const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      if (reduceMotion) {
+        sessionStorage.setItem("dyn.booted", "1");
+        setHidden(true);
+        onDone?.();
+        return;
+      }
     }
     const iv = setInterval(() => setStep((s) => Math.min(s + 1, LINES.length)), 380);
     const t = setTimeout(() => {
@@ -42,12 +50,12 @@ export function BootSequence({ onDone }: { onDone?: () => void }) {
 
   return (
     <div
-      className="fixed inset-0 z-[100] bg-onyx text-paper font-mono flex flex-col items-center justify-center overflow-hidden"
+      className="dyn-boot-overlay fixed inset-0 z-[100] bg-onyx text-paper font-mono flex flex-col items-center justify-center overflow-hidden"
       style={{ animation: "dyn-boot-fade 3.5s cubic-bezier(0.7,0,0.2,1) forwards" }}
     >
       {/* single scan line sweep */}
       <div
-        className="pointer-events-none absolute inset-x-0 h-16"
+        className="dyn-boot-scanline pointer-events-none absolute inset-x-0 h-16"
         style={{
           animation: "dyn-scanline 3.2s cubic-bezier(0.7,0,0.3,1) 0.2s forwards",
           background:
@@ -57,7 +65,7 @@ export function BootSequence({ onDone }: { onDone?: () => void }) {
 
       {/* Centerpiece: faceted diamond form assembling */}
       <div
-        className="relative mb-10"
+        className="dyn-boot-assembly relative mb-10"
         style={{
           animation: "dyn-assemble 2.2s cubic-bezier(0.6,0,0.2,1) forwards",
           transformStyle: "preserve-3d",
