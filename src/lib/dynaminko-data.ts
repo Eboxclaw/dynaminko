@@ -1,80 +1,108 @@
-export type Sector =
-  | "Privacy"
-  | "Store of Value"
-  | "Health"
-  | "Defense"
-  | "Firearms"
-  | "Semiconductors"
-  | "AI";
+// Basket taxonomy is two-tier and open-set: top-level category is a small
+// closed union ("Crypto" | "xStocks"), sub-category is a string so new
+// sub-baskets can be added at token-listing time without a schema change.
 
-export const SECTORS: Sector[] = [
-  "Privacy",
-  "Store of Value",
-  "Health",
-  "Defense",
-  "Firearms",
-  "Semiconductors",
-  "AI",
+export type Category = "Crypto" | "xStocks";
+export type SubCategory = string;
+
+export const CATEGORIES: Category[] = ["Crypto", "xStocks"];
+
+// Curated seed of sub-categories in canonical display order. New sub-categories
+// added via token listings should simply be appended; SUBCATEGORY_COLORS
+// returns a fallback tonal ash so unknown keys still render.
+export const SUB_CATEGORIES: SubCategory[] = [
+  "privacy",
+  "cash",
+  "metals",
+  "ai",
+  "memes",
+  "rwa",
+  "defense",
+  "chips",
+  "health",
+  "goods",
+  "etfs",
 ];
 
 export type Asset = {
   ticker: string;
   name: string;
-  sector: Sector;
+  category: Category;
+  subCategory: SubCategory;
   price: number;
   change24h: number;
   allocationUsd: number;
 };
 
 export const ASSETS: Asset[] = [
-  // Privacy
-  { ticker: "XMR", name: "Monero", sector: "Privacy", price: 161.8, change24h: -0.4, allocationUsd: 232400 },
-  { ticker: "ZEC", name: "Zcash", sector: "Privacy", price: 42.11, change24h: 1.9, allocationUsd: 88100 },
-  // Store of Value
-  { ticker: "PAXG", name: "PAX Gold", sector: "Store of Value", price: 2341.5, change24h: 0.04, allocationUsd: 184500 },
-  { ticker: "tBTC", name: "Threshold Bitcoin", sector: "Store of Value", price: 63820.0, change24h: 1.1, allocationUsd: 96200 },
-  // Health
-  { ticker: "tPFE", name: "Pfizer (Tokenized)", sector: "Health", price: 28.44, change24h: -1.1, allocationUsd: 24200 },
-  { ticker: "tMRNA", name: "Moderna (Tokenized)", sector: "Health", price: 78.2, change24h: 3.4, allocationUsd: 33100 },
-  // Defense
-  { ticker: "tLMT", name: "Lockheed Martin (Tokenized)", sector: "Defense", price: 492.44, change24h: 1.2, allocationUsd: 148200 },
-  { ticker: "tRTX", name: "Raytheon (Tokenized)", sector: "Defense", price: 138.9, change24h: 0.6, allocationUsd: 92100 },
-  // Firearms
-  { ticker: "tSWBI", name: "Smith & Wesson (Tokenized)", sector: "Firearms", price: 14.22, change24h: 0.9, allocationUsd: 22400 },
-  { ticker: "tSIG", name: "SIG Sauer Holdings (Tokenized)", sector: "Firearms", price: 74.2, change24h: 2.8, allocationUsd: 41200 },
-  // Semiconductors
-  { ticker: "tTSM", name: "TSMC (Tokenized)", sector: "Semiconductors", price: 188.02, change24h: 4.8, allocationUsd: 121400 },
-  { ticker: "tNVDA", name: "NVIDIA (Tokenized)", sector: "Semiconductors", price: 942.1, change24h: 2.1, allocationUsd: 210800 },
-  // AI
-  { ticker: "tPLTR", name: "Palantir (Tokenized)", sector: "AI", price: 41.9, change24h: 6.2, allocationUsd: 71400 },
-  { ticker: "FET", name: "Fetch.ai", sector: "AI", price: 1.42, change24h: -2.4, allocationUsd: 28200 },
+  // Crypto
+  { ticker: "XMR", name: "Monero", category: "Crypto", subCategory: "privacy", price: 161.8, change24h: -0.4, allocationUsd: 232400 },
+  { ticker: "ZEC", name: "Zcash", category: "Crypto", subCategory: "privacy", price: 42.11, change24h: 1.9, allocationUsd: 88100 },
+  { ticker: "tBTC", name: "Threshold Bitcoin", category: "Crypto", subCategory: "cash", price: 63820.0, change24h: 1.1, allocationUsd: 96200 },
+  { ticker: "PAXG", name: "PAX Gold", category: "Crypto", subCategory: "metals", price: 2341.5, change24h: 0.04, allocationUsd: 184500 },
+  { ticker: "FET", name: "Fetch.ai", category: "Crypto", subCategory: "ai", price: 1.42, change24h: -2.4, allocationUsd: 28200 },
+  // xStocks
+  { ticker: "tPFE", name: "Pfizer (Tokenized)", category: "xStocks", subCategory: "health", price: 28.44, change24h: -1.1, allocationUsd: 24200 },
+  { ticker: "tMRNA", name: "Moderna (Tokenized)", category: "xStocks", subCategory: "health", price: 78.2, change24h: 3.4, allocationUsd: 33100 },
+  { ticker: "tLMT", name: "Lockheed Martin (Tokenized)", category: "xStocks", subCategory: "defense", price: 492.44, change24h: 1.2, allocationUsd: 148200 },
+  { ticker: "tRTX", name: "Raytheon (Tokenized)", category: "xStocks", subCategory: "defense", price: 138.9, change24h: 0.6, allocationUsd: 92100 },
+  { ticker: "tSWBI", name: "Smith & Wesson (Tokenized)", category: "xStocks", subCategory: "defense", price: 14.22, change24h: 0.9, allocationUsd: 22400 },
+  { ticker: "tSIG", name: "SIG Sauer Holdings (Tokenized)", category: "xStocks", subCategory: "defense", price: 74.2, change24h: 2.8, allocationUsd: 41200 },
+  { ticker: "tTSM", name: "TSMC (Tokenized)", category: "xStocks", subCategory: "chips", price: 188.02, change24h: 4.8, allocationUsd: 121400 },
+  { ticker: "tNVDA", name: "NVIDIA (Tokenized)", category: "xStocks", subCategory: "chips", price: 942.1, change24h: 2.1, allocationUsd: 210800 },
+  { ticker: "tPLTR", name: "Palantir (Tokenized)", category: "xStocks", subCategory: "ai", price: 41.9, change24h: 6.2, allocationUsd: 71400 },
 ];
 
-// Only Lavender for accent, Mint for gains, Rose for losses — sector colors are
-// tonal ash/paper variations so category color never competes with signal color.
-export const SECTOR_COLORS: Record<Sector, string> = {
-  Privacy: "#B6A5F0",           // lavender (privacy = signature accent)
-  "Store of Value": "#F5F4F7",  // paper white
-  Health: "#8B8894",            // ash
-  Defense: "#6E6A7A",           // dim ash
-  Firearms: "#4A4753",          // deep ash
-  Semiconductors: "#A8A3B8",    // mid ash
-  AI: "#D8D3E8",                // near-lavender tint
+// Tonal palette only — sub-category dots never compete with signal color
+// (mint = gain, rose = loss, lavender = accent).
+const SUBCATEGORY_PALETTE: Record<string, string> = {
+  privacy: "#B6A5F0",       // lavender-tinted (privacy = signature)
+  cash: "#F5F4F7",          // paper white
+  metals: "#D8CBA0",         // muted gold-ash
+  ai: "#D8D3E8",             // near-lavender tint
+  memes: "#C97C74",          // rose (memes acknowledged as volatile)
+  rwa: "#A8A3B8",            // mid ash
+  defense: "#6E6A7A",        // dim ash
+  chips: "#8B8894",          // ash
+  health: "#B7C9B3",          // muted mint-ash
+  goods: "#9AA8A0",          // muted sage
+  etfs: "#4A4753",           // deep ash
 };
 
-export function sectorTotals() {
-  const totals = new Map<Sector, number>();
-  for (const s of SECTORS) totals.set(s, 0);
-  for (const a of ASSETS) totals.set(a.sector, (totals.get(a.sector) ?? 0) + a.allocationUsd);
-  return SECTORS.map((sector) => ({ sector, usd: totals.get(sector) ?? 0 }));
+export const SUBCATEGORY_COLORS: Record<string, string> = new Proxy(SUBCATEGORY_PALETTE, {
+  get(target, key: string) {
+    return target[key] ?? "#6E6A7A"; // fallback ash for unknown sub-cats
+  },
+});
+
+// Category-level tint (used for grouping headers on exposure + positions panels)
+export const CATEGORY_COLORS: Record<Category, string> = {
+  Crypto: "#B6A5F0",
+  xStocks: "#D8CBA0",
+};
+
+export function subCategoryTotals(positions?: Record<string, number>) {
+  const totals = new Map<string, { category: Category; usd: number }>();
+  for (const a of ASSETS) {
+    const usd = positions ? (positions[a.ticker] ?? 0) * a.price : a.allocationUsd;
+    if (usd <= 0) continue;
+    const prev = totals.get(a.subCategory);
+    totals.set(a.subCategory, {
+      category: a.category,
+      usd: (prev?.usd ?? 0) + usd,
+    });
+  }
+  return Array.from(totals.entries())
+    .map(([subCategory, { category, usd }]) => ({ subCategory, category, usd }))
+    .sort((a, b) => b.usd - a.usd);
 }
 
-export function totalBalance() {
-  return ASSETS.reduce((s, a) => s + a.allocationUsd, 0);
+export function totalBalance(positions?: Record<string, number>) {
+  if (!positions) return ASSETS.reduce((s, a) => s + a.allocationUsd, 0);
+  return ASSETS.reduce((s, a) => s + (positions[a.ticker] ?? 0) * a.price, 0);
 }
 
 export function generateOrderBook(price: number) {
-  // Deterministic-ish per price so it doesn't jitter on every render
   const seed = Math.floor(price * 1000);
   const rand = (i: number) => {
     const x = Math.sin(seed + i * 31.7) * 10000;

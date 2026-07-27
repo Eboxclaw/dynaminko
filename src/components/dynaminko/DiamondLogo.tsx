@@ -24,14 +24,7 @@ export function DiamondLogo({ size = 24, glow = false }: { size?: number; glow?:
           <stop offset="0" stopColor="#B6A5F0" stopOpacity="0.85" />
           <stop offset="1" stopColor="#5A506E" />
         </linearGradient>
-        <linearGradient id="dyn-fuse" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0" stopColor="#4FF7B4" />
-          <stop offset="1" stopColor="#B6A5F0" />
-        </linearGradient>
       </defs>
-      {/* Fuse */}
-      <path d="M30 4 Q26 10 30 16" stroke="url(#dyn-fuse)" strokeWidth="1.6" fill="none" />
-      <circle cx="30" cy="4" r="1.6" fill="#4FF7B4" />
       {/* Body — isometric candle (dynamite stick) */}
       {/* Top face */}
       <path d="M8 22 L30 12 L52 22 L30 32 Z" fill="url(#dyn-top)" stroke="#B6A5F0" strokeWidth="1.2" strokeOpacity="0.9" />
