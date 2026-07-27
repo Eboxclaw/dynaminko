@@ -274,7 +274,7 @@ function handle(text: string, format: Format): Msg[] {
         id: id(),
         format,
         label: `/market${t ? ` ${t}` : ""}`,
-        data: rows.map((a) => ({ ticker: a.ticker, sector: a.sector, price: a.price, "24h%": a.change24h })),
+        data: rows.map((a) => ({ ticker: a.ticker, category: a.category, sub: a.subCategory, price: a.price, "24h%": a.change24h })),
       },
     ];
   }
