@@ -3,6 +3,8 @@ import { toast } from "sonner";
 import { Plus, Trash2 } from "lucide-react";
 import { useLocalStorage } from "@/hooks/useLocalStorage";
 import { ASSETS } from "@/lib/dynaminko-data";
+import { WalletSelector } from "../WalletSelector";
+import { shortenAddress } from "@/lib/wallet-mock";
 
 type AlertKind = "price" | "onchain" | "thesis";
 type Alert = { id: string; kind: AlertKind; ticker: string; condition: string; enabled: boolean };
@@ -20,11 +22,11 @@ const KIND_LABEL: Record<AlertKind, string> = {
 };
 
 export function SettingsView({
-  walletConnected,
-  onToggleWallet,
+  walletAddress,
+  onWalletAddressChange,
 }: {
-  walletConnected: boolean;
-  onToggleWallet: () => void;
+  walletAddress: string;
+  onWalletAddressChange: (v: string) => void;
 }) {
   const [alerts, setAlerts] = useLocalStorage<Alert[]>("dyn.alerts", SEED);
   const [ticker, setTicker] = useState(ASSETS[0].ticker);
@@ -45,30 +47,30 @@ export function SettingsView({
     setCondition("");
   };
 
+  const connected = !!walletAddress;
+
   return (
     <div className="p-4 md:p-6 lg:p-8 grid grid-cols-1 xl:grid-cols-2 gap-6 max-w-6xl mx-auto w-full">
       {/* Wallet */}
       <section className="bg-obsidian border border-hairline">
         <div className="px-4 py-3 border-b border-hairline font-mono text-[10px] uppercase tracking-[0.18em] text-ash">
-          WALLET // <span className="text-paper">CONNECTION</span>
+          WALLET // <span className="text-paper">TRACKING</span>
         </div>
         <div className="p-5 space-y-3">
-          <div className="flex items-center justify-between">
+          <div className="flex items-start justify-between gap-4">
             <div>
-              <div className="text-paper">{walletConnected ? "Demo wallet" : "Not connected"}</div>
+              <div className="text-paper font-mono">
+                {connected ? shortenAddress(walletAddress) : "No wallet tracked"}
+              </div>
               <div className="font-mono text-[10px] text-ash mt-0.5">
-                {walletConnected ? "Ink Chain target · 57073" : "Placeholder wallet control"}
+                {connected ? "Ink Chain · 57073 · staged read-only" : "Paste a 0x address to track"}
               </div>
               <p className="mt-2 max-w-md text-xs leading-relaxed text-ash">
-                Wallet connection is currently a placeholder. Real read-only wallet connect will arrive in a later phase.
+                Paste-address tracking uses staged positions this pass. Live Ink Chain RPC reads
+                arrive in a later phase.
               </p>
             </div>
-            <button
-              onClick={onToggleWallet}
-              className="px-3 py-1.5 font-mono text-[10px] uppercase tracking-widest border border-lavender text-lavender hover:bg-lavender hover:text-onyx"
-            >
-              {walletConnected ? "Disconnect" : "Connect wallet"}
-            </button>
+            <WalletSelector address={walletAddress} onChange={onWalletAddressChange} />
           </div>
         </div>
       </section>

@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Toaster } from "sonner";
 
 import { BootSequence } from "@/components/dynaminko/BootSequence";
@@ -15,6 +15,7 @@ import { VaultView } from "@/components/dynaminko/views/VaultView";
 import { SettingsView } from "@/components/dynaminko/views/SettingsView";
 import { useLocalStorage } from "@/hooks/useLocalStorage";
 import { totalBalance } from "@/lib/dynaminko-data";
+import { isValidAddress, positionsForAddress } from "@/lib/wallet-mock";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -40,10 +41,20 @@ function Index() {
   const [view, setView] = useState<ViewId>("dashboard");
   const [balanceHidden, setBalanceHidden] = useState(false);
   const [quickOpen, setQuickOpen] = useState(false);
-  const [walletConnected, setWalletConnected] = useState(true);
+  const [walletAddress, setWalletAddress] = useLocalStorage<string>("dyn.wallet", "");
   const [thesesCompose, setThesesCompose] = useState(false);
   const [theses] = useLocalStorage<Thesis[]>("dyn.theses", []);
   const badge = unreviewedCount(theses);
+
+  const positions = useMemo(
+    () => (walletAddress && isValidAddress(walletAddress) ? positionsForAddress(walletAddress) : null),
+    [walletAddress],
+  );
+
+  const balance = useMemo(
+    () => totalBalance(positions ?? undefined),
+    [positions],
+  );
 
   const navigate = (v: ViewId, intent?: "new-thesis" | "ask") => {
     setView(v);
@@ -72,16 +83,23 @@ function Index() {
 
       <main className="flex-1 flex flex-col min-w-0 pb-16 md:pb-0">
         <TopBar
-          balance={totalBalance()}
+          balance={balance}
           balanceHidden={balanceHidden}
           onToggleBalance={() => setBalanceHidden((v) => !v)}
           onQuickCapture={() => setQuickOpen(true)}
-          walletConnected={walletConnected}
-          onToggleWallet={() => setWalletConnected((v) => !v)}
+          walletAddress={walletAddress}
+          onWalletAddressChange={setWalletAddress}
         />
 
         <div className="flex-1 overflow-y-auto">
-          {view === "dashboard" && <DashboardView hidden={balanceHidden} />}
+          {view === "dashboard" && (
+            <DashboardView
+              hidden={balanceHidden}
+              walletAddress={walletAddress}
+              onWalletAddressChange={setWalletAddress}
+              positions={positions}
+            />
+          )}
           {view === "markets" && <MarketsView />}
           {view === "terminal" && <TerminalView />}
           {view === "theses" && (
@@ -93,8 +111,8 @@ function Index() {
           {view === "vault" && <VaultView />}
           {view === "settings" && (
             <SettingsView
-              walletConnected={walletConnected}
-              onToggleWallet={() => setWalletConnected((v) => !v)}
+              walletAddress={walletAddress}
+              onWalletAddressChange={setWalletAddress}
             />
           )}
         </div>
