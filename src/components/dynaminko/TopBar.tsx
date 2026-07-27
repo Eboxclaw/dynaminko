@@ -1,20 +1,21 @@
 import { Eye, EyeOff, Zap } from "lucide-react";
 import { DiamondLogo } from "./DiamondLogo";
+import { WalletSelector } from "./WalletSelector";
 
 export function TopBar({
   balance,
   balanceHidden,
   onToggleBalance,
   onQuickCapture,
-  walletConnected,
-  onToggleWallet,
+  walletAddress,
+  onWalletAddressChange,
 }: {
   balance: number;
   balanceHidden: boolean;
   onToggleBalance: () => void;
   onQuickCapture: () => void;
-  walletConnected: boolean;
-  onToggleWallet: () => void;
+  walletAddress: string;
+  onWalletAddressChange: (v: string) => void;
 }) {
   const fmt = new Intl.NumberFormat("en-US", {
     style: "currency",
@@ -23,7 +24,6 @@ export function TopBar({
   }).format(balance);
   return (
     <header className="h-16 border-b border-hairline px-4 lg:px-6 flex items-center justify-between bg-onyx/70 backdrop-blur-md sticky top-0 z-20">
-      {/* wordmark */}
       <div className="flex items-center gap-4 min-w-0">
         <div className="md:hidden">
           <DiamondLogo size={18} glow />
@@ -37,18 +37,16 @@ export function TopBar({
       </div>
 
       <div className="flex items-center gap-3 lg:gap-4">
-        {/* Ink chain status */}
         <div className="hidden sm:flex items-center gap-2 px-2.5 py-1 border border-hairline">
           <span
             className="size-1.5 rounded-full bg-mint"
             style={{ animation: "dyn-pulse-dot 1.8s ease-in-out infinite" }}
           />
           <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-paper">
-            Ink Chain target · 57073
+            Ink Chain · 57073
           </span>
         </div>
 
-        {/* Quick capture (desktop) */}
         <button
           onClick={onQuickCapture}
           className="hidden md:flex items-center gap-2 px-3 h-8 border border-lavender/60 text-lavender font-mono text-[10px] uppercase tracking-[0.18em] hover:bg-lavender hover:text-onyx transition-colors"
@@ -57,7 +55,6 @@ export function TopBar({
           Quick capture
         </button>
 
-        {/* Balance */}
         <div className="flex items-center gap-2">
           <div className="text-right">
             <div className="font-mono text-[9px] uppercase tracking-[0.2em] text-ash">Balance</div>
@@ -74,16 +71,9 @@ export function TopBar({
           </button>
         </div>
 
-        {/* Wallet */}
-        <button
-          onClick={onToggleWallet}
-          className="hidden lg:flex items-center gap-2 h-8 px-3 border border-hairline hover:border-lavender font-mono text-[10px] uppercase tracking-[0.18em] text-paper"
-        >
-          <span
-            className={"size-1.5 rounded-full " + (walletConnected ? "bg-mint" : "bg-ash")}
-          />
-          {walletConnected ? "Demo wallet" : "Connect wallet"}
-        </button>
+        <div className="hidden lg:block">
+          <WalletSelector address={walletAddress} onChange={onWalletAddressChange} />
+        </div>
       </div>
     </header>
   );
