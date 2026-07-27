@@ -1,5 +1,4 @@
 import { useEffect, useState } from "react";
-import { DiamondLogo } from "./DiamondLogo";
 
 const LINES = [
   "> establishing secure channel · ink chain L2",
@@ -71,10 +70,17 @@ export function BootSequence({ onDone }: { onDone?: () => void }) {
           transformStyle: "preserve-3d",
         }}
       >
-        <div className="dyn-diamond-surface" style={{ width: 110, height: 176, clipPath: "polygon(50% 0, 100% 22%, 100% 78%, 50% 100%, 0 78%, 0 22%)" }}>
-          <div className="absolute inset-0 flex items-center justify-center">
-            <DiamondLogo size={44} glow />
-          </div>
+        <div
+          className="dyn-diamond-surface relative"
+          style={{ width: 140, height: 176, clipPath: "polygon(50% 0, 100% 22%, 100% 78%, 50% 100%, 0 78%, 0 22%)" }}
+        >
+          <img
+            src="/dynaminko.svg"
+            alt=""
+            aria-hidden
+            className="absolute inset-0 w-full h-full object-contain p-6"
+            style={{ filter: "invert(1) drop-shadow(0 0 12px rgba(182,165,240,0.55))" }}
+          />
         </div>
       </div>
 

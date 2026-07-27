@@ -61,3 +61,9 @@ execute from a single, unified interface.
 Phase 3: Advanced Vaults
 Roll out Tydro vaults for automated strategy deployment, utilizing the historical data gathered in Phase 1
 to train personalized, local trading agents.
+
+---
+
+Progress log — pass 2 (2026-07-27)
+
+Basket taxonomy split into two tiers: top-level `Crypto` / `xStocks`, open-set sub-baskets (`privacy`, `cash`, `metals`, `ai`, `memes`, `rwa`, `defense`, `chips`, `health`, `goods`, `etfs`) so new listings add sub-baskets without a schema change. Dashboard now takes a pasted 0x wallet address (top bar selector, deterministic staged positions per address) and renders a Positions panel grouped by category alongside the existing Portfolio Diamond and Category Exposure. Markets rebuilt as a progressive flow — category tab → sub-basket chip → asset list → dedicated CLOB ticket + depth on the next step, back via button or Esc. Logo cleaned (the green fuse dot is gone) and the boot centerpiece now renders the uploaded `public/dynaminko.svg` directly. PWA is installable-only this pass: manifest + SVG icons + head tags, no service worker.

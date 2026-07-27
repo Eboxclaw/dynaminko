@@ -38,17 +38,18 @@ Onyx and obsidian surfaces, hairline borders, a single lavender accent reserved 
 
 | Part | Status | Notes |
 |---|---|---|
-| Design system | Done | Color tokens, type pairing, dossier card, diamond mark all in place |
-| Boot sequence | Done | Terminal handshake, diamond assembly, scan line, skippable, session gated. No reduced-motion guard yet |
-| Dashboard | Done, mock data | Portfolio Breakdown (3D diamond, flat fallback), Category Exposure basket, Concierge feed. A DeBank style cross-protocol Positions panel (Wallet, inkySwap, Velodrome V3, Nado, Tydro) is designed and queued |
-| Markets | Done, mock data | Sector filtered asset list, CLOB ticket with Buy Spot / Go Long / Swap, mock order book depth. No live Nado calls |
+| Design system | Done | Color tokens, type pairing, dossier card, diamond mark all in place. Logo is now green-free and sourced from `public/dynaminko.svg` end to end (boot centerpiece included) |
+| Boot sequence | Done | Terminal handshake, faceted centerpiece rendered from the uploaded SVG, scan line, skippable, session gated |
+| Dashboard | Done, mock data | Portfolio Breakdown, Category Exposure grouped by top-level category with sub-basket bars, Concierge feed, plus a paste-address Wallet selector and a DeBank-style Positions panel that reflects the tracked wallet (deterministic staged positions per address, no chain calls yet) |
+| Basket taxonomy | Done | Two-tier, open-set: top level `Crypto` / `xStocks`, sub-baskets `privacy · cash · metals · ai · memes · rwa · defense · chips · health · goods · etfs`. New sub-baskets added at token-listing time no longer require a schema change |
+| Markets | Done, mock data | Progressive flow — category tab → sub-basket chip → asset list, then a dedicated CLOB ticket + order book on the next step (back via button or Esc). Ends the old all-in-one wall of controls |
 | AI Terminal | Done, mock data | Slash commands with autocomplete, JSON/table toggle, natural language parsing, approve/edit/discard proposal cards. Responses are canned, not live |
-| Theses | Done, mock data | List and detail view, manual and AI guided composer, aligned/drifted/pending status. No distinct "watchlist of intent" state for theses with zero linked trades yet |
-| Status tab | Not started | Home for the Dynamic Performance composite score: thesis alignment, sentiment, and accountability merged into one number, five axes broken out below it, fed by the four question tap flow. Question wording for Sentiment and Financial still open, Psychological's four answers (calm, FOMO, revenge, boredom) are already settled |
+| Theses | Done, mock data | List and detail view, manual and AI guided composer, aligned/drifted/pending status |
+| Status tab | Not started | Home for the Dynamic Performance composite score, still queued |
 | Vault | Done, mock data | Tydro style supply/borrow cards with APY and position |
-| Settings | Done, mock data | Wallet connect toggle, notification preferences, permissionless alert setup. Wallet connection is a boolean, not a real one |
-| Quick Capture | Needs a fix | Currently routes to other screens instead of capturing inline, which breaks the "capture must be zero navigation" principle this product is built on |
-| PWA layer | Not started | No manifest, no service worker, not installable yet, despite being conceived as PWA first |
+| Settings | Done, mock data | Wallet tracking now embeds the paste-address selector, notification preferences, permissionless alert setup |
+| Quick Capture | Needs a fix | Still routes to other screens instead of capturing inline |
+| PWA layer | Installable | Manifest + SVG icons + head tags shipped, installs to home screen on Android/desktop. Offline service worker deliberately deferred (kept out of Lovable preview) |
 | Real chain and wallet | Not started | No wallet library, no live Nado, Tydro, inkySwap, or Velodrome calls, everything above runs on staged data |
 
 ## Roadmap
