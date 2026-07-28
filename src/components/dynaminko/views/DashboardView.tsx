@@ -1,25 +1,25 @@
 import { PortfolioDiamond } from "../PortfolioDiamond";
 import { CategoryExposure } from "../CategoryExposure";
-import { ConciergeFeed } from "../ConciergeFeed";
-import { PositionsPanel } from "../PositionsPanel";
-import { WalletSelector } from "../WalletSelector";
+import { DebankPortfolio } from "../DebankPortfolio";
+import { WalletMenu } from "../WalletMenu";
+import type { Wallet } from "@/lib/wallets";
 
 export function DashboardView({
   hidden,
-  walletAddress,
-  onWalletAddressChange,
+  wallets,
+  onWalletsChange,
   positions,
 }: {
   hidden: boolean;
-  walletAddress: string;
-  onWalletAddressChange: (v: string) => void;
+  wallets: Wallet[];
+  onWalletsChange: (next: Wallet[]) => void;
   positions: Record<string, number> | null;
 }) {
   return (
     <div className="p-4 md:p-6 lg:p-8 space-y-6">
-      {/* Mobile wallet selector (desktop lives in top bar) */}
+      {/* Mobile wallet control (desktop lives in top bar) */}
       <div className="lg:hidden flex justify-end">
-        <WalletSelector address={walletAddress} onChange={onWalletAddressChange} />
+        <WalletMenu wallets={wallets} onChange={onWalletsChange} />
       </div>
 
       <div className="grid grid-cols-1 xl:grid-cols-12 gap-6">
@@ -27,13 +27,8 @@ export function DashboardView({
           <PortfolioDiamond hidden={hidden} positions={positions} />
           <CategoryExposure hidden={hidden} positions={positions} />
         </div>
-        <div className="xl:col-span-7 space-y-6">
-          <PositionsPanel
-            address={walletAddress}
-            positions={positions}
-            hidden={hidden}
-          />
-          <ConciergeFeed />
+        <div className="xl:col-span-7">
+          <DebankPortfolio wallets={wallets} positions={positions} hidden={hidden} />
         </div>
       </div>
     </div>

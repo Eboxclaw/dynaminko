@@ -1,21 +1,22 @@
 import { Eye, EyeOff, Zap } from "lucide-react";
 import { DiamondLogo } from "./DiamondLogo";
-import { WalletSelector } from "./WalletSelector";
+import { WalletMenu } from "./WalletMenu";
+import type { Wallet } from "@/lib/wallets";
 
 export function TopBar({
   balance,
   balanceHidden,
   onToggleBalance,
   onQuickCapture,
-  walletAddress,
-  onWalletAddressChange,
+  wallets,
+  onWalletsChange,
 }: {
   balance: number;
   balanceHidden: boolean;
   onToggleBalance: () => void;
   onQuickCapture: () => void;
-  walletAddress: string;
-  onWalletAddressChange: (v: string) => void;
+  wallets: Wallet[];
+  onWalletsChange: (next: Wallet[]) => void;
 }) {
   const fmt = new Intl.NumberFormat("en-US", {
     style: "currency",
@@ -72,7 +73,7 @@ export function TopBar({
         </div>
 
         <div className="hidden lg:block">
-          <WalletSelector address={walletAddress} onChange={onWalletAddressChange} />
+          <WalletMenu wallets={wallets} onChange={onWalletsChange} />
         </div>
       </div>
     </header>
