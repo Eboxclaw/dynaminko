@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Toaster } from "sonner";
 
 import { BootSequence } from "@/components/dynaminko/BootSequence";
@@ -15,7 +15,13 @@ import { VaultView } from "@/components/dynaminko/views/VaultView";
 import { SettingsView } from "@/components/dynaminko/views/SettingsView";
 import { useLocalStorage } from "@/hooks/useLocalStorage";
 import { totalBalance } from "@/lib/dynaminko-data";
-import { isValidAddress, positionsForAddress } from "@/lib/wallet-mock";
+import { isValidAddress } from "@/lib/wallet-mock";
+import {
+  autoLabel,
+  newWalletId,
+  positionsForWallets,
+  type Wallet,
+} from "@/lib/wallets";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -41,20 +47,39 @@ function Index() {
   const [view, setView] = useState<ViewId>("dashboard");
   const [balanceHidden, setBalanceHidden] = useState(false);
   const [quickOpen, setQuickOpen] = useState(false);
-  const [walletAddress, setWalletAddress] = useLocalStorage<string>("dyn.wallet", "");
+  const [wallets, setWallets] = useLocalStorage<Wallet[]>("dyn.wallets", []);
   const [thesesCompose, setThesesCompose] = useState(false);
   const [theses] = useLocalStorage<Thesis[]>("dyn.theses", []);
   const badge = unreviewedCount(theses);
 
-  const positions = useMemo(
-    () => (walletAddress && isValidAddress(walletAddress) ? positionsForAddress(walletAddress) : null),
-    [walletAddress],
-  );
+  // One-time migration: old single-wallet key → wallets array
+  useEffect(() => {
+    if (wallets.length > 0) return;
+    try {
+      const raw = window.localStorage.getItem("dyn.wallet");
+      if (!raw) return;
+      const addr = JSON.parse(raw) as string;
+      if (typeof addr === "string" && isValidAddress(addr)) {
+        setWallets([
+          {
+            id: newWalletId(),
+            address: addr,
+            label: autoLabel(addr, "read"),
+            kind: "read",
+            visible: true,
+            addedAt: Date.now(),
+          },
+        ]);
+        window.localStorage.removeItem("dyn.wallet");
+      }
+    } catch {
+      /* ignore */
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
-  const balance = useMemo(
-    () => totalBalance(positions ?? undefined),
-    [positions],
-  );
+  const positions = useMemo(() => positionsForWallets(wallets), [wallets]);
+  const balance = useMemo(() => totalBalance(positions ?? undefined), [positions]);
 
   const navigate = (v: ViewId, intent?: "new-thesis" | "ask") => {
     setView(v);
@@ -87,16 +112,16 @@ function Index() {
           balanceHidden={balanceHidden}
           onToggleBalance={() => setBalanceHidden((v) => !v)}
           onQuickCapture={() => setQuickOpen(true)}
-          walletAddress={walletAddress}
-          onWalletAddressChange={setWalletAddress}
+          wallets={wallets}
+          onWalletsChange={setWallets}
         />
 
         <div className="flex-1 overflow-y-auto">
           {view === "dashboard" && (
             <DashboardView
               hidden={balanceHidden}
-              walletAddress={walletAddress}
-              onWalletAddressChange={setWalletAddress}
+              wallets={wallets}
+              onWalletsChange={setWallets}
               positions={positions}
             />
           )}
@@ -110,10 +135,7 @@ function Index() {
           )}
           {view === "vault" && <VaultView />}
           {view === "settings" && (
-            <SettingsView
-              walletAddress={walletAddress}
-              onWalletAddressChange={setWalletAddress}
-            />
+            <SettingsView wallets={wallets} onWalletsChange={setWallets} />
           )}
         </div>
 

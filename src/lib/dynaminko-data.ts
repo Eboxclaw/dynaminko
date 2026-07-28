@@ -179,3 +179,140 @@ export const CONCIERGE_SEED: Concierge[] = [
     suggestedThesis: "AI + defense contract stack — asymmetric long into Q4 earnings.",
   },
 ];
+
+// ── DeBank-style protocol positions ────────────────────────────────────────
+// Deterministic per address: LP positions on Ink-native venues + memecoin
+// bags + locked LP on InkyPump. Mock only — no chain calls.
+
+export type Protocol =
+  | "Nado"
+  | "Velodrome"
+  | "InkySwap"
+  | "InkyPump"
+  | "InkyPump Lock";
+
+export type ProtocolKind = "pool" | "perp" | "margin" | "position" | "lock";
+
+export type ProtocolPosition = {
+  id: string;
+  protocol: Protocol;
+  kind: ProtocolKind;
+  label: string;      // "USDC/ETH LP" or "tNVDA-PERP LONG"
+  detail?: string;    // e.g. "5x · liq $812"
+  usd: number;
+  apy?: number;
+  pnl?: number;
+  unlockAt?: number;
+};
+
+function seed32(addr: string): number {
+  let h = 0x811c9dc5;
+  const s = addr.toLowerCase();
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  return h >>> 0;
+}
+
+function rng(seed: number, i: number) {
+  const x = Math.sin(seed + i * 129.31) * 10000;
+  return x - Math.floor(x);
+}
+
+const NADO_PAIRS = ["tNVDA-PERP", "tLMT-PERP", "XMR-PERP", "ETH-PERP", "tTSM-PERP"];
+const VELO_PAIRS = ["ETH/USDC", "USDC/USDT", "tBTC/ETH"];
+const INKY_PAIRS = ["INK/USDC", "ETH/INK", "PAXG/USDC"];
+const PUMP_MEMES = ["$DARPA", "$SIGNAL", "$ONYX", "$CIPHER", "$NADO"];
+
+export function protocolPositionsForAddress(addr: string): ProtocolPosition[] {
+  const s = seed32(addr);
+  const out: ProtocolPosition[] = [];
+
+  // Nado — one open perp
+  if (rng(s, 1) > 0.25) {
+    const pair = NADO_PAIRS[Math.floor(rng(s, 2) * NADO_PAIRS.length)];
+    const size = 2000 + rng(s, 3) * 24000;
+    const pnl = (rng(s, 4) - 0.4) * size * 0.3;
+    const lev = 1 + Math.floor(rng(s, 5) * 9);
+    out.push({
+      id: `nado-${addr}-1`,
+      protocol: "Nado",
+      kind: "perp",
+      label: pair + (pnl >= 0 ? " LONG" : " SHORT"),
+      detail: `${lev}x · unified margin`,
+      usd: +size.toFixed(0),
+      pnl: +pnl.toFixed(0),
+    });
+  }
+  // Nado — margin idle balance
+  out.push({
+    id: `nado-${addr}-m`,
+    protocol: "Nado",
+    kind: "margin",
+    label: "Unified Margin (USDC)",
+    usd: +(1200 + rng(s, 6) * 18000).toFixed(0),
+  });
+
+  // Velodrome LPs
+  const veloN = 1 + Math.floor(rng(s, 7) * 2);
+  for (let i = 0; i < veloN; i++) {
+    out.push({
+      id: `velo-${addr}-${i}`,
+      protocol: "Velodrome",
+      kind: "pool",
+      label: VELO_PAIRS[(Math.floor(rng(s, 10 + i) * VELO_PAIRS.length))] + " LP",
+      detail: "staked · vAMM",
+      usd: +(800 + rng(s, 20 + i) * 12000).toFixed(0),
+      apy: +(4 + rng(s, 30 + i) * 22).toFixed(2),
+    });
+  }
+
+  // InkySwap LP
+  if (rng(s, 40) > 0.35) {
+    out.push({
+      id: `inky-${addr}-1`,
+      protocol: "InkySwap",
+      kind: "pool",
+      label: INKY_PAIRS[Math.floor(rng(s, 41) * INKY_PAIRS.length)] + " LP",
+      detail: "concentrated · full range",
+      usd: +(400 + rng(s, 42) * 7000).toFixed(0),
+      apy: +(6 + rng(s, 43) * 30).toFixed(2),
+    });
+  }
+
+  // InkyPump — up to two meme positions
+  const pumpN = Math.floor(rng(s, 50) * 3);
+  for (let i = 0; i < pumpN; i++) {
+    const meme = PUMP_MEMES[Math.floor(rng(s, 51 + i) * PUMP_MEMES.length)];
+    const usd = 100 + rng(s, 60 + i) * 5000;
+    const pnl = (rng(s, 70 + i) - 0.35) * usd * 1.8;
+    out.push({
+      id: `pump-${addr}-${i}`,
+      protocol: "InkyPump",
+      kind: "position",
+      label: `${meme} bag`,
+      detail: rng(s, 80 + i) > 0.5 ? "bonded · migrated" : "pre-bond",
+      usd: +usd.toFixed(0),
+      pnl: +pnl.toFixed(0),
+    });
+  }
+
+  // InkyPump — LP lock contract (dev-locked)
+  if (rng(s, 90) > 0.55) {
+    const meme = PUMP_MEMES[Math.floor(rng(s, 91) * PUMP_MEMES.length)];
+    const days = 30 + Math.floor(rng(s, 92) * 300);
+    out.push({
+      id: `pumplock-${addr}-1`,
+      protocol: "InkyPump Lock",
+      kind: "lock",
+      label: `${meme}/ETH LP (locked)`,
+      detail: `unlocks in ${days}d`,
+      usd: +(1200 + rng(s, 93) * 22000).toFixed(0),
+      unlockAt: Date.now() + days * 86400_000,
+    });
+  }
+
+  return out;
+}
+

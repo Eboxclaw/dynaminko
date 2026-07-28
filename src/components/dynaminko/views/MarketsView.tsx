@@ -1,10 +1,12 @@
 // Progressive Markets flow: list first, ticket next. Selecting an asset
-// swaps the panel to the CLOB ticket + depth for that asset. Back returns
-// to the list (also on Esc).
+// swaps the panel to the CLOB ticket + depth for that asset. Once inside
+// the ticket, sub-tabs switch between four dedicated tickets:
+//   SPOT · SWAP · LONG · SHORT
+// Each ticket is intentionally minimal — one job per screen.
 
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, ArrowRight } from "lucide-react";
 import {
   ASSETS,
   CATEGORIES,
@@ -13,14 +15,29 @@ import {
   type Asset,
   type Category,
 } from "@/lib/dynaminko-data";
+import { useLocalStorage } from "@/hooks/useLocalStorage";
 import { DossierCard } from "../DossierCard";
 
 type CatFilter = Category | "ALL";
+export type TradeMode = "spot" | "swap" | "long" | "short";
+
+const MODE_LABEL: Record<TradeMode, string> = {
+  spot: "SPOT",
+  swap: "SWAP",
+  long: "LONG",
+  short: "SHORT",
+};
 
 export function MarketsView() {
   const [cat, setCat] = useState<CatFilter>("ALL");
   const [sub, setSub] = useState<string | "ALL">("ALL");
   const [selected, setSelected] = useState<Asset | null>(null);
+  const [defaultMode] = useLocalStorage<TradeMode>("dyn.tradeMode", "spot");
+  const [mode, setMode] = useState<TradeMode>(defaultMode);
+
+  useEffect(() => {
+    if (selected) setMode(defaultMode);
+  }, [selected, defaultMode]);
 
   const filtered = useMemo(() => {
     return ASSETS.filter(
@@ -50,7 +67,7 @@ export function MarketsView() {
   if (selected) {
     return (
       <div className="p-4 md:p-6 lg:p-8 max-w-5xl mx-auto space-y-4">
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between flex-wrap gap-3">
           <button
             onClick={() => setSelected(null)}
             className="flex items-center gap-2 px-2.5 py-1 font-mono text-[10px] uppercase tracking-widest border border-hairline text-paper hover:border-lavender"
@@ -65,8 +82,27 @@ export function MarketsView() {
             <div className="font-mono text-sm text-ash">{selected.name}</div>
           </div>
         </div>
+
+        {/* Trade-mode sub-nav (dedicated ticket per mode) */}
+        <div className="grid grid-cols-4 border border-hairline">
+          {(Object.keys(MODE_LABEL) as TradeMode[]).map((m) => (
+            <button
+              key={m}
+              onClick={() => setMode(m)}
+              className={
+                "py-2 font-mono text-[10px] uppercase tracking-[0.18em] border-r border-hairline last:border-r-0 " +
+                (mode === m
+                  ? "bg-lavender/[0.08] text-lavender"
+                  : "text-ash hover:text-paper")
+              }
+            >
+              {MODE_LABEL[m]}
+            </button>
+          ))}
+        </div>
+
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <ClobTicket asset={selected} />
+          <ClobTicket asset={selected} mode={mode} />
           <OrderBook asset={selected} />
         </div>
       </div>
@@ -75,7 +111,6 @@ export function MarketsView() {
 
   return (
     <div className="p-4 md:p-6 lg:p-8 max-w-6xl mx-auto space-y-5">
-      {/* Category tabs */}
       <div>
         <div className="font-mono text-[9px] uppercase tracking-[0.24em] text-ash mb-2">
           Category
@@ -101,7 +136,6 @@ export function MarketsView() {
         </div>
       </div>
 
-      {/* Sub-category chips */}
       <div>
         <div className="font-mono text-[9px] uppercase tracking-[0.24em] text-ash mb-2">
           Sub-basket
@@ -136,7 +170,6 @@ export function MarketsView() {
         </div>
       </div>
 
-      {/* Asset list */}
       <div className="bg-obsidian border border-hairline">
         <div className="grid grid-cols-[1.4fr_0.8fr_0.8fr_1fr_0.7fr] font-mono text-[10px] uppercase tracking-[0.14em] text-ash px-4 py-2 border-b border-hairline">
           <span>Asset</span>
@@ -194,14 +227,23 @@ export function MarketsView() {
   );
 }
 
-function ClobTicket({ asset }: { asset: Asset }) {
-  const [action, setAction] = useState<"BUY SPOT" | "GO LONG" | "SWAP">("BUY SPOT");
-  const [qty, setQty] = useState("1");
+// ── Ticket dispatcher — one dedicated body per trade mode ─────────────
+function ClobTicket({ asset, mode }: { asset: Asset; mode: TradeMode }) {
   return (
     <DossierCard
-      label="CLOB TICKET"
+      label={mode === "swap" ? "SWAP" : mode === "spot" ? "SPOT" : "PERP"}
       index={asset.ticker}
-      status={{ tone: "lavender", text: "NADO // OPEN" }}
+      status={{
+        tone: mode === "short" ? "rose" : mode === "long" ? "mint" : "lavender",
+        text:
+          mode === "swap"
+            ? "NADO // ROUTE"
+            : mode === "spot"
+              ? "NADO // CLOB"
+              : mode === "long"
+                ? "NADO // PERP · LONG"
+                : "NADO // PERP · SHORT",
+      }}
     >
       <div className="p-4 space-y-4">
         <div className="flex justify-between items-baseline">
@@ -222,55 +264,218 @@ function ClobTicket({ asset }: { asset: Asset }) {
           </div>
         </div>
 
-        <div className="grid grid-cols-3 gap-0 border border-hairline">
-          {(["BUY SPOT", "GO LONG", "SWAP"] as const).map((a) => (
-            <button
-              key={a}
-              onClick={() => setAction(a)}
-              className={
-                "py-2 font-mono text-[10px] uppercase tracking-widest border-r border-hairline last:border-r-0 " +
-                (action === a
-                  ? "bg-lavender/[0.08] text-lavender"
-                  : "text-ash hover:text-paper")
-              }
-            >
-              {a}
-            </button>
-          ))}
-        </div>
-
-        <div className="space-y-2">
-          <label className="font-mono text-[10px] uppercase tracking-widest text-ash">
-            Quantity
-          </label>
-          <input
-            value={qty}
-            onChange={(e) => setQty(e.target.value)}
-            className="w-full bg-onyx border border-hairline px-3 py-2 font-mono text-paper focus:border-lavender focus:outline-none"
-          />
-          <div className="flex justify-between font-mono text-[10px] text-ash">
-            <span>Est. cost</span>
-            <span className="text-paper tabular-nums">
-              $
-              {(Number(qty || 0) * asset.price).toLocaleString(undefined, {
-                minimumFractionDigits: 2,
-              })}
-            </span>
-          </div>
-        </div>
-
-        <button
-          onClick={() =>
-            toast(`${action} · ${asset.ticker}`, {
-              description: `Routed via Nado on Ink Chain @ $${asset.price.toFixed(2)} (mock)`,
-            })
-          }
-          className="w-full py-2.5 bg-lavender text-onyx font-mono text-[11px] uppercase tracking-[0.2em] hover:brightness-110"
-        >
-          Route {action.toLowerCase()}
-        </button>
+        {mode === "spot" && <SpotBody asset={asset} />}
+        {mode === "swap" && <SwapBody asset={asset} />}
+        {mode === "long" && <PerpBody asset={asset} side="long" />}
+        {mode === "short" && <PerpBody asset={asset} side="short" />}
       </div>
     </DossierCard>
+  );
+}
+
+// SPOT — market-only CLOB buy/sell against USDC
+function SpotBody({ asset }: { asset: Asset }) {
+  const [side, setSide] = useState<"BUY" | "SELL">("BUY");
+  const [qty, setQty] = useState("1");
+  const cost = Number(qty || 0) * asset.price;
+  return (
+    <>
+      <div className="grid grid-cols-2 border border-hairline">
+        {(["BUY", "SELL"] as const).map((s) => (
+          <button
+            key={s}
+            onClick={() => setSide(s)}
+            className={
+              "py-2 font-mono text-[10px] uppercase tracking-widest border-r border-hairline last:border-r-0 " +
+              (side === s
+                ? s === "BUY"
+                  ? "bg-mint/[0.08] text-mint"
+                  : "bg-rose/[0.08] text-rose"
+                : "text-ash hover:text-paper")
+            }
+          >
+            {s} {asset.ticker}
+          </button>
+        ))}
+      </div>
+      <NumField label={`Quantity (${asset.ticker})`} value={qty} onChange={setQty} />
+      <Kv label="Est. cost" value={`$${cost.toLocaleString(undefined, { minimumFractionDigits: 2 })}`} />
+      <RouteButton
+        label={`${side} ${asset.ticker} · spot`}
+        onClick={() =>
+          toast(`${side} SPOT · ${asset.ticker}`, {
+            description: `Routed via Nado CLOB @ $${asset.price.toFixed(2)} (mock)`,
+          })
+        }
+      />
+    </>
+  );
+}
+
+// SWAP — asset A → asset B with slippage
+function SwapBody({ asset }: { asset: Asset }) {
+  const other = ASSETS.find((a) => a.ticker !== asset.ticker) ?? ASSETS[0];
+  const [fromTicker, setFromTicker] = useState(other.ticker);
+  const [amount, setAmount] = useState("100");
+  const [slippage, setSlippage] = useState("0.3");
+  const from = ASSETS.find((a) => a.ticker === fromTicker) ?? other;
+  const receive = (Number(amount || 0) * from.price) / asset.price;
+  return (
+    <>
+      <div className="space-y-2">
+        <label className="font-mono text-[10px] uppercase tracking-widest text-ash">From</label>
+        <div className="grid grid-cols-[1fr_auto] gap-2">
+          <input
+            value={amount}
+            onChange={(e) => setAmount(e.target.value)}
+            className="bg-onyx border border-hairline px-3 py-2 font-mono text-paper focus:border-lavender focus:outline-none"
+          />
+          <select
+            value={fromTicker}
+            onChange={(e) => setFromTicker(e.target.value)}
+            className="bg-onyx border border-hairline px-2 font-mono text-[11px] text-paper"
+          >
+            {ASSETS.filter((a) => a.ticker !== asset.ticker).map((a) => (
+              <option key={a.ticker}>{a.ticker}</option>
+            ))}
+          </select>
+        </div>
+      </div>
+      <div className="flex justify-center">
+        <ArrowRight className="size-4 text-lavender rotate-90" />
+      </div>
+      <Kv label={`Receive · ${asset.ticker}`} value={receive.toLocaleString(undefined, { maximumFractionDigits: 6 })} strong />
+      <NumField label="Max slippage %" value={slippage} onChange={setSlippage} />
+      <RouteButton
+        label={`Swap ${fromTicker} → ${asset.ticker}`}
+        onClick={() =>
+          toast(`SWAP · ${fromTicker} → ${asset.ticker}`, {
+            description: `Nado router · slippage ${slippage}% (mock)`,
+          })
+        }
+      />
+    </>
+  );
+}
+
+// PERP — long or short with leverage; margin + liquidation estimate
+function PerpBody({ asset, side }: { asset: Asset; side: "long" | "short" }) {
+  const [size, setSize] = useState("1000");
+  const [lev, setLev] = useState(5);
+  const notional = Number(size || 0);
+  const margin = lev > 0 ? notional / lev : notional;
+  const liq =
+    side === "long"
+      ? asset.price * (1 - 1 / lev + 0.005)
+      : asset.price * (1 + 1 / lev - 0.005);
+  const tone = side === "long" ? "text-mint" : "text-rose";
+  return (
+    <>
+      <NumField label={`Size (USDC notional)`} value={size} onChange={setSize} />
+      <div className="space-y-1.5">
+        <div className="flex justify-between font-mono text-[10px] uppercase tracking-widest">
+          <span className="text-ash">Leverage</span>
+          <span className={tone + " tabular-nums"}>{lev}x</span>
+        </div>
+        <input
+          type="range"
+          min={1}
+          max={20}
+          value={lev}
+          onChange={(e) => setLev(Number(e.target.value))}
+          className="w-full accent-lavender"
+        />
+        <div className="flex justify-between font-mono text-[9px] text-ash">
+          <span>1x</span><span>5x</span><span>10x</span><span>20x</span>
+        </div>
+      </div>
+      <Kv label="Initial margin" value={`$${margin.toLocaleString(undefined, { maximumFractionDigits: 2 })}`} />
+      <Kv
+        label={`Est. liquidation`}
+        value={`$${liq.toLocaleString(undefined, { minimumFractionDigits: 2 })}`}
+        toneClass="text-rose"
+      />
+      <RouteButton
+        label={`Open ${side.toUpperCase()} ${asset.ticker}`}
+        onClick={() =>
+          toast(`${side.toUpperCase()} · ${asset.ticker}`, {
+            description: `Nado unified margin · ${lev}x · notional $${notional.toLocaleString()} (mock)`,
+          })
+        }
+        tone={side === "short" ? "rose" : "mint"}
+      />
+    </>
+  );
+}
+
+// ── Small primitives shared by every ticket ────────────────────────────
+function NumField({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+}) {
+  return (
+    <div className="space-y-2">
+      <label className="font-mono text-[10px] uppercase tracking-widest text-ash">{label}</label>
+      <input
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className="w-full bg-onyx border border-hairline px-3 py-2 font-mono text-paper focus:border-lavender focus:outline-none"
+      />
+    </div>
+  );
+}
+
+function Kv({
+  label,
+  value,
+  strong = false,
+  toneClass,
+}: {
+  label: string;
+  value: string;
+  strong?: boolean;
+  toneClass?: string;
+}) {
+  return (
+    <div className="flex justify-between font-mono text-[11px]">
+      <span className="text-ash uppercase tracking-widest text-[10px]">{label}</span>
+      <span className={"tabular-nums " + (toneClass ?? (strong ? "text-paper" : "text-paper"))}>
+        {value}
+      </span>
+    </div>
+  );
+}
+
+function RouteButton({
+  label,
+  onClick,
+  tone = "lavender",
+}: {
+  label: string;
+  onClick: () => void;
+  tone?: "lavender" | "mint" | "rose";
+}) {
+  const cls =
+    tone === "mint"
+      ? "bg-mint text-onyx"
+      : tone === "rose"
+        ? "bg-rose text-onyx"
+        : "bg-lavender text-onyx";
+  return (
+    <button
+      onClick={onClick}
+      className={
+        "w-full py-2.5 font-mono text-[11px] uppercase tracking-[0.2em] hover:brightness-110 " +
+        cls
+      }
+    >
+      {label}
+    </button>
   );
 }
 
