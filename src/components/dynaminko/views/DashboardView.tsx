@@ -2,6 +2,7 @@ import { PortfolioDiamond } from "../PortfolioDiamond";
 import { CategoryExposure } from "../CategoryExposure";
 import { DebankPortfolio } from "../DebankPortfolio";
 import { WalletMenu } from "../WalletMenu";
+import { PublicDataStrip } from "../PublicDataStrip";
 import type { Wallet } from "@/lib/wallets";
 
 export function DashboardView({
@@ -21,6 +22,8 @@ export function DashboardView({
       <div className="lg:hidden flex justify-end">
         <WalletMenu wallets={wallets} onChange={onWalletsChange} />
       </div>
+
+      <PublicDataStrip />
 
       <div className="grid grid-cols-1 xl:grid-cols-12 gap-6">
         <div className="xl:col-span-5 space-y-6">
