@@ -1,10 +1,16 @@
 import { useState } from "react";
 import { toast } from "sonner";
-import { Plus, Trash2 } from "lucide-react";
+import { Plus, Trash2, Eye, EyeOff, Plug } from "lucide-react";
 import { useLocalStorage } from "@/hooks/useLocalStorage";
 import { ASSETS } from "@/lib/dynaminko-data";
-import { WalletSelector } from "../WalletSelector";
-import { shortenAddress } from "@/lib/wallet-mock";
+import { isValidAddress, shortenAddress } from "@/lib/wallet-mock";
+import {
+  autoLabel,
+  mockLiveAddress,
+  newWalletId,
+  type Wallet,
+} from "@/lib/wallets";
+import type { TradeMode } from "./MarketsView";
 
 type AlertKind = "price" | "onchain" | "thesis";
 type Alert = { id: string; kind: AlertKind; ticker: string; condition: string; enabled: boolean };
@@ -21,12 +27,19 @@ const KIND_LABEL: Record<AlertKind, string> = {
   thesis: "THESIS",
 };
 
+const TRADE_MODES: { id: TradeMode; label: string; desc: string }[] = [
+  { id: "spot", label: "Spot", desc: "CLOB buy/sell against USDC." },
+  { id: "swap", label: "Swap", desc: "Router-quoted token→token." },
+  { id: "long", label: "Long (Perp)", desc: "Unified margin, up to 20x." },
+  { id: "short", label: "Short (Perp)", desc: "Unified margin, up to 20x." },
+];
+
 export function SettingsView({
-  walletAddress,
-  onWalletAddressChange,
+  wallets,
+  onWalletsChange,
 }: {
-  walletAddress: string;
-  onWalletAddressChange: (v: string) => void;
+  wallets: Wallet[];
+  onWalletsChange: (next: Wallet[]) => void;
 }) {
   const [alerts, setAlerts] = useLocalStorage<Alert[]>("dyn.alerts", SEED);
   const [ticker, setTicker] = useState(ASSETS[0].ticker);
@@ -37,6 +50,8 @@ export function SettingsView({
     push: true,
     concierge: true,
   });
+  const [tradeMode, setTradeMode] = useLocalStorage<TradeMode>("dyn.tradeMode", "spot");
+  const [draft, setDraft] = useState("");
 
   const arm = () => {
     if (!condition.trim()) return;
@@ -47,35 +62,133 @@ export function SettingsView({
     setCondition("");
   };
 
-  const connected = !!walletAddress;
+  const addRead = () => {
+    if (!isValidAddress(draft)) return;
+    if (wallets.some((w) => w.address.toLowerCase() === draft.toLowerCase())) {
+      setDraft("");
+      return;
+    }
+    onWalletsChange([
+      ...wallets,
+      {
+        id: newWalletId(),
+        address: draft.trim(),
+        label: autoLabel(draft.trim(), "read"),
+        kind: "read",
+        visible: true,
+        addedAt: Date.now(),
+      },
+    ]);
+    setDraft("");
+  };
+  const connectLive = () => {
+    const addr = mockLiveAddress();
+    onWalletsChange([
+      ...wallets,
+      {
+        id: newWalletId(),
+        address: addr,
+        label: autoLabel(addr, "live"),
+        kind: "live",
+        visible: true,
+        addedAt: Date.now(),
+      },
+    ]);
+  };
+  const toggleVisible = (id: string) =>
+    onWalletsChange(wallets.map((w) => (w.id === id ? { ...w, visible: !w.visible } : w)));
+  const remove = (id: string) => onWalletsChange(wallets.filter((w) => w.id !== id));
+
+  const readWallets = wallets.filter((w) => w.kind === "read");
+  const liveWallets = wallets.filter((w) => w.kind === "live");
 
   return (
     <div className="p-4 md:p-6 lg:p-8 grid grid-cols-1 xl:grid-cols-2 gap-6 max-w-6xl mx-auto w-full">
-      {/* Wallet */}
-      <section className="bg-obsidian border border-hairline">
-        <div className="px-4 py-3 border-b border-hairline font-mono text-[10px] uppercase tracking-[0.18em] text-ash">
-          WALLET // <span className="text-paper">TRACKING</span>
+      {/* Wallets */}
+      <section className="xl:col-span-2 bg-obsidian border border-hairline">
+        <div className="px-4 py-3 border-b border-hairline font-mono text-[10px] uppercase tracking-[0.18em] text-ash flex justify-between">
+          <span>WALLETS // <span className="text-paper">READ + LIVE</span></span>
+          <span className="text-ash">
+            {wallets.filter((w) => w.visible).length}/{wallets.length} visible
+          </span>
         </div>
-        <div className="p-5 space-y-3">
-          <div className="flex items-start justify-between gap-4">
-            <div>
-              <div className="text-paper font-mono">
-                {connected ? shortenAddress(walletAddress) : "No wallet tracked"}
-              </div>
-              <div className="font-mono text-[10px] text-ash mt-0.5">
-                {connected ? "Ink Chain · 57073 · staged read-only" : "Paste a 0x address to track"}
-              </div>
-              <p className="mt-2 max-w-md text-xs leading-relaxed text-ash">
-                Paste-address tracking uses staged positions this pass. Live Ink Chain RPC reads
-                arrive in a later phase.
-              </p>
-            </div>
-            <WalletSelector address={walletAddress} onChange={onWalletAddressChange} />
-          </div>
+
+        <div className="p-4 grid grid-cols-1 md:grid-cols-[1fr_auto_auto] gap-2 border-b border-hairline">
+          <input
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && addRead()}
+            placeholder="paste 0x… address to track (read-only)"
+            spellCheck={false}
+            className={
+              "bg-onyx border px-3 py-1.5 font-mono text-[11px] text-paper focus:outline-none " +
+              (draft === "" || isValidAddress(draft)
+                ? "border-hairline focus:border-lavender"
+                : "border-rose/60")
+            }
+          />
+          <button
+            onClick={addRead}
+            disabled={!isValidAddress(draft)}
+            className="flex items-center gap-1.5 px-3 py-1.5 font-mono text-[10px] uppercase tracking-widest border border-lavender text-lavender hover:bg-lavender hover:text-onyx disabled:opacity-40"
+          >
+            <Plus className="size-3" /> Add read
+          </button>
+          <button
+            onClick={connectLive}
+            className="flex items-center gap-1.5 px-3 py-1.5 font-mono text-[10px] uppercase tracking-widest border border-mint/60 text-mint hover:bg-mint/[0.08]"
+          >
+            <Plug className="size-3" /> Connect live (mock)
+          </button>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2">
+          <WalletGroup
+            title="READ WALLETS"
+            items={readWallets}
+            onToggle={toggleVisible}
+            onRemove={remove}
+          />
+          <WalletGroup
+            title="LIVE WALLETS"
+            items={liveWallets}
+            onToggle={toggleVisible}
+            onRemove={remove}
+            liveTone
+          />
         </div>
       </section>
 
-      {/* Notification prefs */}
+      {/* Trading defaults */}
+      <section className="bg-obsidian border border-hairline">
+        <div className="px-4 py-3 border-b border-hairline font-mono text-[10px] uppercase tracking-[0.18em] text-ash">
+          TRADING // <span className="text-paper">DEFAULT MODE</span>
+        </div>
+        <div className="p-4 grid grid-cols-2 gap-2">
+          {TRADE_MODES.map((m) => (
+            <button
+              key={m.id}
+              onClick={() => setTradeMode(m.id)}
+              className={
+                "text-left px-3 py-3 border transition-colors " +
+                (tradeMode === m.id
+                  ? "border-lavender bg-lavender/[0.05]"
+                  : "border-hairline hover:border-lavender/60")
+              }
+            >
+              <div className={"font-mono text-[11px] uppercase tracking-widest " + (tradeMode === m.id ? "text-lavender" : "text-paper")}>
+                {m.label}
+              </div>
+              <div className="text-[11px] text-ash mt-1">{m.desc}</div>
+            </button>
+          ))}
+        </div>
+        <div className="px-4 pb-4 font-mono text-[9px] uppercase tracking-widest text-ash/70">
+          opens by default when you select an asset
+        </div>
+      </section>
+
+      {/* Notifications */}
       <section className="bg-obsidian border border-hairline">
         <div className="px-4 py-3 border-b border-hairline font-mono text-[10px] uppercase tracking-[0.18em] text-ash">
           NOTIFICATIONS // <span className="text-paper">PREFERENCES</span>
@@ -156,6 +269,67 @@ export function SettingsView({
           ))}
         </div>
       </section>
+    </div>
+  );
+}
+
+function WalletGroup({
+  title,
+  items,
+  onToggle,
+  onRemove,
+  liveTone = false,
+}: {
+  title: string;
+  items: Wallet[];
+  onToggle: (id: string) => void;
+  onRemove: (id: string) => void;
+  liveTone?: boolean;
+}) {
+  return (
+    <div className="border-b md:border-b-0 md:border-r border-hairline last:border-r-0 last:border-b-0">
+      <div className="px-4 py-2 bg-onyx/40 font-mono text-[9px] uppercase tracking-[0.18em] text-ash flex justify-between">
+        <span>{title} <span className="text-paper">// {items.length}</span></span>
+      </div>
+      {items.length === 0 ? (
+        <div className="px-4 py-6 font-mono text-[10px] uppercase tracking-widest text-ash/60 text-center">
+          — none —
+        </div>
+      ) : (
+        items.map((w) => (
+          <div
+            key={w.id}
+            className="grid grid-cols-[auto_1fr_auto_auto] items-center gap-2 px-4 py-2.5 border-t border-hairline/60"
+          >
+            <span
+              className={
+                "size-1.5 rounded-full " +
+                (w.visible ? (liveTone ? "bg-mint" : "bg-lavender") : "bg-ash/60")
+              }
+            />
+            <div className="min-w-0">
+              <div className="font-mono text-[11px] text-paper truncate">{w.label}</div>
+              <div className="font-mono text-[9px] text-ash truncate">
+                {shortenAddress(w.address)}
+              </div>
+            </div>
+            <button
+              onClick={() => onToggle(w.id)}
+              title={w.visible ? "Hide" : "Show"}
+              className="size-6 grid place-items-center border border-hairline text-ash hover:text-paper hover:border-lavender"
+            >
+              {w.visible ? <Eye className="size-3" /> : <EyeOff className="size-3" />}
+            </button>
+            <button
+              onClick={() => onRemove(w.id)}
+              title="Remove"
+              className="size-6 grid place-items-center text-ash hover:text-rose"
+            >
+              <Trash2 className="size-3" />
+            </button>
+          </div>
+        ))
+      )}
     </div>
   );
 }

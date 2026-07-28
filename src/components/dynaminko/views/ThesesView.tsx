@@ -1,11 +1,13 @@
-// Theses page — dossier list + detail view. Toggle between Manual and
-// AI-Assisted capture modes; both write the same shape.
+// Theses page — dossier list + detail view + concierge reconcile inbox.
+// The concierge feed lives here (not on the dashboard) so approving a
+// suggested trade lands in the same context where it becomes a thesis.
 
 import { useMemo, useState } from "react";
 import { Plus, Trash2 } from "lucide-react";
 import { useLocalStorage } from "@/hooks/useLocalStorage";
 import { ASSETS } from "@/lib/dynaminko-data";
 import { DossierCard } from "../DossierCard";
+import { ConciergeFeed } from "../ConciergeFeed";
 
 export type Thesis = {
   id: string;
@@ -60,6 +62,7 @@ export function ThesesView({ initialCompose }: { initialCompose?: boolean }) {
   const [items, setItems] = useLocalStorage<Thesis[]>("dyn.theses", SEED);
   const [selectedId, setSelectedId] = useState<string | null>(items[0]?.id ?? null);
   const [composing, setComposing] = useState(initialCompose ?? false);
+  const [tab, setTab] = useState<"theses" | "reconcile">("theses");
 
   const selected = items.find((t) => t.id === selectedId) ?? items[0] ?? null;
 
@@ -77,83 +80,114 @@ export function ThesesView({ initialCompose }: { initialCompose?: boolean }) {
       ...items,
     ]);
     setComposing(false);
+    setTab("theses");
   };
 
   return (
-    <div className="p-4 md:p-6 lg:p-8 grid grid-cols-1 xl:grid-cols-12 gap-6">
-      {/* List */}
-      <div className="xl:col-span-4 space-y-3">
-        <div className="flex justify-between items-center">
-          <h2 className="font-mono text-[10px] uppercase tracking-[0.24em] text-ash">
-            THESES // <span className="text-paper">{items.length}</span>
-          </h2>
+    <div className="p-4 md:p-6 lg:p-8 space-y-5">
+      {/* Sub-nav — theses list vs concierge reconcile inbox */}
+      <div className="flex items-center gap-1 border border-hairline w-fit">
+        {(
+          [
+            ["theses", "Theses", items.length],
+            ["reconcile", "Reconcile", 3],
+          ] as const
+        ).map(([id, label, count]) => (
           <button
-            onClick={() => setComposing(true)}
-            className="flex items-center gap-1.5 px-2.5 py-1 font-mono text-[10px] uppercase tracking-widest border border-lavender text-lavender hover:bg-lavender hover:text-onyx"
+            key={id}
+            onClick={() => setTab(id)}
+            className={
+              "px-3 py-1.5 font-mono text-[10px] uppercase tracking-[0.18em] flex items-center gap-2 " +
+              (tab === id ? "bg-lavender/[0.08] text-lavender" : "text-ash hover:text-paper")
+            }
           >
-            <Plus className="size-3" /> New
+            {label}
+            <span className="tabular-nums text-ash">{count}</span>
           </button>
-        </div>
-        {items.map((t, i) => {
-          const stale = Date.now() - t.reviewedAt > STALE_MS;
-          const isSel = t.id === selected?.id;
-          return (
-            <button
-              key={t.id}
-              onClick={() => { setSelectedId(t.id); setComposing(false); }}
-              className={
-                "w-full text-left dyn-dossier transition-all " +
-                (isSel ? "border-lavender/60" : "")
-              }
-            >
-              <div className="flex items-center justify-between px-3 pt-2 pb-1.5 border-b border-hairline">
-                <span className="font-mono text-[10px] uppercase tracking-widest text-ash">
-                  THESIS <span className="text-paper">// {String(i + 1).padStart(3, "0")}</span>
-                </span>
-                <span
-                  className={
-                    "font-mono text-[10px] uppercase " +
-                    (t.status === "aligned"
-                      ? "text-mint"
-                      : t.status === "drifted"
-                        ? "text-rose"
-                        : "text-lavender")
-                  }
-                >
-                  {t.status}
-                </span>
-              </div>
-              <div className="p-3">
-                <div className="flex items-baseline justify-between mb-1">
-                  <span className="font-mono text-paper">{t.ticker}</span>
-                  {stale && (
-                    <span className="font-mono text-[9px] text-mint uppercase tracking-widest">stale</span>
-                  )}
-                </div>
-                <p className="text-xs text-ash line-clamp-2">{t.body}</p>
-              </div>
-            </button>
-          );
-        })}
+        ))}
       </div>
 
-      {/* Detail / Composer */}
-      <div className="xl:col-span-8">
-        {composing ? (
-          <Composer onCommit={commit} onCancel={() => setComposing(false)} />
-        ) : selected ? (
-          <ThesisDetail
-            thesis={selected}
-            onDelete={() => {
-              const nextItems = items.filter((x) => x.id !== selected.id);
-              setItems(nextItems);
-              setSelectedId(nextItems[0]?.id ?? null);
-            }}
-          />
-        ) : (
-          <div className="p-12 text-center text-ash">Commit your first thesis.</div>
-        )}
-      </div>
+      {tab === "reconcile" ? (
+        <div className="max-w-3xl">
+          <ConciergeFeed />
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 xl:grid-cols-12 gap-6">
+          {/* List */}
+          <div className="xl:col-span-4 space-y-3">
+            <div className="flex justify-between items-center">
+              <h2 className="font-mono text-[10px] uppercase tracking-[0.24em] text-ash">
+                THESES // <span className="text-paper">{items.length}</span>
+              </h2>
+              <button
+                onClick={() => setComposing(true)}
+                className="flex items-center gap-1.5 px-2.5 py-1 font-mono text-[10px] uppercase tracking-widest border border-lavender text-lavender hover:bg-lavender hover:text-onyx"
+              >
+                <Plus className="size-3" /> New
+              </button>
+            </div>
+            {items.map((t, i) => {
+              const stale = Date.now() - t.reviewedAt > STALE_MS;
+              const isSel = t.id === selected?.id;
+              return (
+                <button
+                  key={t.id}
+                  onClick={() => { setSelectedId(t.id); setComposing(false); }}
+                  className={
+                    "w-full text-left dyn-dossier transition-all " +
+                    (isSel ? "border-lavender/60" : "")
+                  }
+                >
+                  <div className="flex items-center justify-between px-3 pt-2 pb-1.5 border-b border-hairline">
+                    <span className="font-mono text-[10px] uppercase tracking-widest text-ash">
+                      THESIS <span className="text-paper">// {String(i + 1).padStart(3, "0")}</span>
+                    </span>
+                    <span
+                      className={
+                        "font-mono text-[10px] uppercase " +
+                        (t.status === "aligned"
+                          ? "text-mint"
+                          : t.status === "drifted"
+                            ? "text-rose"
+                            : "text-lavender")
+                      }
+                    >
+                      {t.status}
+                    </span>
+                  </div>
+                  <div className="p-3">
+                    <div className="flex items-baseline justify-between mb-1">
+                      <span className="font-mono text-paper">{t.ticker}</span>
+                      {stale && (
+                        <span className="font-mono text-[9px] text-mint uppercase tracking-widest">stale</span>
+                      )}
+                    </div>
+                    <p className="text-xs text-ash line-clamp-2">{t.body}</p>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Detail / Composer */}
+          <div className="xl:col-span-8">
+            {composing ? (
+              <Composer onCommit={commit} onCancel={() => setComposing(false)} />
+            ) : selected ? (
+              <ThesisDetail
+                thesis={selected}
+                onDelete={() => {
+                  const nextItems = items.filter((x) => x.id !== selected.id);
+                  setItems(nextItems);
+                  setSelectedId(nextItems[0]?.id ?? null);
+                }}
+              />
+            ) : (
+              <div className="p-12 text-center text-ash">Commit your first thesis.</div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -242,7 +276,6 @@ function Composer({
     const next = [...aiAnswers, a];
     setAiAnswers(next);
     if (aiStep + 1 >= questions.length) {
-      // synthesize
       setAiDraft(
         `Catalyst: ${next[0]}\n\nInvalidation: ${next[1]}\n\nHorizon & sizing: ${next[2]}`,
       );
@@ -359,7 +392,6 @@ function AiQuestion({
   );
 }
 
-// Helper used by the shell to compute nav badge
 export function unreviewedCount(items: Thesis[]) {
   return items.filter(
     (t) => Date.now() - t.reviewedAt > STALE_MS || t.status === "pending",
