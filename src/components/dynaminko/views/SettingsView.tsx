@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { Plus, Trash2, Eye, EyeOff, Plug } from "lucide-react";
 import { useLocalStorage } from "@/hooks/useLocalStorage";
@@ -11,6 +11,7 @@ import {
   type Wallet,
 } from "@/lib/wallets";
 import type { TradeMode } from "./MarketsView";
+import { probeCapabilities, llamaReadiness, type Capability } from "@/lib/capabilities";
 
 type AlertKind = "price" | "onchain" | "thesis";
 type Alert = { id: string; kind: AlertKind; ticker: string; condition: string; enabled: boolean };
@@ -52,6 +53,8 @@ export function SettingsView({
   });
   const [tradeMode, setTradeMode] = useLocalStorage<TradeMode>("dyn.tradeMode", "spot");
   const [draft, setDraft] = useState("");
+  const [caps, setCaps] = useState<Capability[] | null>(null);
+  useEffect(() => { void probeCapabilities().then(setCaps); }, []);
 
   const arm = () => {
     if (!condition.trim()) return;
