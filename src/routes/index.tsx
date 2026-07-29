@@ -11,9 +11,11 @@ import { DashboardView } from "@/components/dynaminko/views/DashboardView";
 import { MarketsView } from "@/components/dynaminko/views/MarketsView";
 import { TerminalView } from "@/components/dynaminko/views/TerminalView";
 import { ThesesView, unreviewedCount, type Thesis } from "@/components/dynaminko/views/ThesesView";
+import { DpiView } from "@/components/dynaminko/views/DpiView";
 import { VaultView } from "@/components/dynaminko/views/VaultView";
 import { SettingsView } from "@/components/dynaminko/views/SettingsView";
 import { useLocalStorage } from "@/hooks/useLocalStorage";
+import { useJournal } from "@/hooks/useJournal";
 import { totalBalance } from "@/lib/dynaminko-data";
 import { isValidAddress } from "@/lib/wallet-mock";
 import {
@@ -50,7 +52,8 @@ function Index() {
   const [wallets, setWallets] = useLocalStorage<Wallet[]>("dyn.wallets", []);
   const [thesesCompose, setThesesCompose] = useState(false);
   const [theses] = useLocalStorage<Thesis[]>("dyn.theses", []);
-  const badge = unreviewedCount(theses);
+  const { pending: pendingJournal } = useJournal(wallets);
+  const badge = unreviewedCount(theses) + pendingJournal.length;
 
   // One-time migration: old single-wallet key → wallets array
   useEffect(() => {
@@ -131,8 +134,10 @@ function Index() {
             <ThesesView
               key={thesesCompose ? "compose" : "list"}
               initialCompose={thesesCompose}
+              wallets={wallets}
             />
           )}
+          {view === "dpi" && <DpiView wallets={wallets} />}
           {view === "vault" && <VaultView />}
           {view === "settings" && (
             <SettingsView wallets={wallets} onWalletsChange={setWallets} />

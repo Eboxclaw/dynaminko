@@ -1,8 +1,8 @@
-import { LayoutDashboard, LineChart, Terminal, ScrollText, Vault, Settings } from "lucide-react";
+import { LayoutDashboard, LineChart, Terminal, ScrollText, BarChart3, Vault, Settings } from "lucide-react";
 import { DiamondLogo } from "./DiamondLogo";
 import type { ComponentType } from "react";
 
-export type ViewId = "dashboard" | "markets" | "terminal" | "theses" | "vault" | "settings";
+export type ViewId = "dashboard" | "markets" | "terminal" | "theses" | "dpi" | "vault" | "settings";
 
 type Item = { id: ViewId; label: string; icon: ComponentType<{ className?: string; strokeWidth?: number }> };
 
@@ -10,7 +10,8 @@ export const NAV: Item[] = [
   { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
   { id: "markets", label: "Markets", icon: LineChart },
   { id: "terminal", label: "AI Terminal", icon: Terminal },
-  { id: "theses", label: "Theses", icon: ScrollText },
+  { id: "theses", label: "Theses & Journal", icon: ScrollText },
+  { id: "dpi", label: "DPI", icon: BarChart3 },
   { id: "vault", label: "Vault", icon: Vault },
   { id: "settings", label: "Settings", icon: Settings },
 ];

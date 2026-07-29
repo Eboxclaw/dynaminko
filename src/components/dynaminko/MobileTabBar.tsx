@@ -14,7 +14,7 @@ export function MobileTabBar({
 }) {
   return (
     <nav className="md:hidden fixed bottom-0 inset-x-0 z-40 border-t border-hairline bg-obsidian/95 backdrop-blur-md pb-[env(safe-area-inset-bottom)]">
-      <div className="grid grid-cols-7 items-end">
+      <div className="grid grid-cols-8 items-end">
         {NAV.slice(0, 3).map((n) => (
           <Tab key={n.id} item={n} active={active} onSelect={onSelect} badge={n.id === "theses" ? thesesBadge : undefined} />
         ))}

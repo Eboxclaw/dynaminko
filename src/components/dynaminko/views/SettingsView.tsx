@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { Plus, Trash2, Eye, EyeOff, Plug } from "lucide-react";
 import { useLocalStorage } from "@/hooks/useLocalStorage";
@@ -11,6 +11,7 @@ import {
   type Wallet,
 } from "@/lib/wallets";
 import type { TradeMode } from "./MarketsView";
+import { probeCapabilities, llamaReadiness, type Capability } from "@/lib/capabilities";
 
 type AlertKind = "price" | "onchain" | "thesis";
 type Alert = { id: string; kind: AlertKind; ticker: string; condition: string; enabled: boolean };
@@ -52,6 +53,8 @@ export function SettingsView({
   });
   const [tradeMode, setTradeMode] = useLocalStorage<TradeMode>("dyn.tradeMode", "spot");
   const [draft, setDraft] = useState("");
+  const [caps, setCaps] = useState<Capability[] | null>(null);
+  useEffect(() => { void probeCapabilities().then(setCaps); }, []);
 
   const arm = () => {
     if (!condition.trim()) return;
@@ -265,6 +268,36 @@ export function SettingsView({
               >
                 <Trash2 className="size-3.5" />
               </button>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {/* Runtime capabilities — PWA / WASM / WebGPU / llama.cpp readiness */}
+      <section className="xl:col-span-2 bg-obsidian border border-hairline">
+        <div className="px-4 py-3 border-b border-hairline font-mono text-[10px] uppercase tracking-[0.18em] text-ash flex justify-between">
+          <span>RUNTIME // <span className="text-paper">BROWSER SUBSTRATE</span></span>
+          {caps && (
+            <span className={
+              "font-mono " +
+              (llamaReadiness(caps) === "ready" ? "text-mint"
+                : llamaReadiness(caps) === "degraded" ? "text-lavender" : "text-rose")
+            }>
+              llama.cpp: {llamaReadiness(caps).toUpperCase()}
+            </span>
+          )}
+        </div>
+        <div className="p-4 grid grid-cols-2 md:grid-cols-4 gap-2">
+          {(caps ?? []).map((c) => (
+            <div key={c.key} className="border border-hairline p-3">
+              <div className="flex items-center justify-between">
+                <span className="font-mono text-[10px] uppercase tracking-widest text-ash">{c.label}</span>
+                <span className={"size-1.5 rounded-full " + (c.ok ? "bg-mint" : "bg-rose")} />
+              </div>
+              <div className={"font-mono text-[11px] mt-1 " + (c.ok ? "text-paper" : "text-ash")}>
+                {c.ok ? "available" : "unavailable"}
+              </div>
+              {c.detail && <div className="font-mono text-[9px] text-ash mt-0.5">{c.detail}</div>}
             </div>
           ))}
         </div>
