@@ -272,6 +272,36 @@ export function SettingsView({
           ))}
         </div>
       </section>
+
+      {/* Runtime capabilities — PWA / WASM / WebGPU / llama.cpp readiness */}
+      <section className="xl:col-span-2 bg-obsidian border border-hairline">
+        <div className="px-4 py-3 border-b border-hairline font-mono text-[10px] uppercase tracking-[0.18em] text-ash flex justify-between">
+          <span>RUNTIME // <span className="text-paper">BROWSER SUBSTRATE</span></span>
+          {caps && (
+            <span className={
+              "font-mono " +
+              (llamaReadiness(caps) === "ready" ? "text-mint"
+                : llamaReadiness(caps) === "degraded" ? "text-lavender" : "text-rose")
+            }>
+              llama.cpp: {llamaReadiness(caps).toUpperCase()}
+            </span>
+          )}
+        </div>
+        <div className="p-4 grid grid-cols-2 md:grid-cols-4 gap-2">
+          {(caps ?? []).map((c) => (
+            <div key={c.key} className="border border-hairline p-3">
+              <div className="flex items-center justify-between">
+                <span className="font-mono text-[10px] uppercase tracking-widest text-ash">{c.label}</span>
+                <span className={"size-1.5 rounded-full " + (c.ok ? "bg-mint" : "bg-rose")} />
+              </div>
+              <div className={"font-mono text-[11px] mt-1 " + (c.ok ? "text-paper" : "text-ash")}>
+                {c.ok ? "available" : "unavailable"}
+              </div>
+              {c.detail && <div className="font-mono text-[9px] text-ash mt-0.5">{c.detail}</div>}
+            </div>
+          ))}
+        </div>
+      </section>
     </div>
   );
 }
