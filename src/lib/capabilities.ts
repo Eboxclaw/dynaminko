@@ -32,11 +32,11 @@ export async function probeCapabilities(): Promise<Capability[]> {
   let webgpuDetail: string | undefined;
   if (typeof navigator !== "undefined" && "gpu" in navigator) {
     try {
-      // @ts-expect-error — GPU typings are ambient in modern TS libs
-      const adapter = await navigator.gpu.requestAdapter();
+      const gpu = (navigator as unknown as { gpu?: { requestAdapter: () => Promise<unknown> } }).gpu;
+      const adapter = gpu ? await gpu.requestAdapter() : null;
       webgpu = !!adapter;
-      // @ts-expect-error — adapter.info is spec-late
-      webgpuDetail = adapter?.info?.vendor ?? (webgpu ? "adapter ok" : undefined);
+      const info = (adapter as { info?: { vendor?: string } } | null)?.info;
+      webgpuDetail = info?.vendor ?? (webgpu ? "adapter ok" : undefined);
     } catch {
       webgpu = false;
     }
