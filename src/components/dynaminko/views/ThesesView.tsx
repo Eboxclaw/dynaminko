@@ -1,13 +1,15 @@
-// Theses page — dossier list + detail view + concierge reconcile inbox.
-// The concierge feed lives here (not on the dashboard) so approving a
-// suggested trade lands in the same context where it becomes a thesis.
+// Theses & Journal page — the reflection surface. Left tab holds committed
+// investment theses (dossier list + detail). Right tab is the Journal Inbox:
+// wallet-detected trades awaiting a multi-step reconciliation.
 
 import { useMemo, useState } from "react";
 import { Plus, Trash2 } from "lucide-react";
 import { useLocalStorage } from "@/hooks/useLocalStorage";
+import { useJournal } from "@/hooks/useJournal";
 import { ASSETS } from "@/lib/dynaminko-data";
 import { DossierCard } from "../DossierCard";
-import { ConciergeFeed } from "../ConciergeFeed";
+import { JournalInbox } from "../JournalInbox";
+import type { Wallet } from "@/lib/wallets";
 
 export type Thesis = {
   id: string;
@@ -58,11 +60,18 @@ const SEED: Thesis[] = [
   },
 ];
 
-export function ThesesView({ initialCompose }: { initialCompose?: boolean }) {
+export function ThesesView({
+  initialCompose,
+  wallets,
+}: {
+  initialCompose?: boolean;
+  wallets: Wallet[];
+}) {
   const [items, setItems] = useLocalStorage<Thesis[]>("dyn.theses", SEED);
   const [selectedId, setSelectedId] = useState<string | null>(items[0]?.id ?? null);
   const [composing, setComposing] = useState(initialCompose ?? false);
-  const [tab, setTab] = useState<"theses" | "reconcile">("theses");
+  const [tab, setTab] = useState<"theses" | "journal">("theses");
+  const { pending } = useJournal(wallets);
 
   const selected = items.find((t) => t.id === selectedId) ?? items[0] ?? null;
 
@@ -85,12 +94,12 @@ export function ThesesView({ initialCompose }: { initialCompose?: boolean }) {
 
   return (
     <div className="p-4 md:p-6 lg:p-8 space-y-5">
-      {/* Sub-nav — theses list vs concierge reconcile inbox */}
+      {/* Sub-nav — theses list vs journal inbox */}
       <div className="flex items-center gap-1 border border-hairline w-fit">
         {(
           [
             ["theses", "Theses", items.length],
-            ["reconcile", "Reconcile", 3],
+            ["journal", "Journal", pending.length],
           ] as const
         ).map(([id, label, count]) => (
           <button
@@ -102,14 +111,14 @@ export function ThesesView({ initialCompose }: { initialCompose?: boolean }) {
             }
           >
             {label}
-            <span className="tabular-nums text-ash">{count}</span>
+            <span className={"tabular-nums " + (id === "journal" && count > 0 ? "text-mint" : "text-ash")}>{count}</span>
           </button>
         ))}
       </div>
 
-      {tab === "reconcile" ? (
+      {tab === "journal" ? (
         <div className="max-w-3xl">
-          <ConciergeFeed />
+          <JournalInbox wallets={wallets} theses={items} />
         </div>
       ) : (
         <div className="grid grid-cols-1 xl:grid-cols-12 gap-6">
