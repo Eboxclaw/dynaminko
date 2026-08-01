@@ -94,14 +94,16 @@ export function DebankPortfolio({
         {(["tokens", "protocols"] as const).map((t) => {
           const total = t === "tokens" ? tokenTotal : protocolTotal;
           const count = t === "tokens"
-            ? (positions ? ASSETS.filter((a) => (positions[a.ticker] ?? 0) > 0).length : 0)
+            ? demo
+              ? (positions ? ASSETS.filter((a) => (positions[a.ticker] ?? 0) > 0).length : 0)
+              : holdings.length
             : protocolItems.length;
           return (
             <button
               key={t}
               onClick={() => setTab(t)}
               className={
-                "flex-1 px-4 py-2 font-mono text-[10px] uppercase tracking-[0.18em] border-r border-hairline last:border-r-0 flex items-center justify-between gap-3 " +
+                "flex-1 px-4 py-2 font-mono text-[10px] uppercase tracking-[0.18em] border-r border-hairline last:border-r-0 flex items-center justify-between gap-3 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-lavender " +
                 (tab === t ? "bg-lavender/[0.06] text-lavender" : "text-ash hover:text-paper")
               }
             >
@@ -122,10 +124,24 @@ export function DebankPortfolio({
           </p>
         </div>
       ) : tab === "tokens" ? (
-        <TokensView positions={positions} hidden={hidden} />
-      ) : (
+        demo ? (
+          <TokensView positions={positions} hidden={hidden} />
+        ) : status === "loading" && holdings.length === 0 ? (
+          <SkeletonRows rows={5} />
+        ) : (
+          <ChainTokensView holdings={holdings} hidden={hidden} />
+        )
+      ) : demo ? (
         <ProtocolsView items={protocolItems} hidden={hidden} />
+      ) : (
+        <div className="p-10 text-center">
+          <p className="text-ash text-sm mb-1">Protocol reads are not wired yet.</p>
+          <p className="font-mono text-[10px] uppercase tracking-widest text-ash/60">
+            nado · velodrome · inkyswap indexers land next · switch on demo data to preview
+          </p>
+        </div>
       )}
+
     </div>
   );
 }
