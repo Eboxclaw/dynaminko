@@ -2,24 +2,44 @@ import { useCallback, useEffect, useMemo } from "react";
 import { useLocalStorage } from "./useLocalStorage";
 import {
   syncTradesFromWallets,
+  tradesFromTransfers,
   pendingTrades,
   type JournalEntry,
   type JournaledTrade,
 } from "@/lib/journal";
+import type { WalletSnapshot } from "@/lib/chain/blockscout";
 import type { Wallet } from "@/lib/wallets";
 
-export function useJournal(wallets: Wallet[]) {
+/**
+ * Journal state. Trades come from one of two sources:
+ *   - real  : ERC-20 transfers read from the Ink explorer (default)
+ *   - demo  : deterministic staged trades derived from the address
+ * The pending / journaled / skipped state machine is identical either way.
+ */
+export function useJournal(
+  wallets: Wallet[],
+  snapshots?: Record<string, WalletSnapshot>,
+  demo = false,
+) {
   const [trades, setTrades] = useLocalStorage<JournaledTrade[]>("dyn.journal.trades", []);
 
-  // Sync in new wallet-derived trades whenever the wallet set changes.
+  const snapshotList = useMemo(
+    () => Object.values(snapshots ?? {}),
+    [snapshots],
+  );
+  const snapshotKey = snapshotList
+    .map((s) => `${s.walletId}:${s.transfers.length}:${s.fetchedAt}`)
+    .join("|");
+
   useEffect(() => {
     setTrades((prev) => {
-      const next = syncTradesFromWallets(prev, wallets);
+      const next = demo
+        ? syncTradesFromWallets(prev, wallets)
+        : tradesFromTransfers(prev, snapshotList);
       return next.length === prev.length ? prev : next;
     });
-    // setTrades is stable via useLocalStorage; wallets identity is the trigger
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [wallets]);
+  }, [wallets, snapshotKey, demo]);
 
   const pending = useMemo(() => pendingTrades(trades), [trades]);
 

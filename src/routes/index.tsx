@@ -16,12 +16,12 @@ import { VaultView } from "@/components/dynaminko/views/VaultView";
 import { SettingsView } from "@/components/dynaminko/views/SettingsView";
 import { useLocalStorage } from "@/hooks/useLocalStorage";
 import { useJournal } from "@/hooks/useJournal";
+import { ChainProvider, useChain } from "@/hooks/useChain";
 import { totalBalance } from "@/lib/dynaminko-data";
 import { isValidAddress } from "@/lib/wallet-mock";
 import {
   autoLabel,
   newWalletId,
-  positionsForWallets,
   type Wallet,
 } from "@/lib/wallets";
 
@@ -46,14 +46,7 @@ export const Route = createFileRoute("/")({
 });
 
 function Index() {
-  const [view, setView] = useState<ViewId>("dashboard");
-  const [balanceHidden, setBalanceHidden] = useState(false);
-  const [quickOpen, setQuickOpen] = useState(false);
   const [wallets, setWallets] = useLocalStorage<Wallet[]>("dyn.wallets", []);
-  const [thesesCompose, setThesesCompose] = useState(false);
-  const [theses] = useLocalStorage<Thesis[]>("dyn.theses", []);
-  const { pending: pendingJournal } = useJournal(wallets);
-  const badge = unreviewedCount(theses) + pendingJournal.length;
 
   // One-time migration: old single-wallet key → wallets array
   useEffect(() => {
@@ -81,8 +74,36 @@ function Index() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const positions = useMemo(() => positionsForWallets(wallets), [wallets]);
-  const balance = useMemo(() => totalBalance(positions ?? undefined), [positions]);
+  return (
+    <ChainProvider wallets={wallets}>
+      <Shell wallets={wallets} setWallets={setWallets} />
+    </ChainProvider>
+  );
+}
+
+function Shell({
+  wallets,
+  setWallets,
+}: {
+  wallets: Wallet[];
+  setWallets: (next: Wallet[] | ((prev: Wallet[]) => Wallet[])) => void;
+}) {
+  const [view, setView] = useState<ViewId>("dashboard");
+  const [balanceHidden, setBalanceHidden] = useState(false);
+  const [quickOpen, setQuickOpen] = useState(false);
+  const [thesesCompose, setThesesCompose] = useState(false);
+  const [theses] = useLocalStorage<Thesis[]>("dyn.theses", []);
+
+  const { positions, snapshots, demo, status, fetchedAt, refresh } = useChain();
+  const { pending: pendingJournal } = useJournal(wallets, snapshots, demo);
+  const badge = unreviewedCount(theses) + pendingJournal.length;
+
+  const balance = useMemo(
+    () => totalBalance(positions ?? undefined),
+    // price overlay mutates ASSETS, so re-derive whenever a sync lands
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [positions, fetchedAt],
+  );
 
   const navigate = (v: ViewId, intent?: "new-thesis" | "ask") => {
     setView(v);
@@ -126,6 +147,9 @@ function Index() {
               wallets={wallets}
               onWalletsChange={setWallets}
               positions={positions}
+              status={status}
+              fetchedAt={fetchedAt}
+              onRefresh={refresh}
             />
           )}
           {view === "markets" && <MarketsView />}

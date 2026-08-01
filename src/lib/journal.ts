@@ -6,7 +6,9 @@
 // indexer lands, only syncTradesFromWallets() gets swapped.
 
 import { ASSETS } from "./dynaminko-data";
+import type { ChainTransfer } from "./chain/blockscout";
 import type { Wallet } from "./wallets";
+
 
 export type TradeEvent = {
   id: string;              // `${walletId}:${idx}` — stable so we never duplicate
@@ -120,3 +122,40 @@ export function syncTradesFromWallets(
 export function pendingTrades(trades: JournaledTrade[]) {
   return trades.filter((t) => t.status === "pending");
 }
+
+// ── real chain ingestion ───────────────────────────────────────────────────
+// ERC-20 transfers read from the Ink explorer become TradeEvents. Inbound =
+// BUY, outbound = SELL. Price is the live/indicative price for known tickers,
+// otherwise 0 (the journal never invents a number it doesn't have).
+
+export function tradesFromTransfers(
+  existing: JournaledTrade[],
+  snapshots: { walletId: string; address: string; transfers: ChainTransfer[] }[],
+): JournaledTrade[] {
+  const known = new Set(existing.map((t) => t.id));
+  const priceOf = (sym: string) =>
+    ASSETS.find((a) => a.ticker.toUpperCase() === sym.toUpperCase())?.price ?? 0;
+
+  const out = [...existing];
+  for (const s of snapshots) {
+    for (const tr of s.transfers) {
+      const id = `${tr.txHash}:${tr.logIndex}`;
+      if (known.has(id)) continue;
+      known.add(id);
+      out.push({
+        id,
+        walletId: s.walletId,
+        walletAddress: s.address,
+        ticker: tr.symbol,
+        side: tr.direction === "in" ? "BUY" : "SELL",
+        qty: +tr.amount.toFixed(6),
+        price: priceOf(tr.symbol),
+        ts: tr.ts,
+        txHash: tr.txHash,
+        status: "pending",
+      });
+    }
+  }
+  return out.sort((a, b) => b.ts - a.ts);
+}
+

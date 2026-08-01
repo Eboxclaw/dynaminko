@@ -12,6 +12,46 @@ import {
 } from "@/lib/wallets";
 import type { TradeMode } from "./MarketsView";
 import { probeCapabilities, llamaReadiness, type Capability } from "@/lib/capabilities";
+import { useChain } from "@/hooks/useChain";
+import { DataSource } from "../DataSource";
+
+function DataSourceSection() {
+  const { demo, setDemo, status, fetchedAt, refresh, sourceLabel, snapshotList } = useChain();
+  return (
+    <section className="xl:col-span-2 bg-obsidian border border-hairline">
+      <div className="px-4 py-3 border-b border-hairline font-mono text-[10px] uppercase tracking-[0.18em] text-ash flex justify-between">
+        <span>DATA // <span className="text-paper">SOURCE</span></span>
+        <span className="text-ash">{snapshotList.length} wallet snapshot{snapshotList.length === 1 ? "" : "s"}</span>
+      </div>
+      <div className="p-4 flex flex-wrap items-center gap-3">
+        <button
+          onClick={() => setDemo(!demo)}
+          className={
+            "px-3 py-1.5 font-mono text-[10px] uppercase tracking-widest border focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-lavender " +
+            (demo
+              ? "border-lavender text-lavender bg-lavender/[0.08]"
+              : "border-hairline text-ash hover:text-paper")
+          }
+        >
+          Demo data {demo ? "on" : "off"}
+        </button>
+        <button
+          onClick={refresh}
+          disabled={demo}
+          className="px-3 py-1.5 font-mono text-[10px] uppercase tracking-widest border border-hairline text-paper hover:border-lavender disabled:opacity-40"
+        >
+          Refresh chain reads
+        </button>
+        <p className="text-[11px] text-ash flex-1 min-w-[220px]">
+          {demo
+            ? "Staged fixtures. Nothing is read from Ink while this is on."
+            : "Live read-only reads from the Ink explorer, cached in IndexedDB and parsed in a worker."}
+        </p>
+      </div>
+      <DataSource source={sourceLabel} at={fetchedAt} status={status} onRefresh={demo ? undefined : refresh} />
+    </section>
+  );
+}
 
 type AlertKind = "price" | "onchain" | "thesis";
 type Alert = { id: string; kind: AlertKind; ticker: string; condition: string; enabled: boolean };
@@ -107,6 +147,8 @@ export function SettingsView({
 
   return (
     <div className="p-4 md:p-6 lg:p-8 grid grid-cols-1 xl:grid-cols-2 gap-6 max-w-6xl mx-auto w-full">
+      <DataSourceSection />
+
       {/* Wallets */}
       <section className="xl:col-span-2 bg-obsidian border border-hairline">
         <div className="px-4 py-3 border-b border-hairline font-mono text-[10px] uppercase tracking-[0.18em] text-ash flex justify-between">

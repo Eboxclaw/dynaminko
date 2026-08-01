@@ -1,7 +1,10 @@
 import { toast } from "sonner";
 import { VAULT_MARKETS } from "@/lib/dynaminko-data";
+import { usePublicData } from "@/hooks/usePublicData";
+import { DataSource, SkeletonRows } from "../DataSource";
 
 export function VaultView() {
+  const { data, loading, error } = usePublicData();
   const totalSupplied = VAULT_MARKETS.reduce((s, m) => s + m.userSupplied * priceOf(m.asset), 0);
   const totalBorrowed = VAULT_MARKETS.reduce((s, m) => s + m.userBorrowed * priceOf(m.asset), 0);
 
@@ -13,15 +16,47 @@ export function VaultView() {
         <StatTile label="Net APY" value="+3.42%" accent="mint" />
       </div>
 
+      {/* Live protocol TVL — real numbers, read-only */}
+      <section className="dyn-dossier">
+        <div className="px-4 pt-3 pb-2 border-b border-hairline font-mono text-[10px] uppercase tracking-[0.14em] text-ash">
+          INK VENUES // <span className="text-paper">LIVE TVL</span>
+        </div>
+        {loading && !data ? (
+          <SkeletonRows rows={4} />
+        ) : (
+          <div className="grid grid-cols-2 md:grid-cols-4 divide-x divide-hairline">
+            {(data?.protocols ?? []).map((p) => (
+              <div key={p.slug} className="p-4">
+                <div className="font-mono text-[9px] uppercase tracking-[0.22em] text-ash">
+                  {p.name}
+                </div>
+                <div className="font-mono text-paper text-lg tabular-nums mt-1">
+                  {p.tvlUsd == null ? "—" : `$${(p.tvlUsd / 1e6).toFixed(2)}M`}
+                </div>
+                <div className="font-mono text-[10px] text-mint tabular-nums">
+                  {p.apy == null ? "" : `${p.apy.toFixed(2)}% APY`}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+        <DataSource
+          source="defillama"
+          at={data ? Date.now() : null}
+          status={error ? "error" : loading ? "loading" : "ready"}
+        />
+      </section>
+
       <section>
         <div className="flex justify-between items-center mb-3">
           <h2 className="font-mono text-[10px] uppercase tracking-[0.22em] text-ash">
             TYDRO // <span className="text-paper">RESERVES</span>
           </h2>
-          <span className="font-mono text-[10px] text-ash">yield · lending · borrowing</span>
+          <span className="font-mono text-[10px] text-ash">indicative · no live reserve feed yet</span>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+
           {VAULT_MARKETS.map((m) => (
             <div key={m.asset} className="bg-obsidian border border-hairline p-5">
               <div className="flex justify-between items-baseline mb-4">
