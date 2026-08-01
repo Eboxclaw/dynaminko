@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 const LINES = [
   "> establishing secure channel · ink chain L2",
@@ -12,46 +12,62 @@ const LINES = [
 export function BootSequence({ onDone }: { onDone?: () => void }) {
   const [hidden, setHidden] = useState(false);
   const [step, setStep] = useState(0);
+  // Generated after mount only — a render-time random would break hydration.
+  const [session, setSession] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (typeof window !== "undefined") {
-      const seen = sessionStorage.getItem("dyn.booted");
-      if (seen) {
-        setHidden(true);
-        onDone?.();
-        return;
-      }
-
-      const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-      if (reduceMotion) {
-        sessionStorage.setItem("dyn.booted", "1");
-        setHidden(true);
-        onDone?.();
-        return;
-      }
-    }
-    const iv = setInterval(() => setStep((s) => Math.min(s + 1, LINES.length)), 380);
-    const t = setTimeout(() => {
+  const skip = useCallback(() => {
+    try {
       sessionStorage.setItem("dyn.booted", "1");
-      setHidden(true);
-      onDone?.();
-    }, 3400);
-    return () => { clearInterval(iv); clearTimeout(t); };
-  }, [onDone]);
-
-  const skip = () => {
-    sessionStorage.setItem("dyn.booted", "1");
+    } catch {
+      /* ignore */
+    }
     setHidden(true);
     onDone?.();
-  };
+  }, [onDone]);
+
+  useEffect(() => {
+    setSession(Math.floor(Math.random() * 0xffff).toString(16).padStart(4, "0"));
+
+    let seen: string | null = null;
+    try {
+      seen = sessionStorage.getItem("dyn.booted");
+    } catch {
+      /* ignore */
+    }
+    if (seen) {
+      setHidden(true);
+      onDone?.();
+      return;
+    }
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      skip();
+      return;
+    }
+
+    const iv = setInterval(() => setStep((s) => Math.min(s + 1, LINES.length)), 380);
+    const t = setTimeout(skip, 3400);
+    return () => { clearInterval(iv); clearTimeout(t); };
+  }, [onDone, skip]);
+
+  // Any key, or a click anywhere, dismisses the sequence.
+  useEffect(() => {
+    if (hidden) return;
+    const onKey = () => skip();
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [hidden, skip]);
+
 
   if (hidden) return null;
 
   return (
     <div
-      className="dyn-boot-overlay fixed inset-0 z-[100] bg-onyx text-paper font-mono flex flex-col items-center justify-center overflow-hidden"
+      onClick={skip}
+      role="presentation"
+      className="dyn-boot-overlay fixed inset-0 z-[100] bg-onyx text-paper font-mono flex flex-col items-center justify-center overflow-hidden cursor-pointer"
       style={{ animation: "dyn-boot-fade 3.5s cubic-bezier(0.7,0,0.2,1) forwards" }}
     >
+
       {/* single scan line sweep */}
       <div
         className="dyn-boot-scanline pointer-events-none absolute inset-x-0 h-16"
@@ -87,7 +103,7 @@ export function BootSequence({ onDone }: { onDone?: () => void }) {
       <div className="w-[min(420px,88vw)] space-y-1.5 text-[11px]">
         <div className="flex justify-between text-ash mb-3">
           <span className="tracking-[0.24em] uppercase">Dynaminko // boot</span>
-          <span>session 0x{Math.floor(Math.random() * 0xffff).toString(16).padStart(4, "0")}</span>
+          <span>session 0x{session ?? "····"}</span>
         </div>
         {LINES.map((l, i) => (
           <div key={i} className={i < step ? "text-paper" : "text-ash/40"}>

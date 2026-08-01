@@ -3,6 +3,8 @@ import { CategoryExposure } from "../CategoryExposure";
 import { DebankPortfolio } from "../DebankPortfolio";
 import { WalletMenu } from "../WalletMenu";
 import { PublicDataStrip } from "../PublicDataStrip";
+import { DataSource, EmptyState } from "../DataSource";
+import { useChain } from "@/hooks/useChain";
 import type { Wallet } from "@/lib/wallets";
 
 export function DashboardView({
@@ -10,12 +12,21 @@ export function DashboardView({
   wallets,
   onWalletsChange,
   positions,
+  status = "idle",
+  fetchedAt = null,
+  onRefresh,
 }: {
   hidden: boolean;
   wallets: Wallet[];
-  onWalletsChange: (next: Wallet[]) => void;
+  onWalletsChange: (next: Wallet[] | ((prev: Wallet[]) => Wallet[])) => void;
   positions: Record<string, number> | null;
+  status?: "idle" | "loading" | "ready" | "error";
+  fetchedAt?: number | null;
+  onRefresh?: () => void;
 }) {
+  const { holdings, demo, sourceLabel, setDemo } = useChain();
+  const visible = wallets.filter((w) => w.visible);
+
   return (
     <div className="p-4 md:p-6 lg:p-8 space-y-6">
       {/* Mobile wallet control (desktop lives in top bar) */}
@@ -25,15 +36,46 @@ export function DashboardView({
 
       <PublicDataStrip />
 
-      <div className="grid grid-cols-1 xl:grid-cols-12 gap-6">
-        <div className="xl:col-span-5 space-y-6">
-          <PortfolioDiamond hidden={hidden} positions={positions} />
-          <CategoryExposure hidden={hidden} positions={positions} />
+      {visible.length === 0 ? (
+        <EmptyState
+          label="No wallet is being tracked."
+          hint="paste a read address in the top bar, or switch on staged demo data"
+          action={demo ? undefined : "Use staged demo data"}
+          onAction={() => setDemo(true)}
+        />
+      ) : (
+        <div className="grid grid-cols-1 xl:grid-cols-12 gap-6">
+          <div className="xl:col-span-5 space-y-6">
+            <div>
+              <PortfolioDiamond hidden={hidden} positions={positions} />
+              <DataSource
+                source={sourceLabel}
+                at={fetchedAt}
+                status={status}
+                onRefresh={onRefresh}
+                note={demo ? "demo" : undefined}
+              />
+            </div>
+            <CategoryExposure hidden={hidden} positions={positions} />
+          </div>
+          <div className="xl:col-span-7">
+            <DebankPortfolio
+              wallets={wallets}
+              positions={positions}
+              hidden={hidden}
+              holdings={holdings}
+              demo={demo}
+              status={status}
+            />
+            <DataSource
+              source={demo ? "staged demo data" : "ink explorer · token balances"}
+              at={fetchedAt}
+              status={status}
+              onRefresh={onRefresh}
+            />
+          </div>
         </div>
-        <div className="xl:col-span-7">
-          <DebankPortfolio wallets={wallets} positions={positions} hidden={hidden} />
-        </div>
-      </div>
+      )}
     </div>
   );
 }

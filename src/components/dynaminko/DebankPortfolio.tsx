@@ -15,7 +15,10 @@ import {
   type ProtocolPosition,
 } from "@/lib/dynaminko-data";
 import { isValidAddress } from "@/lib/wallet-mock";
+import { holdingsTotalUsd, type Holding } from "@/lib/portfolio";
+import { SkeletonRows } from "./DataSource";
 import type { Wallet } from "@/lib/wallets";
+
 
 const PROTOCOL_ORDER: Protocol[] = [
   "Nado",
@@ -43,27 +46,38 @@ export function DebankPortfolio({
   wallets,
   positions,
   hidden,
+  holdings = [],
+  demo = false,
+  status = "ready",
 }: {
   wallets: Wallet[];
   positions: Record<string, number> | null;
   hidden: boolean;
+  holdings?: Holding[];
+  demo?: boolean;
+  status?: "idle" | "loading" | "ready" | "error";
 }) {
   const [tab, setTab] = useState<"tokens" | "protocols">("tokens");
 
   const activeWallets = wallets.filter((w) => w.visible && isValidAddress(w.address));
 
-  // Aggregate protocol positions across every visible wallet
+  // Protocol positions stay staged until a real Nado/Velodrome indexer lands.
   const protocolItems = useMemo<ProtocolPosition[]>(() => {
+    if (!demo) return [];
     const out: ProtocolPosition[] = [];
     for (const w of activeWallets) out.push(...protocolPositionsForAddress(w.address));
     return out;
-  }, [activeWallets]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [demo, activeWallets.map((w) => w.address).join(",")]);
 
-  const tokenTotal = positions
-    ? ASSETS.reduce((s, a) => s + (positions[a.ticker] ?? 0) * a.price, 0)
-    : 0;
+  const tokenTotal = demo
+    ? positions
+      ? ASSETS.reduce((s, a) => s + (positions[a.ticker] ?? 0) * a.price, 0)
+      : 0
+    : holdingsTotalUsd(holdings);
   const protocolTotal = protocolItems.reduce((s, p) => s + p.usd, 0);
   const grandTotal = tokenTotal + protocolTotal;
+
 
   return (
     <div className="dyn-dossier">
