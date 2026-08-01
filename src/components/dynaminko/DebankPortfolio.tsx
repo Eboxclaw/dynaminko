@@ -146,6 +146,64 @@ export function DebankPortfolio({
   );
 }
 
+/** Real ERC-20 + native balances read from the Ink explorer. */
+function ChainTokensView({ holdings, hidden }: { holdings: Holding[]; hidden: boolean }) {
+  if (holdings.length === 0)
+    return (
+      <div className="p-10 text-center">
+        <p className="text-ash text-sm mb-1">No balances found on Ink for these wallets.</p>
+        <p className="font-mono text-[10px] uppercase tracking-widest text-ash/60">
+          nothing invented — this is the chain's answer
+        </p>
+      </div>
+    );
+  const priced = holdings.filter((h) => h.usd != null);
+  const unpriced = holdings.filter((h) => h.usd == null);
+  const section = (label: string, rows: Holding[]) =>
+    rows.length === 0 ? null : (
+      <div key={label} className="border-b border-hairline last:border-b-0">
+        <div className="flex justify-between items-center px-4 py-2 bg-onyx/40">
+          <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-paper">
+            {label}
+          </span>
+          <span className="font-mono text-[10px] text-ash tabular-nums">
+            {rows.length} · {fmtUsd(holdingsTotalUsd(rows), hidden)}
+          </span>
+        </div>
+        {rows.map((h) => (
+          <div
+            key={h.address + h.symbol}
+            className="grid grid-cols-[1.4fr_1fr_0.9fr] items-center px-4 py-2.5 border-t border-hairline text-[11px]"
+          >
+            <div className="min-w-0">
+              <div className="font-mono text-paper truncate">{h.symbol}</div>
+              <div className="text-[10px] text-ash truncate">{h.name}</div>
+            </div>
+            <div className="font-mono text-paper text-right tabular-nums text-[10px]">
+              {hidden
+                ? "***"
+                : h.amount.toLocaleString(undefined, { maximumFractionDigits: 6 })}
+            </div>
+            <div className="font-mono text-right tabular-nums text-paper">
+              {h.usd == null ? (
+                <span className="text-ash text-[10px] uppercase tracking-widest">no quote</span>
+              ) : (
+                fmtUsd(h.usd * h.amount, hidden)
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+    );
+  return (
+    <div>
+      {section("Priced on-chain", priced)}
+      {section("Unpriced", unpriced)}
+    </div>
+  );
+}
+
+
 function TokensView({
   positions,
   hidden,
