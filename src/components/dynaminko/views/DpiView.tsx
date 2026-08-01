@@ -6,6 +6,7 @@
 import { useMemo, useState } from "react";
 import { useLocalStorage } from "@/hooks/useLocalStorage";
 import { useJournal } from "@/hooks/useJournal";
+import { useChain } from "@/hooks/useChain";
 import { ASSETS } from "@/lib/dynaminko-data";
 import { SENTIMENT_LABELS, type JournaledTrade, type Sentiment } from "@/lib/journal";
 import type { Thesis } from "./ThesesView";
@@ -21,7 +22,8 @@ const TABS: { id: DpiTab; label: string; hint: string }[] = [
 ];
 
 export function DpiView({ wallets }: { wallets: Wallet[] }) {
-  const { trades } = useJournal(wallets);
+  const { snapshots, demo } = useChain();
+  const { trades } = useJournal(wallets, snapshots, demo);
   const [theses] = useLocalStorage<Thesis[]>("dyn.theses", []);
   const [tab, setTab] = useState<DpiTab>("pnl");
 

@@ -6,6 +6,7 @@ import { useMemo, useState } from "react";
 import { Plus, Trash2 } from "lucide-react";
 import { useLocalStorage } from "@/hooks/useLocalStorage";
 import { useJournal } from "@/hooks/useJournal";
+import { useChain } from "@/hooks/useChain";
 import { ASSETS } from "@/lib/dynaminko-data";
 import { DossierCard } from "../DossierCard";
 import { JournalInbox } from "../JournalInbox";
@@ -71,7 +72,8 @@ export function ThesesView({
   const [selectedId, setSelectedId] = useState<string | null>(items[0]?.id ?? null);
   const [composing, setComposing] = useState(initialCompose ?? false);
   const [tab, setTab] = useState<"theses" | "journal">("theses");
-  const { pending } = useJournal(wallets);
+  const { snapshots, demo } = useChain();
+  const { pending } = useJournal(wallets, snapshots, demo);
 
   const selected = items.find((t) => t.id === selectedId) ?? items[0] ?? null;
 

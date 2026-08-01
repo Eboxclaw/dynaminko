@@ -5,6 +5,7 @@ import { useState } from "react";
 import { DossierCard } from "./DossierCard";
 import { JournalWizard } from "./JournalWizard";
 import { useJournal } from "@/hooks/useJournal";
+import { useChain } from "@/hooks/useChain";
 import { shortenAddress } from "@/lib/wallet-mock";
 import type { Wallet } from "@/lib/wallets";
 import type { Thesis } from "./views/ThesesView";
@@ -27,7 +28,8 @@ export function JournalInbox({
   wallets: Wallet[];
   theses: Thesis[];
 }) {
-  const { trades, journal, skip, reopen } = useJournal(wallets);
+  const { snapshots, demo } = useChain();
+  const { trades, journal, skip, reopen } = useJournal(wallets, snapshots, demo);
   const [active, setActive] = useState<JournaledTrade | null>(null);
   const [tab, setTab] = useState<"pending" | "journaled" | "skipped">("pending");
 
