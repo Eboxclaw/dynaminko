@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { DossierCard } from "../DossierCard";
 import { useLocalStorage } from "@/hooks/useLocalStorage";
-import { probeCapabilities, type Capabilities } from "@/lib/capabilities";
+import { probeCapabilities, type Capability } from "@/lib/capabilities";
 import {
   AGENT_KEYS,
   DEFAULT_AGENTS,
@@ -161,7 +161,7 @@ function AgentsTab() {
       </div>
 
       <div className="lg:col-span-8">
-        <DossierCard eyebrow={`Agent // ${agent.name}`}>
+        <DossierCard label="Agent" index="${agent.name" className="[&>div:last-child]:p-4"`}>
           <div className="space-y-4">
             <Field label="Name">
               <input
@@ -272,7 +272,7 @@ function AgentsTab() {
 /* ------------------------------------------------------------------ models */
 
 function ModelsTab() {
-  const [caps, setCaps] = useState<Capabilities | null>(null);
+  const [caps, setCaps] = useState<Capability[] | null>(null);
   const [installed, setInstalled] = useState<string[]>([]);
   const [progress, setProgress] = useState<Record<string, { got: number; total: number | null }>>(
     {},
@@ -315,11 +315,11 @@ function ModelsTab() {
 
   return (
     <div className="space-y-6">
-      <DossierCard eyebrow="Runtime // Capabilities">
+      <DossierCard label="Runtime" index="Capabilities" className="[&>div:last-child]:p-4">
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-          <Cap label="WebGPU" ok={caps?.webgpu} />
-          <Cap label="WASM SIMD" ok={caps?.wasmSimd} />
-          <Cap label="Threads" ok={caps?.wasmThreads} />
+          <Cap label="WebGPU" ok={capOk(caps, "webgpu")} />
+          <Cap label="WASM SIMD" ok={capOk(caps, "simd")} />
+          <Cap label="Threads" ok={capOk(caps, "sab")} />
           <Cap label="Cache API" ok={typeof caches !== "undefined"} />
         </div>
         <p className="text-[11px] text-ash mt-4">
@@ -333,7 +333,7 @@ function ModelsTab() {
           const isInstalled = installed.includes(m.id);
           const p = progress[m.id];
           const pct = p?.total ? Math.round((p.got / p.total) * 100) : null;
-          const blocked = m.runtime === "webgpu" && caps && !caps.webgpu;
+          const blocked = m.runtime === "webgpu" && caps != null && capOk(caps, "webgpu") === false;
           return (
             <DossierCard key={m.id} eyebrow={`Model // ${m.params}`}>
               <div className="space-y-3">
@@ -401,7 +401,7 @@ function ModelsTab() {
         })}
       </div>
 
-      <DossierCard eyebrow="Model // Remote providers">
+      <DossierCard label="Model" index="Remote providers" className="[&>div:last-child]:p-4">
         <p className="text-[11px] text-ash mb-3">
           Optional. Keys stay in this browser and are only sent to the endpoint you name.
         </p>
@@ -535,7 +535,7 @@ function McpTab() {
 
   return (
     <div className="space-y-4">
-      <DossierCard eyebrow="MCP // Add server">
+      <DossierCard label="MCP" index="Add server" className="[&>div:last-child]:p-4">
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
           <input
             value={label}
@@ -618,6 +618,11 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
       {children}
     </label>
   );
+}
+
+function capOk(caps: Capability[] | null, key: string): boolean | undefined {
+  if (!caps) return undefined;
+  return caps.find((c) => c.key === key)?.ok ?? false;
 }
 
 function Cap({ label, ok }: { label: string; ok?: boolean }) {
