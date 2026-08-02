@@ -335,7 +335,7 @@ function ModelsTab() {
           const pct = p?.total ? Math.round((p.got / p.total) * 100) : null;
           const blocked = m.runtime === "webgpu" && caps != null && capOk(caps, "webgpu") === false;
           return (
-            <DossierCard key={m.id} eyebrow={`Model // ${m.params}`}>
+            <DossierCard key={m.id} label="Model" index={m.params} className="[&>div:last-child]:p-4">
               <div className="space-y-3">
                 <div>
                   <p className="font-sans text-sm text-paper">{m.label}</p>
@@ -483,7 +483,7 @@ function SkillsTab() {
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
       {SKILLS.map((s) => (
-        <DossierCard key={s.id} eyebrow={`Skill // ${s.writes ? "write" : "read"}`}>
+        <DossierCard key={s.id} label="Skill" index={s.writes ? "write" : "read"} className="[&>div:last-child]:p-4">
           <p className="font-sans text-sm text-paper">{s.label}</p>
           <p className="text-[11px] text-ash mt-1">{s.description}</p>
           <p className="font-mono text-[10px] uppercase tracking-[0.16em] mt-3 text-ash">
@@ -571,7 +571,7 @@ function McpTab() {
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {servers.map((s) => (
-            <DossierCard key={s.id} eyebrow={`MCP // ${s.state}`}>
+            <DossierCard key={s.id} label="MCP" index={s.state} className="[&>div:last-child]:p-4">
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
                   <p className="font-sans text-sm text-paper truncate">{s.label}</p>
