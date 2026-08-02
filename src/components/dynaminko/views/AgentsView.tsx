@@ -161,7 +161,7 @@ function AgentsTab() {
       </div>
 
       <div className="lg:col-span-8">
-        <DossierCard label="Agent" index="${agent.name" className="[&>div:last-child]:p-4"`}>
+        <DossierCard label="Agent" index={agent.name} className="[&>div:last-child]:p-4">
           <div className="space-y-4">
             <Field label="Name">
               <input
