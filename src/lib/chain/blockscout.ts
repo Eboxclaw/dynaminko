@@ -1,8 +1,9 @@
 // Read-only chain access for Ink via its Blockscout explorer API + JSON-RPC.
-// No keys, no signing, no writes. Runs equally in a Worker or on the main
-// thread (fetch + JSON only), so the Storage/Wallet worker can own it.
+// No keys, no signing, no writes. Every call takes an explicit ChainConfig so
+// the same code serves mainnet and testnet. Runs equally in a Worker or on the
+// main thread (fetch + JSON only).
 
-import { INK_CHAIN } from "@/chains/ink";
+import { getChain, type ChainConfig } from "@/chains";
 
 export type TokenBalance = {
   address: string;      // contract, "native" for ETH
@@ -30,6 +31,7 @@ export type ChainTransfer = {
 export type WalletSnapshot = {
   walletId: string;
   address: string;
+  chainId: number;
   native: TokenBalance;
   tokens: TokenBalance[];
   transfers: ChainTransfer[];
@@ -38,12 +40,9 @@ export type WalletSnapshot = {
   warnings: string[];
 };
 
-const API = `${INK_CHAIN.explorer}/api/v2`;
-const RPC = INK_CHAIN.rpcUrls[0];
-
 async function getJson<T>(url: string, signal?: AbortSignal): Promise<T> {
   const res = await fetch(url, { headers: { accept: "application/json" }, signal });
-  if (!res.ok) throw new Error(`${url.replace(API, "")} → ${res.status}`);
+  if (!res.ok) throw new Error(`${new URL(url).pathname} → ${res.status}`);
   return (await res.json()) as T;
 }
 
@@ -59,27 +58,37 @@ function toAmount(raw: string | number | null | undefined, decimals: number): nu
   return whole + frac;
 }
 
-export async function fetchNativeBalance(address: string, signal?: AbortSignal): Promise<TokenBalance> {
-  const res = await fetch(RPC, {
+export async function rpcCall(
+  chain: ChainConfig,
+  method: string,
+  params: unknown[] = [],
+  signal?: AbortSignal,
+): Promise<unknown> {
+  const res = await fetch(chain.rpcUrls[0], {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({
-      jsonrpc: "2.0",
-      id: 1,
-      method: "eth_getBalance",
-      params: [address, "latest"],
-    }),
+    body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
     signal,
   });
-  if (!res.ok) throw new Error(`ink rpc eth_getBalance → ${res.status}`);
-  const payload = (await res.json()) as { result?: string };
-  const wei = payload.result ? BigInt(payload.result).toString() : "0";
+  if (!res.ok) throw new Error(`${chain.shortName} rpc ${method} → ${res.status}`);
+  const payload = (await res.json()) as { result?: unknown; error?: { message?: string } };
+  if (payload.error) throw new Error(payload.error.message ?? `${method} failed`);
+  return payload.result;
+}
+
+export async function fetchNativeBalance(
+  chain: ChainConfig,
+  address: string,
+  signal?: AbortSignal,
+): Promise<TokenBalance> {
+  const result = await rpcCall(chain, "eth_getBalance", [address, "latest"], signal);
+  const wei = typeof result === "string" ? BigInt(result).toString() : "0";
   return {
     address: "native",
-    symbol: INK_CHAIN.currency.symbol,
-    name: INK_CHAIN.currency.name,
-    decimals: INK_CHAIN.currency.decimals,
-    amount: toAmount(wei, INK_CHAIN.currency.decimals),
+    symbol: chain.currency.symbol,
+    name: chain.currency.name,
+    decimals: chain.currency.decimals,
+    amount: toAmount(wei, chain.currency.decimals),
     usd: null,
   };
 }
@@ -97,9 +106,14 @@ type RawTokenBalance = {
   };
 };
 
-export async function fetchTokenBalances(address: string, signal?: AbortSignal): Promise<TokenBalance[]> {
+export async function fetchTokenBalances(
+  chain: ChainConfig,
+  address: string,
+  signal?: AbortSignal,
+): Promise<TokenBalance[]> {
+  if (!chain.explorerApi) return [];
   const rows = await getJson<RawTokenBalance[]>(
-    `${API}/addresses/${address}/token-balances`,
+    `${chain.explorerApi}/addresses/${address}/token-balances`,
     signal,
   );
   return rows
@@ -135,12 +149,14 @@ type RawTransfer = {
 
 /** ERC-20 transfer history, newest first. `sinceBlock` enables cheap re-syncs. */
 export async function fetchTokenTransfers(
+  chain: ChainConfig,
   address: string,
   sinceBlock?: number | null,
   signal?: AbortSignal,
 ): Promise<ChainTransfer[]> {
+  if (!chain.explorerApi) return [];
   const payload = await getJson<{ items?: RawTransfer[] }>(
-    `${API}/addresses/${address}/token-transfers?type=ERC-20`,
+    `${chain.explorerApi}/addresses/${address}/token-transfers?type=ERC-20`,
     signal,
   );
   const me = address.toLowerCase();
@@ -164,41 +180,90 @@ export async function fetchTokenTransfers(
     .filter((t) => t.amount > 0 && (sinceBlock == null || (t.blockNumber ?? 0) > sinceBlock));
 }
 
+type RawNativeTx = {
+  hash?: string;
+  block_number?: number;
+  timestamp?: string;
+  value?: string;
+  from?: { hash?: string };
+  to?: { hash?: string };
+  status?: string;
+};
+
+/** Native ETH movements, so trade detection isn't limited to token transfers. */
+export async function fetchNativeTransfers(
+  chain: ChainConfig,
+  address: string,
+  signal?: AbortSignal,
+): Promise<ChainTransfer[]> {
+  if (!chain.explorerApi) return [];
+  const payload = await getJson<{ items?: RawNativeTx[] }>(
+    `${chain.explorerApi}/addresses/${address}/transactions?filter=to%20%7C%20from`,
+    signal,
+  );
+  const me = address.toLowerCase();
+  const d = chain.currency.decimals;
+  return (payload.items ?? [])
+    .filter((it) => (it.status ?? "ok") === "ok")
+    .map((it, i) => {
+      const to = (it.to?.hash ?? "").toLowerCase();
+      const from = (it.from?.hash ?? "").toLowerCase();
+      return {
+        txHash: it.hash ?? `native-${i}`,
+        logIndex: -1,
+        symbol: chain.currency.symbol,
+        decimals: d,
+        amount: toAmount(it.value, d),
+        direction: (to === me ? "in" : "out") as "in" | "out",
+        counterparty: to === me ? from : to,
+        ts: it.timestamp ? Date.parse(it.timestamp) : Date.now(),
+        blockNumber: it.block_number ?? null,
+      };
+    })
+    .filter((t) => t.amount > 0);
+}
+
 /** Full read for one wallet. Legs settle independently so one 404 isn't fatal. */
 export async function readWallet(
   walletId: string,
   address: string,
+  chainId: number,
   sinceBlock?: number | null,
   signal?: AbortSignal,
 ): Promise<WalletSnapshot> {
-  const [native, tokens, transfers] = await Promise.allSettled([
-    fetchNativeBalance(address, signal),
-    fetchTokenBalances(address, signal),
-    fetchTokenTransfers(address, sinceBlock, signal),
+  const chain = getChain(chainId);
+  const [native, tokens, transfers, natTransfers] = await Promise.allSettled([
+    fetchNativeBalance(chain, address, signal),
+    fetchTokenBalances(chain, address, signal),
+    fetchTokenTransfers(chain, address, sinceBlock, signal),
+    fetchNativeTransfers(chain, address, signal),
   ]);
   const warnings: string[] = [];
-  const reason = (r: PromiseSettledResult<unknown>) =>
-    r.status === "rejected" ? String((r.reason as Error)?.message ?? r.reason) : null;
-  for (const r of [native, tokens, transfers]) {
-    const m = reason(r);
-    if (m) warnings.push(m);
+  for (const r of [native, tokens, transfers, natTransfers]) {
+    if (r.status === "rejected") warnings.push(String((r.reason as Error)?.message ?? r.reason));
   }
+  const history = [
+    ...(transfers.status === "fulfilled" ? transfers.value : []),
+    ...(natTransfers.status === "fulfilled" ? natTransfers.value : []),
+  ].sort((a, b) => b.ts - a.ts);
+
   return {
     walletId,
     address,
+    chainId: chain.id,
     native:
       native.status === "fulfilled"
         ? native.value
         : {
             address: "native",
-            symbol: INK_CHAIN.currency.symbol,
-            name: INK_CHAIN.currency.name,
+            symbol: chain.currency.symbol,
+            name: chain.currency.name,
             decimals: 18,
             amount: 0,
             usd: null,
           },
     tokens: tokens.status === "fulfilled" ? tokens.value : [],
-    transfers: transfers.status === "fulfilled" ? transfers.value : [],
+    transfers: history,
     fetchedAt: Date.now(),
     warnings,
   };
