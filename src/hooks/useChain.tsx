@@ -1,15 +1,34 @@
-import { createContext, useContext, useEffect, useMemo, type ReactNode } from "react";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+  type ReactNode,
+} from "react";
 import { useChainPortfolio } from "./useChainPortfolio";
 import { useLocalStorage } from "./useLocalStorage";
 import { usePublicData } from "./usePublicData";
 import { applyLivePrices } from "@/lib/prices";
-import { positionsFromSnapshots, holdingsFromSnapshots, pricesFromSnapshots, type Holding } from "@/lib/portfolio";
+import {
+  positionsFromSnapshots,
+  holdingsFromSnapshots,
+  pricesFromSnapshots,
+  type Holding,
+} from "@/lib/portfolio";
 import { positionsForWallets, type Wallet } from "@/lib/wallets";
 import type { WalletSnapshot } from "@/lib/chain/blockscout";
+import { rpcCall } from "@/lib/chain/blockscout";
+import { DEFAULT_CHAIN_ID, getChain, type ChainConfig } from "@/chains";
 
 type ChainValue = {
   demo: boolean;
   setDemo: (v: boolean) => void;
+  chain: ChainConfig;
+  chainId: number;
+  setChainId: (id: number) => void;
+  head: { block: number | null; latencyMs: number | null; online: boolean };
   snapshots: Record<string, WalletSnapshot>;
   snapshotList: WalletSnapshot[];
   holdings: Holding[];
@@ -30,10 +49,45 @@ export function ChainProvider({
   children: ReactNode;
 }) {
   const [demo, setDemo] = useLocalStorage<boolean>("dyn.demoData", false);
-  const chain = useChainPortfolio(wallets, !demo);
+  const [chainId, setChainId] = useLocalStorage<number>("dyn.chainId", DEFAULT_CHAIN_ID);
+  const chain = getChain(chainId);
+  const portfolio = useChainPortfolio(wallets, chainId, !demo);
   const publicData = usePublicData();
 
-  const snapshotList = useMemo(() => Object.values(chain.snapshots), [chain.snapshots]);
+  // Head block + RPC latency for the network pill.
+  const [head, setHead] = useState<ChainValue["head"]>({
+    block: null,
+    latencyMs: null,
+    online: false,
+  });
+  useEffect(() => {
+    let cancelled = false;
+    const tick = async () => {
+      const t0 = performance.now();
+      try {
+        const hex = await rpcCall(chain, "eth_blockNumber");
+        if (cancelled) return;
+        setHead({
+          block: typeof hex === "string" ? Number.parseInt(hex, 16) : null,
+          latencyMs: Math.round(performance.now() - t0),
+          online: true,
+        });
+      } catch {
+        if (!cancelled) setHead({ block: null, latencyMs: null, online: false });
+      }
+    };
+    void tick();
+    const iv = window.setInterval(tick, 15_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(iv);
+    };
+  }, [chain]);
+
+  const snapshotList = useMemo(
+    () => Object.values(portfolio.snapshots),
+    [portfolio.snapshots],
+  );
 
   // Overlay live quotes (CoinGecko via /api/public-data, then explorer rates).
   useEffect(() => {
@@ -47,6 +101,8 @@ export function ChainProvider({
     applyLivePrices(quotes);
   }, [publicData.data, snapshotList]);
 
+  const switchChain = useCallback((id: number) => setChainId(getChain(id).id), [setChainId]);
+
   const value = useMemo<ChainValue>(() => {
     const holdings = demo ? [] : holdingsFromSnapshots(snapshotList);
     const positions = demo
@@ -55,16 +111,32 @@ export function ChainProvider({
     return {
       demo,
       setDemo,
-      snapshots: demo ? {} : chain.snapshots,
+      chain,
+      chainId: chain.id,
+      setChainId: switchChain,
+      head,
+      snapshots: demo ? {} : portfolio.snapshots,
       snapshotList: demo ? [] : snapshotList,
       holdings,
       positions,
-      status: demo ? "ready" : chain.status,
-      fetchedAt: demo ? null : chain.fetchedAt,
-      refresh: chain.refresh,
-      sourceLabel: demo ? "staged demo data" : "ink rpc + explorer",
+      status: demo ? "ready" : portfolio.status,
+      fetchedAt: demo ? null : portfolio.fetchedAt,
+      refresh: portfolio.refresh,
+      sourceLabel: demo ? "staged demo data" : `${chain.shortName} rpc + explorer`,
     };
-  }, [demo, setDemo, snapshotList, wallets, chain.snapshots, chain.status, chain.fetchedAt, chain.refresh]);
+  }, [
+    demo,
+    setDemo,
+    chain,
+    switchChain,
+    head,
+    snapshotList,
+    wallets,
+    portfolio.snapshots,
+    portfolio.status,
+    portfolio.fetchedAt,
+    portfolio.refresh,
+  ]);
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }
