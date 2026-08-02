@@ -167,3 +167,28 @@
     animation: none !important;
   }
 }
+
+/* Agent console form atoms */
+.input-line {
+  width: 100%;
+  background: transparent;
+  border: 1px solid var(--color-hairline, rgba(255, 255, 255, 0.08));
+  color: var(--color-paper, #f4f4f5);
+  font-family: var(--font-mono, monospace);
+  font-size: 12px;
+  padding: 0.5rem 0.65rem;
+  outline: none;
+}
+.input-line:focus {
+  border-color: rgba(182, 165, 240, 0.5);
+}
+.btn-ghost {
+  border: 1px solid var(--color-hairline, rgba(255, 255, 255, 0.08));
+  padding: 0.5rem 1.25rem;
+  font-family: var(--font-mono, monospace);
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+.scrollbar-none::-webkit-scrollbar { display: none; }
+.scrollbar-none { scrollbar-width: none; }

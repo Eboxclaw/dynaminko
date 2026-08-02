@@ -5,8 +5,9 @@ import { idbGet, idbSet } from "@/lib/cache/idb";
 import { isValidAddress } from "@/lib/wallet-mock";
 import type { Wallet } from "@/lib/wallets";
 
-const CACHE_KEY = "chain.snapshots.v1";
 const REFRESH_MS = 90_000;
+
+const cacheKey = (chainId: number) => `chain.snapshots.v2:${chainId}`;
 
 export type ChainPortfolio = {
   snapshots: Record<string, WalletSnapshot>;
@@ -16,7 +17,11 @@ export type ChainPortfolio = {
   refresh: () => void;
 };
 
-export function useChainPortfolio(wallets: Wallet[], enabled = true): ChainPortfolio {
+export function useChainPortfolio(
+  wallets: Wallet[],
+  chainId: number,
+  enabled = true,
+): ChainPortfolio {
   const [snapshots, setSnapshots] = useState<Record<string, WalletSnapshot>>({});
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [status, setStatus] = useState<ChainPortfolio["status"]>("idle");
@@ -29,18 +34,22 @@ export function useChainPortfolio(wallets: Wallet[], enabled = true): ChainPortf
     .map((w) => ({ id: w.id, address: w.address.toLowerCase() }));
   const key = targets.map((t) => `${t.id}:${t.address}`).join("|");
 
-  // Warm from the IndexedDB cache once so the first paint isn't empty.
+  // Warm from the IndexedDB cache (per chain) so the first paint isn't empty.
   useEffect(() => {
     let cancelled = false;
-    void idbGet<{ at: number; data: Record<string, WalletSnapshot> }>(CACHE_KEY).then((hit) => {
-      if (cancelled || !hit) return;
-      setSnapshots((prev) => (Object.keys(prev).length ? prev : hit.data));
-      setFetchedAt((prev) => prev ?? hit.at);
-    });
+    setSnapshots({});
+    setFetchedAt(null);
+    void idbGet<{ at: number; data: Record<string, WalletSnapshot> }>(cacheKey(chainId)).then(
+      (hit) => {
+        if (cancelled || !hit) return;
+        setSnapshots((prev) => (Object.keys(prev).length ? prev : hit.data));
+        setFetchedAt((prev) => prev ?? hit.at);
+      },
+    );
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [chainId]);
 
   useEffect(() => {
     if (!enabled || targets.length === 0) {
@@ -63,11 +72,11 @@ export function useChainPortfolio(wallets: Wallet[], enabled = true): ChainPortf
       } else {
         setFetchedAt(msg.at);
         setStatus(Object.keys(collected).length ? "ready" : "error");
-        void idbSet(CACHE_KEY, { at: msg.at, data: collected });
+        void idbSet(cacheKey(chainId), { at: msg.at, data: collected });
       }
     };
 
-    const request: ReaderRequest = { type: "scan", wallets: targets };
+    const request: ReaderRequest = { type: "scan", chainId, wallets: targets };
 
     if (typeof Worker !== "undefined") {
       const worker =
@@ -90,7 +99,7 @@ export function useChainPortfolio(wallets: Wallet[], enabled = true): ChainPortf
       const { readWallet } = await import("@/lib/chain/blockscout");
       for (const t of targets) {
         try {
-          handle({ type: "snapshot", snapshot: await readWallet(t.id, t.address) });
+          handle({ type: "snapshot", snapshot: await readWallet(t.id, t.address, chainId) });
         } catch (err) {
           handle({
             type: "error",
@@ -106,7 +115,7 @@ export function useChainPortfolio(wallets: Wallet[], enabled = true): ChainPortf
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key, enabled, nonce]);
+  }, [key, enabled, nonce, chainId]);
 
   // Background refresh on an interval + when the tab regains focus.
   useEffect(() => {

@@ -6,6 +6,7 @@ import { readWallet, type WalletSnapshot } from "@/lib/chain/blockscout";
 
 export type ReaderRequest = {
   type: "scan";
+  chainId: number;
   wallets: { id: string; address: string; sinceBlock?: number | null }[];
 };
 
@@ -23,7 +24,7 @@ ctx.addEventListener("message", async (event: MessageEvent<ReaderRequest>) => {
   await Promise.all(
     msg.wallets.map(async (w) => {
       try {
-        const snapshot = await readWallet(w.id, w.address, w.sinceBlock ?? null);
+        const snapshot = await readWallet(w.id, w.address, msg.chainId, w.sinceBlock ?? null);
         ctx.postMessage({ type: "snapshot", snapshot } satisfies ReaderResponse);
       } catch (err) {
         ctx.postMessage({

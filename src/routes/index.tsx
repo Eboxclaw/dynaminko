@@ -14,6 +14,7 @@ import { ThesesView, unreviewedCount, type Thesis } from "@/components/dynaminko
 import { DpiView } from "@/components/dynaminko/views/DpiView";
 import { VaultView } from "@/components/dynaminko/views/VaultView";
 import { SettingsView } from "@/components/dynaminko/views/SettingsView";
+import { AgentsView } from "@/components/dynaminko/views/AgentsView";
 import { useLocalStorage } from "@/hooks/useLocalStorage";
 import { useJournal } from "@/hooks/useJournal";
 import { ChainProvider, useChain } from "@/hooks/useChain";
@@ -163,6 +164,7 @@ function Shell({
           )}
           {view === "dpi" && <DpiView wallets={wallets} />}
           {view === "vault" && <VaultView />}
+          {view === "agents" && <AgentsView />}
           {view === "settings" && (
             <SettingsView wallets={wallets} onWalletsChange={setWallets} />
           )}
