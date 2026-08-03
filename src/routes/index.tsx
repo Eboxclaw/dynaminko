@@ -29,20 +29,23 @@ import {
 export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
-      { title: "Dynaminko — Command Center · Ink Chain" },
+      { title: "Proof of Thesis — Reconcile every trade · by INKO" },
       {
         name: "description",
         content:
-          "Thesis-first trading journal for Ink Chain. Route trades through Nado CLOB, earn on Tydro, reconcile with a classified AI concierge.",
+          "POT captures your thesis first, auto-fetches trades from Ink Chain, and reconciles the two into a performance score you can defend.",
       },
-      { property: "og:title", content: "Dynaminko — Command Center · Ink Chain" },
+      { property: "og:title", content: "Proof of Thesis — Reconcile every trade · by INKO" },
       {
         property: "og:description",
         content:
-          "Thesis-first trading journal for Ink Chain. Route trades through Nado CLOB, earn on Tydro, reconcile with a classified AI concierge.",
+          "POT captures your thesis first, auto-fetches trades from Ink Chain, and reconciles the two into a performance score you can defend.",
       },
+      { property: "og:type", content: "website" },
+      { name: "twitter:card", content: "summary_large_image" },
     ],
   }),
+
   component: Index,
 });
 
