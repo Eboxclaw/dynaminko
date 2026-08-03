@@ -29,20 +29,23 @@ import {
 export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
-      { title: "Dynaminko — Command Center · Ink Chain" },
+      { title: "Proof of Thesis — Reconcile every trade · by INKO" },
       {
         name: "description",
         content:
-          "Thesis-first trading journal for Ink Chain. Route trades through Nado CLOB, earn on Tydro, reconcile with a classified AI concierge.",
+          "POT captures your thesis first, auto-fetches trades from Ink Chain, and reconciles the two into a performance score you can defend.",
       },
-      { property: "og:title", content: "Dynaminko — Command Center · Ink Chain" },
+      { property: "og:title", content: "Proof of Thesis — Reconcile every trade · by INKO" },
       {
         property: "og:description",
         content:
-          "Thesis-first trading journal for Ink Chain. Route trades through Nado CLOB, earn on Tydro, reconcile with a classified AI concierge.",
+          "POT captures your thesis first, auto-fetches trades from Ink Chain, and reconciles the two into a performance score you can defend.",
       },
+      { property: "og:type", content: "website" },
+      { name: "twitter:card", content: "summary_large_image" },
     ],
   }),
+
   component: Index,
 });
 
@@ -108,8 +111,9 @@ function Shell({
 
   const navigate = (v: ViewId, intent?: "new-thesis" | "ask") => {
     setView(v);
-    if (v === "theses" && intent === "new-thesis") setThesesCompose(true);
+    if (v === "journal" && intent === "new-thesis") setThesesCompose(true);
   };
+
 
   return (
     <div className="min-h-screen bg-onyx text-paper flex">
@@ -129,7 +133,7 @@ function Shell({
         }}
       />
 
-      <Sidebar active={view} onSelect={setView} thesesBadge={badge} />
+      <Sidebar active={view} onSelect={setView} journalBadge={badge} />
 
       <main className="flex-1 flex flex-col min-w-0 pb-16 md:pb-0">
         <TopBar
@@ -155,14 +159,14 @@ function Shell({
           )}
           {view === "markets" && <MarketsView />}
           {view === "terminal" && <TerminalView />}
-          {view === "theses" && (
+          {view === "journal" && (
             <ThesesView
               key={thesesCompose ? "compose" : "list"}
               initialCompose={thesesCompose}
               wallets={wallets}
             />
           )}
-          {view === "dpi" && <DpiView wallets={wallets} />}
+          {view === "score" && <DpiView wallets={wallets} />}
           {view === "vault" && <VaultView />}
           {view === "agents" && <AgentsView />}
           {view === "settings" && (
@@ -171,7 +175,7 @@ function Shell({
         </div>
 
         <footer className="hidden md:block border-t border-hairline px-6 py-3 font-mono text-[9px] uppercase tracking-[0.28em] text-ash text-center">
-          DYNAMINKO // TRADING JOURNAL // NATIVELY ON INK CHAIN · 57073
+          PROOF OF THESIS // BY INKO // THESIS-FIRST RECONCILIATION ON INK CHAIN
         </footer>
       </main>
 
@@ -181,7 +185,7 @@ function Shell({
           setView(v);
           setThesesCompose(false);
         }}
-        thesesBadge={badge}
+        journalBadge={badge}
         onQuickCapture={() => setQuickOpen(true)}
       />
 

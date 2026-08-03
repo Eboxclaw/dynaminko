@@ -1,8 +1,9 @@
-// Multi-wallet model. Wallets are split by provenance:
-//   read  — an address pasted in for read-only tracking
-//   live  — a "connected" wallet (mocked: no real signer yet)
-// Each wallet has a visibility flag; the dashboard aggregates positions
-// across every visible wallet regardless of kind.
+// Wallet model. Wallets are split by provenance:
+//   read   — an address pasted in for read-only tracking
+//   live   — a "signed" wallet (mocked: no real signer yet)
+// Exactly ONE wallet is active at a time. `visible` is the storage-level
+// encoding of that: the active wallet is the only one with visible: true.
+// Multi-wallet aggregation is deliberately out of scope for now.
 
 import { ASSETS } from "./dynaminko-data";
 import { isValidAddress, positionsForAddress } from "./wallet-mock";
@@ -17,6 +18,17 @@ export type Wallet = {
   visible: boolean;
   addedAt: number;
 };
+
+/** The single active wallet, or null when nothing is being tracked. */
+export function activeWallet(wallets: Wallet[]): Wallet | null {
+  return wallets.find((w) => w.visible && isValidAddress(w.address)) ?? null;
+}
+
+/** Make exactly one wallet active; everything else is unloaded. */
+export function withActiveWallet(wallets: Wallet[], id: string): Wallet[] {
+  return wallets.map((w) => ({ ...w, visible: w.id === id }));
+}
+
 
 export function newWalletId() {
   return typeof crypto !== "undefined" && "randomUUID" in crypto

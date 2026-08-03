@@ -1,23 +1,21 @@
 import { useEffect, useState } from "react";
-import { NAV, type ViewId } from "./Sidebar";
+import { PRIMARY_NAV, SECONDARY_NAV, type ViewId } from "./Sidebar";
 import { MoreHorizontal, Zap, X } from "lucide-react";
-
-const PRIMARY: ViewId[] = ["dashboard", "markets", "theses", "dpi"];
 
 export function MobileTabBar({
   active,
   onSelect,
-  thesesBadge,
+  journalBadge,
   onQuickCapture,
 }: {
   active: ViewId;
   onSelect: (id: ViewId) => void;
-  thesesBadge?: number;
+  journalBadge?: number;
   onQuickCapture: () => void;
 }) {
   const [more, setMore] = useState(false);
-  const primary = NAV.filter((n) => PRIMARY.includes(n.id));
-  const overflow = NAV.filter((n) => !PRIMARY.includes(n.id));
+  const primary = PRIMARY_NAV;
+  const overflow = SECONDARY_NAV;
 
   // Close the sheet whenever the view changes.
   useEffect(() => {
@@ -32,7 +30,7 @@ export function MobileTabBar({
           onClick={() => setMore(false)}
         >
           <div
-            className="absolute bottom-[calc(3.5rem+env(safe-area-inset-bottom))] inset-x-0 border-t border-hairline bg-obsidian p-4"
+            className="absolute bottom-[calc(5.75rem+env(safe-area-inset-bottom))] inset-x-0 border-t border-hairline bg-obsidian p-4"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between mb-3">
@@ -52,12 +50,17 @@ export function MobileTabBar({
                     key={n.id}
                     onClick={() => onSelect(n.id)}
                     className={
-                      "flex items-center gap-3 border border-hairline px-3 h-12 font-mono text-[11px] uppercase tracking-[0.14em] " +
+                      "flex items-center gap-2.5 border border-hairline px-3 h-12 font-mono text-[11px] uppercase tracking-[0.12em] " +
                       (isActive ? "text-lavender border-lavender/40" : "text-ash")
                     }
                   >
-                    <Icon className="size-4" strokeWidth={1.5} />
-                    {n.label}
+                    <Icon className="size-4 shrink-0" strokeWidth={1.5} />
+                    <span className="truncate">{n.label}</span>
+                    {n.soon && (
+                      <span className="ml-auto px-1 border border-hairline text-[8px] text-ash">
+                        SOON
+                      </span>
+                    )}
                   </button>
                 );
               })}
@@ -74,7 +77,7 @@ export function MobileTabBar({
               item={n}
               active={active}
               onSelect={onSelect}
-              badge={n.id === "theses" ? thesesBadge : undefined}
+              badge={n.id === "journal" ? journalBadge : undefined}
             />
           ))}
           <div className="col-span-2 flex justify-center -mt-4">
@@ -93,15 +96,15 @@ export function MobileTabBar({
               item={n}
               active={active}
               onSelect={onSelect}
-              badge={n.id === "theses" ? thesesBadge : undefined}
+              badge={n.id === "journal" ? journalBadge : undefined}
             />
           ))}
         </div>
-        <div className="grid grid-cols-6 border-t border-hairline">
+        <div className="border-t border-hairline">
           <button
             onClick={() => setMore((v) => !v)}
             className={
-              "col-span-6 h-9 flex items-center justify-center gap-2 font-mono text-[9px] uppercase tracking-[0.22em] " +
+              "w-full h-9 flex items-center justify-center gap-2 font-mono text-[9px] uppercase tracking-[0.22em] " +
               (overflow.some((n) => n.id === active) ? "text-lavender" : "text-ash")
             }
           >
@@ -120,7 +123,7 @@ function Tab({
   onSelect,
   badge,
 }: {
-  item: (typeof NAV)[number];
+  item: (typeof PRIMARY_NAV)[number];
   active: ViewId;
   onSelect: (id: ViewId) => void;
   badge?: number;

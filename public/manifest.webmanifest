@@ -1,6 +1,6 @@
 {
-  "name": "Dynaminko — Command Center",
-  "short_name": "Dynaminko",
+  "name": "Proof of Thesis — by INKO",
+  "short_name": "POT",
   "id": "/",
   "start_url": "/",
   "scope": "/",
@@ -8,7 +8,8 @@
   "orientation": "any",
   "theme_color": "#0A0A0C",
   "background_color": "#0A0A0C",
-  "description": "Thesis-first trading journal for Ink Chain.",
+  "description": "Thesis-first trading journal and execution assistant.",
+
   "categories": ["finance", "productivity"],
   "icons": [
     {

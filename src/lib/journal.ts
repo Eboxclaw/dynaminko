@@ -31,11 +31,19 @@ export type Sentiment =
 
 export type Emotion = "calm" | "anxious" | "excited" | "uncertain";
 
+/** Q2 — did execution match the plan? Feeds the Thesis axis. */
+export type Alignment = "aligned" | "partial" | "deviated" | "no_thesis";
+
+/** Q4 — how big was this relative to the usual? Feeds the Financial axis. */
+export type Sizing = "starter" | "full" | "adding" | "oversized";
+
 export type JournalEntry = {
   tradeId: string;
   thesisId: string | null;      // null = "no thesis" (still journaled)
   newThesisDraft?: string;      // when the user wrote a fresh thesis in-wizard
+  alignment?: Alignment;        // optional: entries written before Q2 existed
   sentiment: Sentiment;
+  sizing?: Sizing;              // optional: entries written before Q4 existed
   emotion: Emotion;
   confidence: number;           // 1..5
   notes: string;
@@ -61,6 +69,21 @@ export const EMOTION_LABELS: Record<Emotion, string> = {
   excited: "Excited",
   uncertain: "Uncertain",
 };
+
+export const ALIGNMENT_LABELS: Record<Alignment, string> = {
+  aligned: "Aligned",
+  partial: "Partial deviation",
+  deviated: "Full deviation",
+  no_thesis: "No thesis to compare",
+};
+
+export const SIZING_LABELS: Record<Sizing, string> = {
+  starter: "Starter position",
+  full: "Full size",
+  adding: "Adding to a winner",
+  oversized: "Oversized",
+};
+
 
 // ── deterministic seeding ──────────────────────────────────────────────────
 function seed32(addr: string): number {
@@ -159,3 +182,19 @@ export function tradesFromTransfers(
   return out.sort((a, b) => b.ts - a.ts);
 }
 
+
+/**
+ * Ghost trades — the mirror of a ghost thesis. A trade the wallet actually
+ * took, shown in the inbox, and then skipped past the staleness window
+ * without ever getting a reason attached.
+ */
+export const GHOST_TRADE_STALE_MS = 1000 * 60 * 60 * 24 * 3; // 3d
+
+export function ghostTrades(
+  trades: JournaledTrade[],
+  now = Date.now(),
+): JournaledTrade[] {
+  return trades.filter(
+    (t) => t.status === "skipped" && now - t.ts > GHOST_TRADE_STALE_MS,
+  );
+}
