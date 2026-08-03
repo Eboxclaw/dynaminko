@@ -73,23 +73,24 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1, viewport-fit=cover" },
       { name: "theme-color", content: "#0A0A0C" },
-      { title: "Dynaminko — Command Center · Ink Chain" },
+      { title: "Proof of Thesis, by INKO — Thesis-first trading journal" },
       {
         name: "description",
         content:
-          "Thesis-first trading journal for Ink Chain. Route trades through Nado CLOB, earn on Tydro, reconcile with a classified AI concierge.",
+          "POT is a thesis-first trading journal and execution assistant. Track a wallet, reconcile every trade with a reason, and score conviction against execution.",
       },
-      { name: "author", content: "Dynaminko" },
-      { property: "og:title", content: "Dynaminko — Command Center · Ink Chain" },
+      { name: "author", content: "INKO" },
+      { property: "og:title", content: "Proof of Thesis, by INKO — Thesis-first trading journal" },
       {
         property: "og:description",
         content:
-          "Thesis-first trading journal for Ink Chain. Route trades through Nado CLOB, earn on Tydro, reconcile with a classified AI concierge.",
+          "POT is a thesis-first trading journal and execution assistant. Track a wallet, reconcile every trade with a reason, and score conviction against execution.",
       },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
-      { name: "twitter:title", content: "Dynaminko — Command Center · Ink Chain" },
-      { name: "twitter:description", content: "Thesis-first trading journal for Ink Chain. Route trades through Nado CLOB, earn on Tydro, reconcile with a classified AI concierge." },
+      { name: "twitter:title", content: "Proof of Thesis, by INKO" },
+      { name: "twitter:description", content: "Thesis-first trading journal and execution assistant." },
+
       { property: "og:image", content: "https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/357627a2-d211-4797-bf66-5c4190a12ffb/id-preview-57c5ec31--ea035cf9-2bcb-4a23-94a6-03dc8b529c01.lovable.app-1784994420551.png" },
       { name: "twitter:image", content: "https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/357627a2-d211-4797-bf66-5c4190a12ffb/id-preview-57c5ec31--ea035cf9-2bcb-4a23-94a6-03dc8b529c01.lovable.app-1784994420551.png" },
     ],
