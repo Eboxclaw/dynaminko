@@ -108,8 +108,9 @@ function Shell({
 
   const navigate = (v: ViewId, intent?: "new-thesis" | "ask") => {
     setView(v);
-    if (v === "theses" && intent === "new-thesis") setThesesCompose(true);
+    if (v === "journal" && intent === "new-thesis") setThesesCompose(true);
   };
+
 
   return (
     <div className="min-h-screen bg-onyx text-paper flex">
