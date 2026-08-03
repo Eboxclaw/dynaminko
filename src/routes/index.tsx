@@ -172,7 +172,7 @@ function Shell({
         </div>
 
         <footer className="hidden md:block border-t border-hairline px-6 py-3 font-mono text-[9px] uppercase tracking-[0.28em] text-ash text-center">
-          DYNAMINKO // TRADING JOURNAL // NATIVELY ON INK CHAIN · 57073
+          PROOF OF THESIS // BY INKO // THESIS-FIRST RECONCILIATION ON INK CHAIN
         </footer>
       </main>
 
@@ -182,7 +182,7 @@ function Shell({
           setView(v);
           setThesesCompose(false);
         }}
-        thesesBadge={badge}
+        journalBadge={badge}
         onQuickCapture={() => setQuickOpen(true)}
       />
 
