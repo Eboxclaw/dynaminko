@@ -182,3 +182,19 @@ export function tradesFromTransfers(
   return out.sort((a, b) => b.ts - a.ts);
 }
 
+
+/**
+ * Ghost trades — the mirror of a ghost thesis. A trade the wallet actually
+ * took, shown in the inbox, and then skipped past the staleness window
+ * without ever getting a reason attached.
+ */
+export const GHOST_TRADE_STALE_MS = 1000 * 60 * 60 * 24 * 3; // 3d
+
+export function ghostTrades(
+  trades: JournaledTrade[],
+  now = Date.now(),
+): JournaledTrade[] {
+  return trades.filter(
+    (t) => t.status === "skipped" && now - t.ts > GHOST_TRADE_STALE_MS,
+  );
+}
