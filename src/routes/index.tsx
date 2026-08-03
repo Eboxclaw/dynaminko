@@ -156,14 +156,14 @@ function Shell({
           )}
           {view === "markets" && <MarketsView />}
           {view === "terminal" && <TerminalView />}
-          {view === "theses" && (
+          {view === "journal" && (
             <ThesesView
               key={thesesCompose ? "compose" : "list"}
               initialCompose={thesesCompose}
               wallets={wallets}
             />
           )}
-          {view === "dpi" && <DpiView wallets={wallets} />}
+          {view === "score" && <DpiView wallets={wallets} />}
           {view === "vault" && <VaultView />}
           {view === "agents" && <AgentsView />}
           {view === "settings" && (
