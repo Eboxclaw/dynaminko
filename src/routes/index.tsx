@@ -130,7 +130,7 @@ function Shell({
         }}
       />
 
-      <Sidebar active={view} onSelect={setView} thesesBadge={badge} />
+      <Sidebar active={view} onSelect={setView} journalBadge={badge} />
 
       <main className="flex-1 flex flex-col min-w-0 pb-16 md:pb-0">
         <TopBar
