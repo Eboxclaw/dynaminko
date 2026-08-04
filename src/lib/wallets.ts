@@ -29,7 +29,6 @@ export function withActiveWallet(wallets: Wallet[], id: string): Wallet[] {
   return wallets.map((w) => ({ ...w, visible: w.id === id }));
 }
 
-
 export function newWalletId() {
   return typeof crypto !== "undefined" && "randomUUID" in crypto
     ? crypto.randomUUID()
@@ -41,13 +40,6 @@ export function newWalletId() {
 export function autoLabel(addr: string, kind: WalletKind) {
   const tail = addr.slice(-4).toUpperCase();
   return `${kind === "live" ? "Live" : "Read"} ${tail}`;
-}
-
-export function mockLiveAddress(): string {
-  const hex = "0123456789abcdef";
-  let out = "0x";
-  for (let i = 0; i < 40; i++) out += hex[Math.floor(Math.random() * 16)];
-  return out;
 }
 
 /** Merged positions across every visible wallet. */

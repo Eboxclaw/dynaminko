@@ -41,17 +41,13 @@ type ChainValue = {
 
 const Ctx = createContext<ChainValue | null>(null);
 
-export function ChainProvider({
-  wallets,
-  children,
-}: {
-  wallets: Wallet[];
-  children: ReactNode;
-}) {
-  const [demo, setDemo] = useLocalStorage<boolean>("dyn.demoData", false);
+export function ChainProvider({ wallets, children }: { wallets: Wallet[]; children: ReactNode }) {
+  const [, persistDemo] = useLocalStorage<boolean>("dyn.demoData", false);
+  const demo = false;
+  const setDemo = useCallback((_value: boolean) => persistDemo(false), [persistDemo]);
   const [chainId, setChainId] = useLocalStorage<number>("dyn.chainId", DEFAULT_CHAIN_ID);
   const chain = getChain(chainId);
-  const portfolio = useChainPortfolio(wallets, chainId, !demo);
+  const portfolio = useChainPortfolio(wallets, chainId, true);
   const publicData = usePublicData();
 
   // Head block + RPC latency for the network pill.
@@ -84,10 +80,7 @@ export function ChainProvider({
     };
   }, [chain]);
 
-  const snapshotList = useMemo(
-    () => Object.values(portfolio.snapshots),
-    [portfolio.snapshots],
-  );
+  const snapshotList = useMemo(() => Object.values(portfolio.snapshots), [portfolio.snapshots]);
 
   // Overlay live quotes (CoinGecko via /api/public-data, then explorer rates).
   useEffect(() => {
@@ -105,9 +98,7 @@ export function ChainProvider({
 
   const value = useMemo<ChainValue>(() => {
     const holdings = demo ? [] : holdingsFromSnapshots(snapshotList);
-    const positions = demo
-      ? positionsForWallets(wallets)
-      : positionsFromSnapshots(snapshotList);
+    const positions = demo ? positionsForWallets(wallets) : positionsFromSnapshots(snapshotList);
     return {
       demo,
       setDemo,

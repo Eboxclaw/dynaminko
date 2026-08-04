@@ -1,28 +1,16 @@
 // WalletMenu — the multi-wallet control that lives in the top bar (and in
 // Settings). Wallets are grouped by kind:
 //   READ WALLETS  — pasted 0x addresses, read-only tracking
-//   LIVE WALLETS  — "connected" wallets (mocked signer this pass)
+//   LIVE WALLETS  — accounts returned by the injected EIP-1193 wallet
 // Each wallet can be shown/hidden without deleting it, so users can slice
 // which subset feeds the dashboard aggregation without losing addresses.
 
 import { useEffect, useRef, useState } from "react";
-import {
-  Wallet as WalletIcon,
-  Plus,
-  Trash2,
-  Eye,
-  EyeOff,
-  Plug,
-  X,
-  Check,
-} from "lucide-react";
+import { Wallet as WalletIcon, Plus, Trash2, Eye, EyeOff, Plug, X, Check } from "lucide-react";
+import { toast } from "sonner";
+import { useInjectedWallet } from "@/hooks/useInjectedWallet";
 import { isValidAddress, shortenAddress } from "@/lib/wallet-mock";
-import {
-  autoLabel,
-  mockLiveAddress,
-  newWalletId,
-  type Wallet,
-} from "@/lib/wallets";
+import { autoLabel, newWalletId, type Wallet } from "@/lib/wallets";
 
 export function WalletMenu({
   wallets,
@@ -37,6 +25,7 @@ export function WalletMenu({
   const [draft, setDraft] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
   const rootRef = useRef<HTMLDivElement>(null);
+  const injected = useInjectedWallet();
 
   const visible = wallets.filter((w) => w.visible && isValidAddress(w.address));
   const active = visible.length > 0;
@@ -75,19 +64,33 @@ export function WalletMenu({
     setDraft("");
   };
 
-  const connectLive = () => {
-    const addr = mockLiveAddress();
-    onChange([
-      ...wallets,
-      {
-        id: newWalletId(),
-        address: addr,
-        label: autoLabel(addr, "live"),
-        kind: "live",
-        visible: true,
-        addedAt: Date.now(),
-      },
-    ]);
+  const connectLive = async () => {
+    try {
+      const accounts = await injected.connect();
+      const addr = accounts[0];
+      if (!addr || !isValidAddress(addr)) throw new Error("Wallet did not return an EVM address");
+      const existing = wallets.find((w) => w.address.toLowerCase() === addr.toLowerCase());
+      if (existing) {
+        onChange(
+          wallets.map((w) => (w.id === existing.id ? { ...w, kind: "live", visible: true } : w)),
+        );
+      } else {
+        onChange([
+          ...wallets,
+          {
+            id: newWalletId(),
+            address: addr,
+            label: autoLabel(addr, "live"),
+            kind: "live",
+            visible: true,
+            addedAt: Date.now(),
+          },
+        ]);
+      }
+      toast.success(`Connected ${shortenAddress(addr)}`);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Wallet connection failed");
+    }
   };
 
   const toggleVisible = (id: string) =>
@@ -167,10 +170,12 @@ export function WalletMenu({
               </button>
             </div>
             <button
-              onClick={connectLive}
-              className="w-full flex items-center justify-center gap-2 px-2 py-1.5 font-mono text-[10px] uppercase tracking-widest border border-mint/50 text-mint hover:bg-mint/[0.06]"
+              onClick={() => void connectLive()}
+              disabled={!injected.available || injected.connecting}
+              className="w-full flex items-center justify-center gap-2 px-2 py-1.5 font-mono text-[10px] uppercase tracking-widest border border-mint/50 text-mint hover:bg-mint/[0.06] disabled:opacity-40"
             >
-              <Plug className="size-3" /> Connect live wallet (mock)
+              <Plug className="size-3" />{" "}
+              {injected.connecting ? "Connecting…" : `Connect ${injected.name}`}
             </button>
           </div>
 
@@ -185,9 +190,7 @@ export function WalletMenu({
                     onClick={() => {
                       const allOn = g.items.every((w) => w.visible);
                       onChange(
-                        wallets.map((w) =>
-                          w.kind === g.kind ? { ...w, visible: !allOn } : w,
-                        ),
+                        wallets.map((w) => (w.kind === g.kind ? { ...w, visible: !allOn } : w)),
                       );
                     }}
                     className="font-mono text-[9px] uppercase tracking-widest text-ash hover:text-paper"
@@ -197,9 +200,7 @@ export function WalletMenu({
                 )}
               </div>
               {g.items.length === 0 ? (
-                <div className="px-3 py-3 font-mono text-[10px] text-ash">
-                  — none —
-                </div>
+                <div className="px-3 py-3 font-mono text-[10px] text-ash">— none —</div>
               ) : (
                 g.items.map((w) => (
                   <div
@@ -213,9 +214,7 @@ export function WalletMenu({
                       }
                     />
                     <div className="min-w-0">
-                      <div className="font-mono text-[11px] text-paper truncate">
-                        {w.label}
-                      </div>
+                      <div className="font-mono text-[11px] text-paper truncate">{w.label}</div>
                       <div className="font-mono text-[9px] text-ash truncate">
                         {shortenAddress(w.address)}
                       </div>
