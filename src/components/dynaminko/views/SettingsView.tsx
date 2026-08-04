@@ -1,54 +1,40 @@
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { Plus, Trash2, Eye, EyeOff, Plug } from "lucide-react";
+import { useInjectedWallet } from "@/hooks/useInjectedWallet";
 import { useLocalStorage } from "@/hooks/useLocalStorage";
 import { ASSETS } from "@/lib/dynaminko-data";
 import { isValidAddress, shortenAddress } from "@/lib/wallet-mock";
-import {
-  autoLabel,
-  mockLiveAddress,
-  newWalletId,
-  type Wallet,
-} from "@/lib/wallets";
+import { autoLabel, newWalletId, type Wallet } from "@/lib/wallets";
 import type { TradeMode } from "./MarketsView";
 import { probeCapabilities, llamaReadiness, type Capability } from "@/lib/capabilities";
 import { useChain } from "@/hooks/useChain";
 import { DataSource } from "../DataSource";
 
 function DataSourceSection() {
-  const { demo, setDemo, status, fetchedAt, refresh, sourceLabel, snapshotList } = useChain();
+  const { status, fetchedAt, refresh, sourceLabel, snapshotList } = useChain();
   return (
     <section className="xl:col-span-2 bg-obsidian border border-hairline">
       <div className="px-4 py-3 border-b border-hairline font-mono text-[10px] uppercase tracking-[0.18em] text-ash flex justify-between">
-        <span>DATA // <span className="text-paper">SOURCE</span></span>
-        <span className="text-ash">{snapshotList.length} wallet snapshot{snapshotList.length === 1 ? "" : "s"}</span>
+        <span>
+          DATA // <span className="text-paper">SOURCE</span>
+        </span>
+        <span className="text-ash">
+          {snapshotList.length} wallet snapshot{snapshotList.length === 1 ? "" : "s"}
+        </span>
       </div>
       <div className="p-4 flex flex-wrap items-center gap-3">
         <button
-          onClick={() => setDemo(!demo)}
-          className={
-            "px-3 py-1.5 font-mono text-[10px] uppercase tracking-widest border focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-lavender " +
-            (demo
-              ? "border-lavender text-lavender bg-lavender/[0.08]"
-              : "border-hairline text-ash hover:text-paper")
-          }
-        >
-          Demo data {demo ? "on" : "off"}
-        </button>
-        <button
           onClick={refresh}
-          disabled={demo}
           className="px-3 py-1.5 font-mono text-[10px] uppercase tracking-widest border border-hairline text-paper hover:border-lavender disabled:opacity-40"
         >
           Refresh chain reads
         </button>
         <p className="text-[11px] text-ash flex-1 min-w-[220px]">
-          {demo
-            ? "Staged fixtures. Nothing is read from Ink while this is on."
-            : "Live read-only reads from the Ink explorer, cached in IndexedDB and parsed in a worker."}
+          Live read-only reads from the Ink explorer, cached in IndexedDB and parsed in a worker.
         </p>
       </div>
-      <DataSource source={sourceLabel} at={fetchedAt} status={status} onRefresh={demo ? undefined : refresh} />
+      <DataSource source={sourceLabel} at={fetchedAt} status={status} onRefresh={refresh} />
     </section>
   );
 }
@@ -59,7 +45,13 @@ type Alert = { id: string; kind: AlertKind; ticker: string; condition: string; e
 const SEED: Alert[] = [
   { id: "a1", kind: "price", ticker: "XMR", condition: "< $150.00", enabled: true },
   { id: "a2", kind: "onchain", ticker: "tLMT", condition: "whale tx > 100k USDC", enabled: true },
-  { id: "a3", kind: "thesis", ticker: "tTSM", condition: "invalidate if breaks $170", enabled: false },
+  {
+    id: "a3",
+    kind: "thesis",
+    ticker: "tTSM",
+    condition: "invalidate if breaks $170",
+    enabled: false,
+  },
 ];
 
 const KIND_LABEL: Record<AlertKind, string> = {
@@ -93,8 +85,11 @@ export function SettingsView({
   });
   const [tradeMode, setTradeMode] = useLocalStorage<TradeMode>("dyn.tradeMode", "spot");
   const [draft, setDraft] = useState("");
+  const injected = useInjectedWallet();
   const [caps, setCaps] = useState<Capability[] | null>(null);
-  useEffect(() => { void probeCapabilities().then(setCaps); }, []);
+  useEffect(() => {
+    void probeCapabilities().then(setCaps);
+  }, []);
 
   const arm = () => {
     if (!condition.trim()) return;
@@ -124,19 +119,33 @@ export function SettingsView({
     ]);
     setDraft("");
   };
-  const connectLive = () => {
-    const addr = mockLiveAddress();
-    onWalletsChange([
-      ...wallets,
-      {
-        id: newWalletId(),
-        address: addr,
-        label: autoLabel(addr, "live"),
-        kind: "live",
-        visible: true,
-        addedAt: Date.now(),
-      },
-    ]);
+  const connectLive = async () => {
+    try {
+      const accounts = await injected.connect();
+      const addr = accounts[0];
+      if (!addr || !isValidAddress(addr)) throw new Error("Wallet did not return an EVM address");
+      const existing = wallets.find((w) => w.address.toLowerCase() === addr.toLowerCase());
+      if (existing) {
+        onWalletsChange(
+          wallets.map((w) => (w.id === existing.id ? { ...w, kind: "live", visible: true } : w)),
+        );
+      } else {
+        onWalletsChange([
+          ...wallets,
+          {
+            id: newWalletId(),
+            address: addr,
+            label: autoLabel(addr, "live"),
+            kind: "live",
+            visible: true,
+            addedAt: Date.now(),
+          },
+        ]);
+      }
+      toast.success(`Connected ${shortenAddress(addr)}`);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Wallet connection failed");
+    }
   };
   const toggleVisible = (id: string) =>
     onWalletsChange(wallets.map((w) => (w.id === id ? { ...w, visible: !w.visible } : w)));
@@ -152,7 +161,9 @@ export function SettingsView({
       {/* Wallets */}
       <section className="xl:col-span-2 bg-obsidian border border-hairline">
         <div className="px-4 py-3 border-b border-hairline font-mono text-[10px] uppercase tracking-[0.18em] text-ash flex justify-between">
-          <span>WALLETS // <span className="text-paper">READ + LIVE</span></span>
+          <span>
+            WALLETS // <span className="text-paper">READ + LIVE</span>
+          </span>
           <span className="text-ash">
             {wallets.filter((w) => w.visible).length}/{wallets.length} visible
           </span>
@@ -180,10 +191,12 @@ export function SettingsView({
             <Plus className="size-3" /> Add read
           </button>
           <button
-            onClick={connectLive}
-            className="flex items-center gap-1.5 px-3 py-1.5 font-mono text-[10px] uppercase tracking-widest border border-mint/60 text-mint hover:bg-mint/[0.08]"
+            onClick={() => void connectLive()}
+            disabled={!injected.available || injected.connecting}
+            className="flex items-center gap-1.5 px-3 py-1.5 font-mono text-[10px] uppercase tracking-widest border border-mint/60 text-mint hover:bg-mint/[0.08] disabled:opacity-40"
           >
-            <Plug className="size-3" /> Connect live (mock)
+            <Plug className="size-3" />{" "}
+            {injected.connecting ? "Connecting…" : `Connect ${injected.name}`}
           </button>
         </div>
 
@@ -221,7 +234,12 @@ export function SettingsView({
                   : "border-hairline hover:border-lavender/60")
               }
             >
-              <div className={"font-mono text-[11px] uppercase tracking-widest " + (tradeMode === m.id ? "text-lavender" : "text-paper")}>
+              <div
+                className={
+                  "font-mono text-[11px] uppercase tracking-widest " +
+                  (tradeMode === m.id ? "text-lavender" : "text-paper")
+                }
+              >
                 {m.label}
               </div>
               <div className="text-[11px] text-ash mt-1">{m.desc}</div>
@@ -262,19 +280,29 @@ export function SettingsView({
       {/* Alerts */}
       <section className="xl:col-span-2 bg-obsidian border border-hairline">
         <div className="px-4 py-3 border-b border-hairline font-mono text-[10px] uppercase tracking-[0.18em] text-ash flex justify-between">
-          <span>ALERTS // <span className="text-paper">PERMISSIONLESS TRIGGERS</span></span>
+          <span>
+            ALERTS // <span className="text-paper">PERMISSIONLESS TRIGGERS</span>
+          </span>
           <span className="text-ash">{alerts.filter((a) => a.enabled).length} armed</span>
         </div>
         <div className="p-4 grid grid-cols-[auto_auto_1fr_auto] gap-2 border-b border-hairline">
-          <select value={kind} onChange={(e) => setKind(e.target.value as AlertKind)}
-            className="bg-onyx border border-hairline px-2 py-1.5 font-mono text-[11px] text-paper">
+          <select
+            value={kind}
+            onChange={(e) => setKind(e.target.value as AlertKind)}
+            className="bg-onyx border border-hairline px-2 py-1.5 font-mono text-[11px] text-paper"
+          >
             <option value="price">PRICE</option>
             <option value="onchain">ON-CHAIN</option>
             <option value="thesis">THESIS</option>
           </select>
-          <select value={ticker} onChange={(e) => setTicker(e.target.value)}
-            className="bg-onyx border border-hairline px-2 py-1.5 font-mono text-[11px] text-paper">
-            {ASSETS.map((a) => <option key={a.ticker}>{a.ticker}</option>)}
+          <select
+            value={ticker}
+            onChange={(e) => setTicker(e.target.value)}
+            className="bg-onyx border border-hairline px-2 py-1.5 font-mono text-[11px] text-paper"
+          >
+            {ASSETS.map((a) => (
+              <option key={a.ticker}>{a.ticker}</option>
+            ))}
           </select>
           <input
             value={condition}
@@ -283,7 +311,10 @@ export function SettingsView({
             className="bg-onyx border border-hairline px-3 py-1.5 font-mono text-[11px] text-paper placeholder:text-ash/50 focus:border-lavender"
           />
           <button
-            onClick={() => { arm(); toast("Alert armed"); }}
+            onClick={() => {
+              arm();
+              toast("Alert armed");
+            }}
             className="flex items-center gap-1.5 px-3 py-1.5 font-mono text-[10px] uppercase tracking-widest border border-lavender text-lavender hover:bg-lavender hover:text-onyx"
           >
             <Plus className="size-3" /> Arm
@@ -293,14 +324,21 @@ export function SettingsView({
           {alerts.map((a) => (
             <div key={a.id} className="px-4 py-3 flex items-center gap-4 group">
               <button
-                onClick={() => setAlerts(alerts.map((x) => x.id === a.id ? { ...x, enabled: !x.enabled } : x))}
-                className={"size-7 grid place-items-center border " + (a.enabled ? "border-mint/60" : "border-hairline")}
+                onClick={() =>
+                  setAlerts(alerts.map((x) => (x.id === a.id ? { ...x, enabled: !x.enabled } : x)))
+                }
+                className={
+                  "size-7 grid place-items-center border " +
+                  (a.enabled ? "border-mint/60" : "border-hairline")
+                }
                 title={a.enabled ? "Disarm" : "Arm"}
               >
                 <span className={"size-1.5 rounded-full " + (a.enabled ? "bg-mint" : "bg-ash")} />
               </button>
               <div className="flex-1 min-w-0 flex items-center gap-3">
-                <span className="font-mono text-[9px] uppercase tracking-widest text-ash">{KIND_LABEL[a.kind]}</span>
+                <span className="font-mono text-[9px] uppercase tracking-widest text-ash">
+                  {KIND_LABEL[a.kind]}
+                </span>
                 <span className="font-mono text-paper">{a.ticker}</span>
                 <span className="font-mono text-[11px] text-ash truncate">{a.condition}</span>
               </div>
@@ -318,13 +356,20 @@ export function SettingsView({
       {/* Runtime capabilities — PWA / WASM / WebGPU / llama.cpp readiness */}
       <section className="xl:col-span-2 bg-obsidian border border-hairline">
         <div className="px-4 py-3 border-b border-hairline font-mono text-[10px] uppercase tracking-[0.18em] text-ash flex justify-between">
-          <span>RUNTIME // <span className="text-paper">BROWSER SUBSTRATE</span></span>
+          <span>
+            RUNTIME // <span className="text-paper">BROWSER SUBSTRATE</span>
+          </span>
           {caps && (
-            <span className={
-              "font-mono " +
-              (llamaReadiness(caps) === "ready" ? "text-mint"
-                : llamaReadiness(caps) === "degraded" ? "text-lavender" : "text-rose")
-            }>
+            <span
+              className={
+                "font-mono " +
+                (llamaReadiness(caps) === "ready"
+                  ? "text-mint"
+                  : llamaReadiness(caps) === "degraded"
+                    ? "text-lavender"
+                    : "text-rose")
+              }
+            >
               llama.cpp: {llamaReadiness(caps).toUpperCase()}
             </span>
           )}
@@ -333,7 +378,9 @@ export function SettingsView({
           {(caps ?? []).map((c) => (
             <div key={c.key} className="border border-hairline p-3">
               <div className="flex items-center justify-between">
-                <span className="font-mono text-[10px] uppercase tracking-widest text-ash">{c.label}</span>
+                <span className="font-mono text-[10px] uppercase tracking-widest text-ash">
+                  {c.label}
+                </span>
                 <span className={"size-1.5 rounded-full " + (c.ok ? "bg-mint" : "bg-rose")} />
               </div>
               <div className={"font-mono text-[11px] mt-1 " + (c.ok ? "text-paper" : "text-ash")}>
@@ -364,7 +411,9 @@ function WalletGroup({
   return (
     <div className="border-b md:border-b-0 md:border-r border-hairline last:border-r-0 last:border-b-0">
       <div className="px-4 py-2 bg-onyx/40 font-mono text-[9px] uppercase tracking-[0.18em] text-ash flex justify-between">
-        <span>{title} <span className="text-paper">// {items.length}</span></span>
+        <span>
+          {title} <span className="text-paper">// {items.length}</span>
+        </span>
       </div>
       {items.length === 0 ? (
         <div className="px-4 py-6 font-mono text-[10px] uppercase tracking-widest text-ash/60 text-center">

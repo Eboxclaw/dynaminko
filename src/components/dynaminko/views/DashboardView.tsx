@@ -24,7 +24,7 @@ export function DashboardView({
   fetchedAt?: number | null;
   onRefresh?: () => void;
 }) {
-  const { holdings, demo, sourceLabel, setDemo } = useChain();
+  const { holdings, demo, sourceLabel } = useChain();
   const visible = wallets.filter((w) => w.visible);
 
   return (
@@ -39,9 +39,7 @@ export function DashboardView({
       {visible.length === 0 ? (
         <EmptyState
           label="No wallet is being tracked."
-          hint="paste a read address in the top bar, or switch on staged demo data"
-          action={demo ? undefined : "Use staged demo data"}
-          onAction={() => setDemo(true)}
+          hint="paste a read address in the top bar or connect an injected wallet; no positions are invented."
         />
       ) : (
         <div className="grid grid-cols-1 xl:grid-cols-12 gap-6">
@@ -68,7 +66,7 @@ export function DashboardView({
               status={status}
             />
             <DataSource
-              source={demo ? "staged demo data" : "ink explorer · token balances"}
+              source="ink explorer · token balances"
               at={fetchedAt}
               status={status}
               onRefresh={onRefresh}

@@ -6,15 +6,9 @@
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { ChevronDown, Layers, Plug, Plus, Wallet as WalletIcon, X } from "lucide-react";
+import { useInjectedWallet } from "@/hooks/useInjectedWallet";
 import { isValidAddress, shortenAddress } from "@/lib/wallet-mock";
-import {
-  activeWallet,
-  autoLabel,
-  mockLiveAddress,
-  newWalletId,
-  withActiveWallet,
-  type Wallet,
-} from "@/lib/wallets";
+import { activeWallet, autoLabel, newWalletId, withActiveWallet, type Wallet } from "@/lib/wallets";
 
 export function WalletSwitcher({
   wallets,
@@ -29,6 +23,7 @@ export function WalletSwitcher({
   const [draft, setDraft] = useState("");
   const rootRef = useRef<HTMLDivElement>(null);
   const active = activeWallet(wallets);
+  const injected = useInjectedWallet();
 
   useEffect(() => {
     if (!open) return;
@@ -71,27 +66,34 @@ export function WalletSwitcher({
 
   // Signing in always wins: the signed wallet becomes active immediately and
   // whatever read wallet was active is unloaded, announced explicitly.
-  const connectSigned = () => {
+  const connectSigned = async () => {
     const previous = active;
-    const addr = mockLiveAddress();
-    const id = newWalletId();
-    onChange([
-      ...wallets.map((w) => ({ ...w, visible: false })),
-      {
-        id,
-        address: addr,
-        label: autoLabel(addr, "live"),
-        kind: "live" as const,
-        visible: true,
-        addedAt: Date.now(),
-      },
-    ]);
-    setOpen(false);
-    toast(
-      previous
-        ? `Switched to signed wallet ${shortenAddress(addr)} — read wallet ${shortenAddress(previous.address)} unloaded.`
-        : `Signed wallet ${shortenAddress(addr)} is now active.`,
-    );
+    try {
+      const accounts = await injected.connect();
+      const addr = accounts[0];
+      if (!addr || !isValidAddress(addr)) throw new Error("Wallet did not return an EVM address");
+      const existing = wallets.find((w) => w.address.toLowerCase() === addr.toLowerCase());
+      const id = existing?.id ?? newWalletId();
+      onChange([
+        ...wallets.filter((w) => w.id !== id).map((w) => ({ ...w, visible: false })),
+        {
+          id,
+          address: addr,
+          label: existing?.label ?? autoLabel(addr, "live"),
+          kind: "live" as const,
+          visible: true,
+          addedAt: existing?.addedAt ?? Date.now(),
+        },
+      ]);
+      setOpen(false);
+      toast(
+        previous
+          ? `Switched to signed wallet ${shortenAddress(addr)} — ${shortenAddress(previous.address)} unloaded.`
+          : `Signed wallet ${shortenAddress(addr)} is now active.`,
+      );
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Wallet connection failed");
+    }
   };
 
   return (
@@ -133,15 +135,17 @@ export function WalletSwitcher({
             <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-ash">
               ACTIVE WALLET // <span className="text-paper">1 OF {wallets.length}</span>
             </span>
-            <button onClick={() => setOpen(false)} className="text-ash hover:text-paper" aria-label="Close">
+            <button
+              onClick={() => setOpen(false)}
+              className="text-ash hover:text-paper"
+              aria-label="Close"
+            >
               <X className="size-3.5" />
             </button>
           </div>
 
           {wallets.length === 0 ? (
-            <div className="px-3 py-4 font-mono text-[10px] text-ash">
-              No wallets tracked yet.
-            </div>
+            <div className="px-3 py-4 font-mono text-[10px] text-ash">No wallets tracked yet.</div>
           ) : (
             <div>
               {wallets.map((w) => {
@@ -162,7 +166,11 @@ export function WalletSwitcher({
                       }
                     />
                     <div className="min-w-0">
-                      <div className={"font-mono text-[11px] truncate " + (isActive ? "text-paper" : "text-ash")}>
+                      <div
+                        className={
+                          "font-mono text-[11px] truncate " + (isActive ? "text-paper" : "text-ash")
+                        }
+                      >
                         {w.label}
                       </div>
                       <div className="font-mono text-[9px] text-ash truncate">
@@ -219,10 +227,12 @@ export function WalletSwitcher({
               </button>
             </div>
             <button
-              onClick={connectSigned}
-              className="w-full flex items-center justify-center gap-2 px-2 py-1.5 font-mono text-[10px] uppercase tracking-widest border border-mint/50 text-mint hover:bg-mint/[0.06]"
+              onClick={() => void connectSigned()}
+              disabled={!injected.available || injected.connecting}
+              className="w-full flex items-center justify-center gap-2 px-2 py-1.5 font-mono text-[10px] uppercase tracking-widest border border-mint/50 text-mint hover:bg-mint/[0.06] disabled:opacity-40"
             >
-              <Plug className="size-3" /> Sign in with wallet (mock)
+              <Plug className="size-3" />{" "}
+              {injected.connecting ? "Connecting…" : `Sign in with ${injected.name}`}
             </button>
             <p className="font-mono text-[9px] uppercase tracking-[0.14em] text-ash/70 leading-relaxed">
               one active wallet at a time · manage the roster in settings
