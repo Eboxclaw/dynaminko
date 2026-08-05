@@ -10,6 +10,7 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as ThesesRouteImport } from './routes/theses'
+import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as PortfolioRouteImport } from './routes/portfolio'
 import { Route as JournalRouteImport } from './routes/journal'
 import { Route as AlertsRouteImport } from './routes/alerts'
@@ -18,6 +19,11 @@ import { Route as IndexRouteImport } from './routes/index'
 const ThesesRoute = ThesesRouteImport.update({
   id: '/theses',
   path: '/theses',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SettingsRoute = SettingsRouteImport.update({
+  id: '/settings',
+  path: '/settings',
   getParentRoute: () => rootRouteImport,
 } as any)
 const PortfolioRoute = PortfolioRouteImport.update({
@@ -46,6 +52,7 @@ export interface FileRoutesByFullPath {
   '/alerts': typeof AlertsRoute
   '/journal': typeof JournalRoute
   '/portfolio': typeof PortfolioRoute
+  '/settings': typeof SettingsRoute
   '/theses': typeof ThesesRoute
 }
 export interface FileRoutesByTo {
@@ -53,6 +60,7 @@ export interface FileRoutesByTo {
   '/alerts': typeof AlertsRoute
   '/journal': typeof JournalRoute
   '/portfolio': typeof PortfolioRoute
+  '/settings': typeof SettingsRoute
   '/theses': typeof ThesesRoute
 }
 export interface FileRoutesById {
@@ -61,14 +69,28 @@ export interface FileRoutesById {
   '/alerts': typeof AlertsRoute
   '/journal': typeof JournalRoute
   '/portfolio': typeof PortfolioRoute
+  '/settings': typeof SettingsRoute
   '/theses': typeof ThesesRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/alerts' | '/journal' | '/portfolio' | '/theses'
+  fullPaths:
+    | '/'
+    | '/alerts'
+    | '/journal'
+    | '/portfolio'
+    | '/settings'
+    | '/theses'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/alerts' | '/journal' | '/portfolio' | '/theses'
-  id: '__root__' | '/' | '/alerts' | '/journal' | '/portfolio' | '/theses'
+  to: '/' | '/alerts' | '/journal' | '/portfolio' | '/settings' | '/theses'
+  id:
+    | '__root__'
+    | '/'
+    | '/alerts'
+    | '/journal'
+    | '/portfolio'
+    | '/settings'
+    | '/theses'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -76,6 +98,7 @@ export interface RootRouteChildren {
   AlertsRoute: typeof AlertsRoute
   JournalRoute: typeof JournalRoute
   PortfolioRoute: typeof PortfolioRoute
+  SettingsRoute: typeof SettingsRoute
   ThesesRoute: typeof ThesesRoute
 }
 
@@ -86,6 +109,13 @@ declare module '@tanstack/react-router' {
       path: '/theses'
       fullPath: '/theses'
       preLoaderRoute: typeof ThesesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/settings': {
+      id: '/settings'
+      path: '/settings'
+      fullPath: '/settings'
+      preLoaderRoute: typeof SettingsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/portfolio': {
@@ -124,6 +154,7 @@ const rootRouteChildren: RootRouteChildren = {
   AlertsRoute: AlertsRoute,
   JournalRoute: JournalRoute,
   PortfolioRoute: PortfolioRoute,
+  SettingsRoute: SettingsRoute,
   ThesesRoute: ThesesRoute,
 }
 export const routeTree = rootRouteImport
