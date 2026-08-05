@@ -9,6 +9,7 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as TradeRouteImport } from './routes/trade'
 import { Route as ThesesRouteImport } from './routes/theses'
 import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as PortfolioRouteImport } from './routes/portfolio'
@@ -16,6 +17,11 @@ import { Route as JournalRouteImport } from './routes/journal'
 import { Route as AlertsRouteImport } from './routes/alerts'
 import { Route as IndexRouteImport } from './routes/index'
 
+const TradeRoute = TradeRouteImport.update({
+  id: '/trade',
+  path: '/trade',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ThesesRoute = ThesesRouteImport.update({
   id: '/theses',
   path: '/theses',
@@ -54,6 +60,7 @@ export interface FileRoutesByFullPath {
   '/portfolio': typeof PortfolioRoute
   '/settings': typeof SettingsRoute
   '/theses': typeof ThesesRoute
+  '/trade': typeof TradeRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -62,6 +69,7 @@ export interface FileRoutesByTo {
   '/portfolio': typeof PortfolioRoute
   '/settings': typeof SettingsRoute
   '/theses': typeof ThesesRoute
+  '/trade': typeof TradeRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -71,6 +79,7 @@ export interface FileRoutesById {
   '/portfolio': typeof PortfolioRoute
   '/settings': typeof SettingsRoute
   '/theses': typeof ThesesRoute
+  '/trade': typeof TradeRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -81,8 +90,16 @@ export interface FileRouteTypes {
     | '/portfolio'
     | '/settings'
     | '/theses'
+    | '/trade'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/alerts' | '/journal' | '/portfolio' | '/settings' | '/theses'
+  to:
+    | '/'
+    | '/alerts'
+    | '/journal'
+    | '/portfolio'
+    | '/settings'
+    | '/theses'
+    | '/trade'
   id:
     | '__root__'
     | '/'
@@ -91,6 +108,7 @@ export interface FileRouteTypes {
     | '/portfolio'
     | '/settings'
     | '/theses'
+    | '/trade'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -100,10 +118,18 @@ export interface RootRouteChildren {
   PortfolioRoute: typeof PortfolioRoute
   SettingsRoute: typeof SettingsRoute
   ThesesRoute: typeof ThesesRoute
+  TradeRoute: typeof TradeRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/trade': {
+      id: '/trade'
+      path: '/trade'
+      fullPath: '/trade'
+      preLoaderRoute: typeof TradeRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/theses': {
       id: '/theses'
       path: '/theses'
@@ -156,6 +182,7 @@ const rootRouteChildren: RootRouteChildren = {
   PortfolioRoute: PortfolioRoute,
   SettingsRoute: SettingsRoute,
   ThesesRoute: ThesesRoute,
+  TradeRoute: TradeRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
