@@ -1,194 +1,175 @@
-@import "tailwindcss" source(none);
-@source "../src";
-@import "tw-animate-css";
+@import "tailwindcss";
 
-@custom-variant dark (&:is(.dark *));
+@custom-variant dark (&:where(.dark, .dark *));
 
-@theme inline {
-  --radius-sm: calc(var(--radius) - 4px);
-  --radius-md: calc(var(--radius) - 2px);
-  --radius-lg: var(--radius);
-  --radius-xl: calc(var(--radius) + 4px);
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --color-card: var(--card);
-  --color-card-foreground: var(--card-foreground);
-  --color-popover: var(--popover);
-  --color-popover-foreground: var(--popover-foreground);
-  --color-primary: var(--primary);
-  --color-primary-foreground: var(--primary-foreground);
-  --color-secondary: var(--secondary);
-  --color-secondary-foreground: var(--secondary-foreground);
-  --color-muted: var(--muted);
-  --color-muted-foreground: var(--muted-foreground);
-  --color-accent: var(--accent);
-  --color-accent-foreground: var(--accent-foreground);
-  --color-destructive: var(--destructive);
-  --color-destructive-foreground: var(--destructive-foreground);
-  --color-border: var(--border);
-  --color-input: var(--input);
-  --color-ring: var(--ring);
-
-  /* Dynaminko palette — strict tokens, no other colors in components */
-  --color-onyx: #0A0A0C;
-  --color-obsidian: #151318;
-  --color-hairline: #2A2830;
-  --color-lavender: #B6A5F0;
-  --color-mint: #4FF7B4;
-  --color-rose: #C97C74;
-  --color-paper: #F5F4F7;
-  --color-ash: #8B8894;
-
-  --font-sans: 'IBM Plex Sans', system-ui, sans-serif;
-  --font-mono: 'IBM Plex Mono', ui-monospace, monospace;
+/* ── tokens ────────────────────────────────────────────────────────────── */
+:root {
+  --paper: oklch(0.962 0.004 85);
+  --paper-raised: oklch(0.985 0.003 85);
+  --paper-sunken: oklch(0.925 0.005 85);
+  --ink: oklch(0.235 0.006 60);
+  --ink-soft: oklch(0.5 0.008 60);
+  --ink-faint: oklch(0.68 0.006 60);
+  --stroke: oklch(0.83 0.006 60);
+  --stroke-strong: oklch(0.62 0.008 60);
+  --accent: oklch(0.63 0.14 45);
+  --accent-soft: oklch(0.9 0.045 60);
+  --gain: oklch(0.62 0.13 165);
+  --loss: oklch(0.6 0.14 20);
+  --shadow-card: 0 1px 0 oklch(0.99 0 0 / 0.7) inset, 0 10px 30px -18px oklch(0.2 0.01 60 / 0.55);
+  --radius: 1.25rem;
 }
 
-:root {
-  --radius: 0;
-  --background: #0A0A0C;
-  --foreground: #F5F4F7;
-  --card: #151318;
-  --card-foreground: #F5F4F7;
-  --popover: #151318;
-  --popover-foreground: #F5F4F7;
-  --primary: #B6A5F0;
-  --primary-foreground: #0A0A0C;
-  --secondary: #151318;
-  --secondary-foreground: #F5F4F7;
-  --muted: #151318;
-  --muted-foreground: #8B8894;
-  --accent: #B6A5F0;
-  --accent-foreground: #0A0A0C;
-  --destructive: #C97C74;
-  --destructive-foreground: #F5F4F7;
-  --border: #2A2830;
-  --input: #2A2830;
-  --ring: #B6A5F0;
+.dark {
+  --paper: oklch(0.185 0.005 60);
+  --paper-raised: oklch(0.225 0.006 60);
+  --paper-sunken: oklch(0.15 0.005 60);
+  --ink: oklch(0.945 0.004 85);
+  --ink-soft: oklch(0.76 0.006 70);
+  --ink-faint: oklch(0.56 0.006 70);
+  --stroke: oklch(0.34 0.007 60);
+  --stroke-strong: oklch(0.52 0.008 60);
+  --accent: oklch(0.76 0.13 55);
+  --accent-soft: oklch(0.32 0.04 55);
+  --gain: oklch(0.75 0.13 165);
+  --loss: oklch(0.7 0.13 22);
+  --shadow-card: 0 1px 0 oklch(1 0 0 / 0.04) inset, 0 14px 34px -22px oklch(0 0 0 / 0.8);
+}
+
+@theme inline {
+  --color-paper: var(--paper);
+  --color-raised: var(--paper-raised);
+  --color-sunken: var(--paper-sunken);
+  --color-ink: var(--ink);
+  --color-ink-soft: var(--ink-soft);
+  --color-ink-faint: var(--ink-faint);
+  --color-stroke: var(--stroke);
+  --color-stroke-strong: var(--stroke-strong);
+  --color-accent: var(--accent);
+  --color-accent-soft: var(--accent-soft);
+  --color-gain: var(--gain);
+  --color-loss: var(--loss);
+
+  --font-sans: "Outfit", ui-sans-serif, system-ui, sans-serif;
+  --font-hand: "Caveat", "Outfit", cursive;
+  --font-mono: "IBM Plex Mono", ui-monospace, monospace;
+
+  --radius-doodle: 1.25rem;
 }
 
 @layer base {
   * {
-    border-color: var(--color-hairline);
+    border-color: var(--stroke);
   }
-  html, body {
-    background-color: var(--color-onyx);
-    color: var(--color-paper);
+  html {
+    -webkit-tap-highlight-color: transparent;
+  }
+  body {
+    background-color: var(--paper);
+    color: var(--ink);
     font-family: var(--font-sans);
-    -webkit-font-smoothing: antialiased;
+    font-feature-settings: "ss01";
+    overscroll-behavior-y: none;
   }
-  ::selection { background: rgba(182,165,240,0.28); color: #F5F4F7; }
-  button, a, input, textarea, select {
-    outline: none;
-  }
-  *:focus-visible {
-    outline: 1px solid var(--color-lavender);
-    outline-offset: 2px;
+  ::selection {
+    background: var(--accent-soft);
   }
 }
 
-/* ============ Signature: dossier card clipped corner ============ */
-.dyn-dossier {
-  position: relative;
-  background: var(--color-obsidian);
-  border: 1px solid var(--color-hairline);
-  clip-path: polygon(0 0, calc(100% - 14px) 0, 100% 14px, 100% 100%, 0 100%);
-}
-.dyn-dossier::after {
-  content: "";
-  position: absolute;
-  top: 0; right: 0;
-  width: 20px; height: 20px;
-  background: linear-gradient(225deg, transparent 50%, var(--color-hairline) 50%, var(--color-hairline) 52%, transparent 52%);
-  pointer-events: none;
+/* ── doodle language ───────────────────────────────────────────────────── */
+
+/* hand-drawn-feeling card: uneven radius + soft paper shadow */
+@utility doodle-card {
+  background: var(--paper-raised);
+  border: 1.5px solid var(--stroke);
+  border-radius: 22px 20px 24px 19px / 20px 24px 19px 23px;
+  box-shadow: var(--shadow-card);
 }
 
-/* ============ Diamondmorphism (used sparingly) ============ */
-.dyn-diamond-surface {
-  position: relative;
-  background:
-    linear-gradient(135deg, rgba(182,165,240,0.08) 0%, rgba(21,19,24,0.9) 40%, rgba(10,10,12,0.95) 100%);
-  border: 1px solid rgba(182,165,240,0.28);
-  overflow: hidden;
-}
-.dyn-diamond-surface::before {
-  /* faceted glint */
-  content: "";
-  position: absolute; inset: 0;
-  background:
-    linear-gradient(115deg, transparent 0%, transparent 45%, rgba(182,165,240,0.35) 47%, transparent 49%, transparent 60%, rgba(182,165,240,0.18) 62%, transparent 64%),
-    linear-gradient(65deg, transparent 30%, rgba(255,255,255,0.06) 50%, transparent 55%);
-  pointer-events: none;
+@utility doodle-inset {
+  background: var(--paper-sunken);
+  border: 1.5px solid var(--stroke);
+  border-radius: 18px 20px 17px 21px / 20px 17px 21px 18px;
 }
 
-/* ============ Motion ============ */
-@keyframes dyn-boot-fade {
-  0%, 88% { opacity: 1; }
-  100% { opacity: 0; visibility: hidden; }
+@utility doodle-pill {
+  border: 1.5px solid var(--stroke);
+  border-radius: 999px 999px 999px 999px / 40px 999px 40px 999px;
 }
-@keyframes dyn-scanline {
-  0% { transform: translateY(-10vh); opacity: 0; }
-  10% { opacity: 1; }
-  90% { opacity: 1; }
-  100% { transform: translateY(110vh); opacity: 0; }
+
+@utility scribble-underline {
+  background-image: linear-gradient(transparent 60%, var(--accent-soft) 60%);
+  background-size: 100% 100%;
 }
-@keyframes dyn-blink { 0%,49%{opacity:1} 50%,100%{opacity:0} }
-@keyframes dyn-pulse-dot {
-  0%,100% { opacity: 1; transform: scale(1); }
-  50% { opacity: 0.4; transform: scale(0.8); }
+
+@utility no-scrollbar {
+  scrollbar-width: none;
+  &::-webkit-scrollbar {
+    display: none;
+  }
 }
-@keyframes dyn-rotate-diamond {
-  from { transform: rotateX(-20deg) rotateY(0deg); }
-  to   { transform: rotateX(-20deg) rotateY(360deg); }
+
+@utility num {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
 }
-@keyframes dyn-assemble {
-  0%   { opacity: 0; transform: rotateX(-20deg) rotateY(0deg) scale(0.4); filter: blur(6px); }
-  60%  { opacity: 1; filter: blur(0); }
-  100% { opacity: 1; transform: rotateX(-20deg) rotateY(180deg) scale(1); filter: blur(0); }
+
+/* ── motion ────────────────────────────────────────────────────────────── */
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
 }
-@keyframes dyn-slide-in {
-  from { opacity: 0; transform: translateY(6px); }
-  to   { opacity: 1; transform: translateY(0); }
+@keyframes fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
 }
-.dyn-caret { animation: dyn-blink 1s steps(1) infinite; }
-.dyn-fade-in { animation: dyn-slide-in 0.35s ease-out both; }
+@keyframes draw {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+@keyframes bob {
+  0%,
+  100% {
+    transform: translateY(0) rotate(-0.4deg);
+  }
+  50% {
+    transform: translateY(-4px) rotate(0.4deg);
+  }
+}
+
+@utility animate-rise {
+  animation: rise 0.55s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+@utility animate-fade {
+  animation: fade 0.6s ease both;
+}
+@utility animate-bob {
+  animation: bob 6s ease-in-out infinite;
+}
+@utility draw-stroke {
+  stroke-dasharray: 1200;
+  stroke-dashoffset: 1200;
+  animation: draw 1.6s cubic-bezier(0.3, 0.8, 0.3, 1) forwards;
+}
 
 @media (prefers-reduced-motion: reduce) {
-  .dyn-rotate-3d,
-  .dyn-diamond-rotate,
-  .dyn-boot-overlay,
-  .dyn-boot-scanline,
-  .dyn-boot-assembly,
-  .dyn-fade-in,
-  [style*="dyn-boot-fade"],
-  [style*="dyn-scanline"],
-  [style*="dyn-assemble"],
-  [style*="dyn-pulse-dot"],
-  [style*="dyn-slide-in"] {
-    animation: none !important;
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
   }
 }
-
-/* Agent console form atoms */
-.input-line {
-  width: 100%;
-  background: transparent;
-  border: 1px solid var(--color-hairline, rgba(255, 255, 255, 0.08));
-  color: var(--color-paper, #f4f4f5);
-  font-family: var(--font-mono, monospace);
-  font-size: 12px;
-  padding: 0.5rem 0.65rem;
-  outline: none;
-}
-.input-line:focus {
-  border-color: rgba(182, 165, 240, 0.5);
-}
-.btn-ghost {
-  border: 1px solid var(--color-hairline, rgba(255, 255, 255, 0.08));
-  padding: 0.5rem 1.25rem;
-  font-family: var(--font-mono, monospace);
-  font-size: 10px;
-  letter-spacing: 0.18em;
-  text-transform: uppercase;
-}
-.scrollbar-none::-webkit-scrollbar { display: none; }
-.scrollbar-none { scrollbar-width: none; }

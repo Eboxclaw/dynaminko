@@ -1,199 +1,175 @@
-import { createFileRoute } from "@tanstack/react-router";
-import { useEffect, useMemo, useState } from "react";
-import { Toaster } from "sonner";
+import { createFileRoute, Link } from "@tanstack/react-router";
 
-import { BootSequence } from "@/components/dynaminko/BootSequence";
-import { Sidebar, type ViewId } from "@/components/dynaminko/Sidebar";
-import { MobileTabBar } from "@/components/dynaminko/MobileTabBar";
-import { TopBar } from "@/components/dynaminko/TopBar";
-import { QuickCapture } from "@/components/dynaminko/QuickCapture";
-import { DashboardView } from "@/components/dynaminko/views/DashboardView";
-import { MarketsView } from "@/components/dynaminko/views/MarketsView";
-import { TerminalView } from "@/components/dynaminko/views/TerminalView";
-import { ThesesView, unreviewedCount, type Thesis } from "@/components/dynaminko/views/ThesesView";
-import { DpiView } from "@/components/dynaminko/views/DpiView";
-import { VaultView } from "@/components/dynaminko/views/VaultView";
-import { SettingsView } from "@/components/dynaminko/views/SettingsView";
-import { AgentsView } from "@/components/dynaminko/views/AgentsView";
-import { useLocalStorage } from "@/hooks/useLocalStorage";
-import { useJournal } from "@/hooks/useJournal";
-import { ChainProvider, useChain } from "@/hooks/useChain";
-import { totalBalance } from "@/lib/dynaminko-data";
-import { isValidAddress } from "@/lib/wallet-mock";
-import {
-  autoLabel,
-  newWalletId,
-  type Wallet,
-} from "@/lib/wallets";
+import { Shell } from "@/components/pot/Shell";
+import { WalletPanel } from "@/components/pot/WalletChip";
+import { useDoc } from "@/hooks/useDoc";
+import { useActiveWallet, usePortfolio } from "@/hooks/usePortfolio";
+import { greeting, relativeTime, usd } from "@/lib/format";
+import { SECTOR_BY_ID } from "@/lib/sectors";
+import { walletKey } from "@/lib/store";
 
 export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
-      { title: "Proof of Thesis — Reconcile every trade · by INKO" },
+      { title: "Today — Proof of Thesis" },
       {
         name: "description",
         content:
-          "POT captures your thesis first, auto-fetches trades from Ink Chain, and reconciles the two into a performance score you can defend.",
+          "Your wallet, your open theses and the trades still waiting for a reason, in one calm page.",
       },
-      { property: "og:title", content: "Proof of Thesis — Reconcile every trade · by INKO" },
+      { property: "og:title", content: "Today — Proof of Thesis" },
       {
         property: "og:description",
-        content:
-          "POT captures your thesis first, auto-fetches trades from Ink Chain, and reconciles the two into a performance score you can defend.",
+        content: "Your wallet, your open theses and the trades still waiting for a reason.",
       },
-      { property: "og:type", content: "website" },
-      { name: "twitter:card", content: "summary_large_image" },
     ],
   }),
-
-  component: Index,
+  component: Today,
 });
 
-function Index() {
-  const [wallets, setWallets] = useLocalStorage<Wallet[]>("dyn.wallets", []);
+function Today() {
+  const doc = useDoc();
+  const { wallets, active } = useActiveWallet();
+  const { portfolio, trades, isFetching, fetchedAt } = usePortfolio();
 
-  // One-time migration: old single-wallet key → wallets array
-  useEffect(() => {
-    if (wallets.length > 0) return;
-    try {
-      const raw = window.localStorage.getItem("dyn.wallet");
-      if (!raw) return;
-      const addr = JSON.parse(raw) as string;
-      if (typeof addr === "string" && isValidAddress(addr)) {
-        setWallets([
-          {
-            id: newWalletId(),
-            address: addr,
-            label: autoLabel(addr, "read"),
-            kind: "read",
-            visible: true,
-            addedAt: Date.now(),
-          },
-        ]);
-        window.localStorage.removeItem("dyn.wallet");
+  const answered = new Set(doc.entries.map((e) => e.tradeId).filter(Boolean));
+  const dismissed = new Set(doc.settings.dismissedTrades);
+  const waiting = trades.filter((t) => !answered.has(t.id) && !dismissed.has(t.id));
+  const hidden = doc.settings.hideBalances;
+
+  return (
+    <Shell
+      title={`${greeting()}.`}
+      subtitle={
+        active
+          ? isFetching
+            ? "reading your wallet…"
+            : fetchedAt
+              ? `updated ${relativeTime(fetchedAt)}`
+              : undefined
+          : "let's start with a wallet"
       }
-    } catch {
-      /* ignore */
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    >
+      {wallets.length === 0 ? (
+        <section className="doodle-card animate-rise overflow-hidden p-6">
+          <p className="font-hand text-2xl text-accent">First, a wallet.</p>
+          <p className="mt-1 max-w-md text-[15px] text-ink-soft">
+            Paste an address to watch or connect one you already have. Everything you write
+            afterwards stays on this device.
+          </p>
+          <div className="mt-4 doodle-inset">
+            <WalletPanel wallets={wallets} activeKey={null} />
+          </div>
+        </section>
+      ) : (
+        <div className="space-y-5">
+          <section className="doodle-card animate-rise p-5">
+            <p className="text-[12px] uppercase tracking-wide text-ink-faint">Portfolio</p>
+            <p className="num mt-1 text-4xl font-semibold tracking-tight">
+              {portfolio.priced ? usd(portfolio.total, hidden) : "—"}
+            </p>
+            <div className="mt-4 flex flex-wrap gap-2">
+              {portfolio.slices.slice(0, 4).map((s) => (
+                <span key={s.sector} className="doodle-pill px-3 py-1 text-[12px] text-ink-soft">
+                  {SECTOR_BY_ID[s.sector]?.label ?? s.sector}
+                  <span className="num ml-2 text-ink">{Math.round(s.share * 100)}%</span>
+                </span>
+              ))}
+              {portfolio.slices.length === 0 && (
+                <span className="text-[13px] text-ink-faint">
+                  No priced holdings on this wallet yet.
+                </span>
+              )}
+            </div>
+            <Link
+              to="/portfolio"
+              className="mt-4 inline-block text-[13px] font-medium text-accent underline-offset-4 hover:underline"
+            >
+              See the breakdown →
+            </Link>
+          </section>
 
-  return (
-    <ChainProvider wallets={wallets}>
-      <Shell wallets={wallets} setWallets={setWallets} />
-    </ChainProvider>
-  );
-}
+          <section
+            className="doodle-card animate-rise p-5"
+            style={{ animationDelay: "60ms" }}
+          >
+            <div className="flex items-baseline justify-between">
+              <p className="text-[15px] font-semibold">Waiting for a reason</p>
+              <span className="num text-[13px] text-ink-faint">{waiting.length}</span>
+            </div>
+            {waiting.length === 0 ? (
+              <p className="mt-2 text-[14px] text-ink-soft">
+                Nothing unexplained. Every move on this wallet has a note next to it.
+              </p>
+            ) : (
+              <ul className="mt-3 space-y-2">
+                {waiting.slice(0, 4).map((t) => (
+                  <li key={t.id} className="doodle-inset flex items-center gap-3 px-3 py-2.5">
+                    <span
+                      className={
+                        t.side === "in"
+                          ? "num text-[13px] text-gain"
+                          : "num text-[13px] text-loss"
+                      }
+                    >
+                      {t.side === "in" ? "+" : "−"}
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-[14px]">
+                        {t.symbol}{" "}
+                        <span className="text-ink-faint">
+                          {t.value != null ? usd(t.value, hidden) : ""}
+                        </span>
+                      </span>
+                      <span className="text-[12px] text-ink-faint">{relativeTime(t.ts)}</span>
+                    </span>
+                    <Link
+                      to="/journal"
+                      className="doodle-pill px-3 py-1 text-[12px] font-medium hover:bg-accent-soft"
+                    >
+                      Explain
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
 
-function Shell({
-  wallets,
-  setWallets,
-}: {
-  wallets: Wallet[];
-  setWallets: (next: Wallet[] | ((prev: Wallet[]) => Wallet[])) => void;
-}) {
-  const [view, setView] = useState<ViewId>("dashboard");
-  const [balanceHidden, setBalanceHidden] = useState(false);
-  const [quickOpen, setQuickOpen] = useState(false);
-  const [thesesCompose, setThesesCompose] = useState(false);
-  const [theses] = useLocalStorage<Thesis[]>("dyn.theses", []);
-
-  const { positions, snapshots, demo, status, fetchedAt, refresh } = useChain();
-  const { pending: pendingJournal } = useJournal(wallets, snapshots, demo);
-  const badge = unreviewedCount(theses) + pendingJournal.length;
-
-  const balance = useMemo(
-    () => totalBalance(positions ?? undefined),
-    // price overlay mutates ASSETS, so re-derive whenever a sync lands
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [positions, fetchedAt],
-  );
-
-  const navigate = (v: ViewId, intent?: "new-thesis" | "ask") => {
-    setView(v);
-    if (v === "journal" && intent === "new-thesis") setThesesCompose(true);
-  };
-
-
-  return (
-    <div className="min-h-screen bg-onyx text-paper flex">
-      <BootSequence />
-      <Toaster
-        theme="dark"
-        position="bottom-left"
-        toastOptions={{
-          style: {
-            background: "#151318",
-            border: "1px solid #2A2830",
-            color: "#F5F4F7",
-            fontFamily: "'IBM Plex Mono', monospace",
-            fontSize: "11px",
-            borderRadius: 0,
-          },
-        }}
-      />
-
-      <Sidebar active={view} onSelect={setView} journalBadge={badge} />
-
-      <main className="flex-1 flex flex-col min-w-0 pb-16 md:pb-0">
-        <TopBar
-          balance={balance}
-          balanceHidden={balanceHidden}
-          onToggleBalance={() => setBalanceHidden((v) => !v)}
-          onQuickCapture={() => setQuickOpen(true)}
-          wallets={wallets}
-          onWalletsChange={setWallets}
-        />
-
-        <div className="flex-1 overflow-y-auto">
-          {view === "dashboard" && (
-            <DashboardView
-              hidden={balanceHidden}
-              wallets={wallets}
-              onWalletsChange={setWallets}
-              positions={positions}
-              status={status}
-              fetchedAt={fetchedAt}
-              onRefresh={refresh}
-            />
-          )}
-          {view === "markets" && <MarketsView />}
-          {view === "terminal" && <TerminalView />}
-          {view === "journal" && (
-            <ThesesView
-              key={thesesCompose ? "compose" : "list"}
-              initialCompose={thesesCompose}
-              wallets={wallets}
-            />
-          )}
-          {view === "score" && <DpiView wallets={wallets} />}
-          {view === "vault" && <VaultView />}
-          {view === "agents" && <AgentsView />}
-          {view === "settings" && (
-            <SettingsView wallets={wallets} onWalletsChange={setWallets} />
-          )}
+          <section
+            className="doodle-card animate-rise p-5"
+            style={{ animationDelay: "120ms" }}
+          >
+            <p className="text-[15px] font-semibold">Open theses</p>
+            {doc.theses.length === 0 ? (
+              <p className="mt-2 text-[14px] text-ink-soft">
+                Write one line about what you believe. It becomes the thing your trades are
+                measured against.{" "}
+                <Link to="/theses" className="text-accent underline-offset-4 hover:underline">
+                  Start one
+                </Link>
+                .
+              </p>
+            ) : (
+              <ul className="mt-3 space-y-2">
+                {doc.theses
+                  .filter((t) => t.status === "open")
+                  .slice(0, 3)
+                  .map((t) => (
+                    <li key={t.id} className="doodle-inset px-3 py-2.5">
+                      <p className="text-[14px]">{t.title}</p>
+                      <p className="text-[12px] text-ink-faint">
+                        {t.symbols.join(" · ") || "no tickers"} · {relativeTime(t.updatedAt)}
+                      </p>
+                    </li>
+                  ))}
+              </ul>
+            )}
+          </section>
         </div>
-
-        <footer className="hidden md:block border-t border-hairline px-6 py-3 font-mono text-[9px] uppercase tracking-[0.28em] text-ash text-center">
-          PROOF OF THESIS // BY INKO // THESIS-FIRST RECONCILIATION ON INK CHAIN
-        </footer>
-      </main>
-
-      <MobileTabBar
-        active={view}
-        onSelect={(v) => {
-          setView(v);
-          setThesesCompose(false);
-        }}
-        journalBadge={badge}
-        onQuickCapture={() => setQuickOpen(true)}
-      />
-
-      <QuickCapture
-        open={quickOpen}
-        onClose={() => setQuickOpen(false)}
-        onNavigate={navigate}
-      />
-    </div>
+      )}
+      <p className="mt-6 text-center font-hand text-[15px] text-ink-faint">
+        {active ? walletKey(active.chainId, active.address).split(":")[0] : ""}
+      </p>
+    </Shell>
   );
 }

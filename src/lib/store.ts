@@ -1,0 +1,315 @@
+// Local-first store. Everything the user writes lives in localStorage under a
+// single versioned document, with a subscription so every hook stays in sync.
+// No accounts, no server, no network.
+
+export type Sentiment = "conviction" | "reactive" | "hedge" | "fomo" | "rebalance";
+export type Emotion = "calm" | "anxious" | "excited" | "uncertain";
+export type Alignment = "aligned" | "partial" | "deviated" | "no_thesis";
+export type Sizing = "starter" | "full" | "adding" | "oversized";
+
+export type Thesis = {
+  id: string;
+  title: string;
+  body: string;
+  symbols: string[];
+  sector: string | null;
+  horizon: "days" | "weeks" | "months" | "years";
+  conviction: number; // 1..5
+  status: "open" | "played-out" | "invalidated";
+  createdAt: number;
+  updatedAt: number;
+};
+
+export type Entry = {
+  id: string;
+  /** chain event this reconciles, when it came from the wallet */
+  tradeId: string | null;
+  thesisId: string | null;
+  headline: string;
+  body: string;
+  alignment: Alignment | null;
+  sentiment: Sentiment | null;
+  sizing: Sizing | null;
+  emotion: Emotion | null;
+  confidence: number; // 1..5
+  createdAt: number;
+};
+
+export type Alert = {
+  id: string;
+  kind: "price" | "onchain" | "thesis-review";
+  symbol: string | null;
+  /** price alerts */
+  direction: "above" | "below";
+  target: number | null;
+  /** thesis-review alerts */
+  thesisId: string | null;
+  everyDays: number | null;
+  note: string;
+  enabled: boolean;
+  lastFiredAt: number | null;
+  createdAt: number;
+};
+
+export type WalletRef = {
+  address: string;
+  chainId: number;
+  label: string;
+  kind: "watch" | "connected";
+  addedAt: number;
+};
+
+export type Settings = {
+  hideBalances: boolean;
+  theme: "light" | "dark";
+  aiEnabled: boolean;
+  aiModelId: string;
+  onboarded: boolean;
+  /** tradeIds the user explicitly dismissed from the inbox */
+  dismissedTrades: string[];
+};
+
+export type PotDoc = {
+  version: 1;
+  theses: Thesis[];
+  entries: Entry[];
+  alerts: Alert[];
+  wallets: WalletRef[];
+  activeWallet: string | null; // `${chainId}:${address}`
+  settings: Settings;
+};
+
+export const EMPTY_DOC: PotDoc = {
+  version: 1,
+  theses: [],
+  entries: [],
+  alerts: [],
+  wallets: [],
+  activeWallet: null,
+  settings: {
+    hideBalances: false,
+    theme: "light",
+    aiEnabled: false,
+    aiModelId: "smol-360",
+    onboarded: false,
+    dismissedTrades: [],
+  },
+};
+
+const KEY = "pot.doc.v1";
+
+let doc: PotDoc = EMPTY_DOC;
+let loaded = false;
+const listeners = new Set<() => void>();
+
+function read(): PotDoc {
+  if (typeof localStorage === "undefined") return EMPTY_DOC;
+  try {
+    const raw = localStorage.getItem(KEY);
+    if (!raw) return EMPTY_DOC;
+    const parsed = JSON.parse(raw) as Partial<PotDoc>;
+    return {
+      ...EMPTY_DOC,
+      ...parsed,
+      settings: { ...EMPTY_DOC.settings, ...(parsed.settings ?? {}) },
+    } as PotDoc;
+  } catch {
+    return EMPTY_DOC;
+  }
+}
+
+function persist() {
+  if (typeof localStorage === "undefined") return;
+  try {
+    localStorage.setItem(KEY, JSON.stringify(doc));
+  } catch {
+    /* quota — the UI keeps working from memory */
+  }
+}
+
+export function ensureLoaded() {
+  if (loaded) return;
+  loaded = true;
+  doc = read();
+}
+
+export function getDoc(): PotDoc {
+  return doc;
+}
+
+export function subscribe(fn: () => void): () => void {
+  listeners.add(fn);
+  return () => listeners.delete(fn);
+}
+
+export function update(mutate: (draft: PotDoc) => PotDoc | void) {
+  ensureLoaded();
+  const draft: PotDoc = JSON.parse(JSON.stringify(doc)) as PotDoc;
+  const next = mutate(draft) ?? draft;
+  doc = next;
+  persist();
+  listeners.forEach((fn) => fn());
+}
+
+export function uid(): string {
+  if (typeof crypto !== "undefined" && "randomUUID" in crypto) return crypto.randomUUID();
+  return Math.random().toString(36).slice(2) + Date.now().toString(36);
+}
+
+// ── operations ─────────────────────────────────────────────────────────────
+
+export function addThesis(input: Partial<Thesis> & { title: string }): Thesis {
+  const now = Date.now();
+  const thesis: Thesis = {
+    id: uid(),
+    title: input.title,
+    body: input.body ?? "",
+    symbols: input.symbols ?? [],
+    sector: input.sector ?? null,
+    horizon: input.horizon ?? "months",
+    conviction: input.conviction ?? 3,
+    status: "open",
+    createdAt: now,
+    updatedAt: now,
+  };
+  update((d) => {
+    d.theses.unshift(thesis);
+  });
+  return thesis;
+}
+
+export function patchThesis(id: string, patch: Partial<Thesis>) {
+  update((d) => {
+    const t = d.theses.find((x) => x.id === id);
+    if (t) Object.assign(t, patch, { updatedAt: Date.now() });
+  });
+}
+
+export function removeThesis(id: string) {
+  update((d) => {
+    d.theses = d.theses.filter((t) => t.id !== id);
+    d.entries.forEach((e) => {
+      if (e.thesisId === id) e.thesisId = null;
+    });
+  });
+}
+
+export function addEntry(input: Partial<Entry>): Entry {
+  const entry: Entry = {
+    id: uid(),
+    tradeId: input.tradeId ?? null,
+    thesisId: input.thesisId ?? null,
+    headline: input.headline ?? "",
+    body: input.body ?? "",
+    alignment: input.alignment ?? null,
+    sentiment: input.sentiment ?? null,
+    sizing: input.sizing ?? null,
+    emotion: input.emotion ?? null,
+    confidence: input.confidence ?? 3,
+    createdAt: input.createdAt ?? Date.now(),
+  };
+  update((d) => {
+    d.entries.unshift(entry);
+  });
+  return entry;
+}
+
+export function removeEntry(id: string) {
+  update((d) => {
+    d.entries = d.entries.filter((e) => e.id !== id);
+  });
+}
+
+export function dismissTrade(tradeId: string) {
+  update((d) => {
+    if (!d.settings.dismissedTrades.includes(tradeId))
+      d.settings.dismissedTrades.push(tradeId);
+  });
+}
+
+export function addAlert(input: Partial<Alert>): Alert {
+  const alert: Alert = {
+    id: uid(),
+    kind: input.kind ?? "price",
+    symbol: input.symbol ?? null,
+    direction: input.direction ?? "above",
+    target: input.target ?? null,
+    thesisId: input.thesisId ?? null,
+    everyDays: input.everyDays ?? null,
+    note: input.note ?? "",
+    enabled: true,
+    lastFiredAt: null,
+    createdAt: Date.now(),
+  };
+  update((d) => {
+    d.alerts.unshift(alert);
+  });
+  return alert;
+}
+
+export function patchAlert(id: string, patch: Partial<Alert>) {
+  update((d) => {
+    const a = d.alerts.find((x) => x.id === id);
+    if (a) Object.assign(a, patch);
+  });
+}
+
+export function removeAlert(id: string) {
+  update((d) => {
+    d.alerts = d.alerts.filter((a) => a.id !== id);
+  });
+}
+
+export function walletKey(chainId: number, address: string) {
+  return `${chainId}:${address.toLowerCase()}`;
+}
+
+export function addWallet(ref: Omit<WalletRef, "addedAt">) {
+  update((d) => {
+    const key = walletKey(ref.chainId, ref.address);
+    if (!d.wallets.some((w) => walletKey(w.chainId, w.address) === key)) {
+      d.wallets.unshift({ ...ref, address: ref.address.toLowerCase(), addedAt: Date.now() });
+    }
+    d.activeWallet = key;
+  });
+}
+
+export function setActiveWallet(key: string | null) {
+  update((d) => {
+    d.activeWallet = key;
+  });
+}
+
+export function removeWallet(key: string) {
+  update((d) => {
+    d.wallets = d.wallets.filter((w) => walletKey(w.chainId, w.address) !== key);
+    if (d.activeWallet === key)
+      d.activeWallet = d.wallets[0]
+        ? walletKey(d.wallets[0].chainId, d.wallets[0].address)
+        : null;
+  });
+}
+
+export function patchSettings(patch: Partial<Settings>) {
+  update((d) => {
+    Object.assign(d.settings, patch);
+  });
+}
+
+export function exportDoc(): string {
+  ensureLoaded();
+  return JSON.stringify(doc, null, 2);
+}
+
+export function importDoc(json: string) {
+  const parsed = JSON.parse(json) as PotDoc;
+  update(() => ({
+    ...EMPTY_DOC,
+    ...parsed,
+    settings: { ...EMPTY_DOC.settings, ...(parsed.settings ?? {}) },
+  }));
+}
+
+export function wipe() {
+  update(() => ({ ...EMPTY_DOC }));
+}

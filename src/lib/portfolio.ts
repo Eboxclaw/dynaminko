@@ -1,84 +1,136 @@
-// Turns raw chain snapshots into the shapes the existing UI already speaks:
-// a positions map (ticker -> qty) plus a list of real on-chain holdings that
-// aren't in the curated ASSETS fixture.
+// Portfolio derivation. Takes a real wallet snapshot plus real quotes and
+// produces holdings, sector allocation and the trade feed the journal
+// reconciles against. Nothing here invents a number: an unknown price is null
+// and rendered as "—".
 
-import { ASSETS } from "./dynaminko-data";
-import type { TokenBalance, WalletSnapshot } from "./chain/blockscout";
+import type { ChainTransfer, WalletSnapshot } from "./chain/blockscout";
+import type { Quote } from "./prices";
+import { sectorFor, type SectorId } from "./sectors";
 
 export type Holding = {
+  key: string;
   symbol: string;
   name: string;
   amount: number;
-  usd: number | null;
-  address: string;
-  walletIds: string[];
+  price: number | null;
+  value: number | null;
+  change24h: number | null;
+  sector: SectorId;
 };
 
-const TICKER_BY_SYMBOL = new Map(ASSETS.map((a) => [a.ticker.toUpperCase(), a.ticker]));
+export type SectorSlice = {
+  sector: SectorId;
+  value: number;
+  share: number;
+  symbols: string[];
+};
 
-function matchTicker(symbol: string): string | null {
-  return TICKER_BY_SYMBOL.get(symbol.trim().toUpperCase()) ?? null;
-}
+export type Portfolio = {
+  holdings: Holding[];
+  total: number;
+  priced: boolean;
+  slices: SectorSlice[];
+};
 
-/** Aggregate every visible wallet's balances into one holdings list. */
-export function holdingsFromSnapshots(snapshots: WalletSnapshot[]): Holding[] {
-  const merged = new Map<string, Holding>();
-  const add = (walletId: string, t: TokenBalance) => {
-    if (t.amount <= 0) return;
-    const key = t.address || t.symbol;
-    const prev = merged.get(key);
-    if (prev) {
-      prev.amount += t.amount;
-      if (!prev.walletIds.includes(walletId)) prev.walletIds.push(walletId);
-      if (prev.usd == null) prev.usd = t.usd;
-    } else {
-      merged.set(key, {
+export function buildPortfolio(
+  snapshot: WalletSnapshot | null,
+  quotes: Quote[],
+): Portfolio {
+  if (!snapshot) return { holdings: [], total: 0, priced: false, slices: [] };
+  const quoteBy = new Map(quotes.map((q) => [q.symbol.toUpperCase(), q]));
+
+  const raw = [snapshot.native, ...snapshot.tokens];
+  const holdings: Holding[] = raw
+    .filter((t) => t.amount > 0)
+    .map((t) => {
+      const q = quoteBy.get(t.symbol.toUpperCase());
+      const price = q?.usd ?? t.usd ?? null;
+      return {
+        key: `${t.address}-${t.symbol}`,
         symbol: t.symbol,
         name: t.name,
         amount: t.amount,
-        usd: t.usd,
-        address: t.address,
-        walletIds: [walletId],
-      });
-    }
+        price,
+        value: price != null ? price * t.amount : null,
+        change24h: q?.change24h ?? null,
+        sector: sectorFor(t.symbol),
+      };
+    })
+    .sort((a, b) => (b.value ?? -1) - (a.value ?? -1));
+
+  const total = holdings.reduce((sum, h) => sum + (h.value ?? 0), 0);
+
+  const bySector = new Map<SectorId, SectorSlice>();
+  for (const h of holdings) {
+    if (!h.value) continue;
+    const slice = bySector.get(h.sector) ?? {
+      sector: h.sector,
+      value: 0,
+      share: 0,
+      symbols: [],
+    };
+    slice.value += h.value;
+    if (!slice.symbols.includes(h.symbol)) slice.symbols.push(h.symbol);
+    bySector.set(h.sector, slice);
+  }
+  const slices = Array.from(bySector.values())
+    .map((s) => ({ ...s, share: total > 0 ? s.value / total : 0 }))
+    .sort((a, b) => b.value - a.value);
+
+  return {
+    holdings,
+    total,
+    priced: holdings.some((h) => h.value != null),
+    slices,
   };
-  for (const s of snapshots) {
-    add(s.walletId, s.native);
-    for (const t of s.tokens) add(s.walletId, t);
-  }
-  return Array.from(merged.values()).sort(
-    (a, b) => (b.usd ?? 0) * b.amount - (a.usd ?? 0) * a.amount,
-  );
 }
 
-/** Positions map for the curated asset universe. Returns null when empty. */
-export function positionsFromSnapshots(
-  snapshots: WalletSnapshot[],
-): Record<string, number> | null {
-  if (snapshots.length === 0) return null;
-  const out: Record<string, number> = {};
-  for (const a of ASSETS) out[a.ticker] = 0;
-  let any = false;
-  for (const h of holdingsFromSnapshots(snapshots)) {
-    const ticker = matchTicker(h.symbol);
-    if (!ticker) continue;
-    out[ticker] = (out[ticker] ?? 0) + h.amount;
-    any = true;
-  }
-  return any ? out : out; // an all-zero map is an honest "nothing held"
+// ── trade feed ─────────────────────────────────────────────────────────────
+
+export type Trade = {
+  id: string;
+  symbol: string;
+  side: "in" | "out";
+  amount: number;
+  value: number | null;
+  ts: number;
+  txHash: string;
+  counterparty: string;
+  sector: SectorId;
+};
+
+/** Chain transfers become journalable moments. Dust is filtered out. */
+export function tradesFromSnapshot(
+  snapshot: WalletSnapshot | null,
+  quotes: Quote[],
+): Trade[] {
+  if (!snapshot) return [];
+  const quoteBy = new Map(quotes.map((q) => [q.symbol.toUpperCase(), q]));
+  return snapshot.transfers
+    .map((t: ChainTransfer) => {
+      const price = quoteBy.get(t.symbol.toUpperCase())?.usd ?? null;
+      return {
+        id: `${t.txHash}:${t.logIndex}`,
+        symbol: t.symbol,
+        side: t.direction,
+        amount: t.amount,
+        value: price != null ? price * t.amount : null,
+        ts: t.ts,
+        txHash: t.txHash,
+        counterparty: t.counterparty,
+        sector: sectorFor(t.symbol),
+      };
+    })
+    .sort((a, b) => b.ts - a.ts)
+    .slice(0, 120);
 }
 
-/** Explorer-reported spot prices keyed by ticker, for known assets. */
-export function pricesFromSnapshots(snapshots: WalletSnapshot[]): Record<string, number> {
-  const out: Record<string, number> = {};
-  for (const h of holdingsFromSnapshots(snapshots)) {
-    const ticker = matchTicker(h.symbol);
-    if (ticker && h.usd != null && h.usd > 0) out[ticker] = h.usd;
-  }
-  return out;
-}
-
-/** Total USD across every holding the chain reported a price for. */
-export function holdingsTotalUsd(holdings: Holding[]): number {
-  return holdings.reduce((s, h) => s + (h.usd ?? 0) * h.amount, 0);
+/** Fibonacci-ish arc positions used by the portfolio bloom visual. */
+export function goldenPositions(count: number, radius = 1) {
+  const phi = Math.PI * (3 - Math.sqrt(5));
+  return Array.from({ length: count }, (_, i) => {
+    const r = radius * Math.sqrt((i + 0.5) / count);
+    const a = i * phi;
+    return { x: Math.cos(a) * r, y: Math.sin(a) * r };
+  });
 }
