@@ -12,6 +12,7 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as ThesesRouteImport } from './routes/theses'
 import { Route as PortfolioRouteImport } from './routes/portfolio'
 import { Route as JournalRouteImport } from './routes/journal'
+import { Route as AlertsRouteImport } from './routes/alerts'
 import { Route as IndexRouteImport } from './routes/index'
 
 const ThesesRoute = ThesesRouteImport.update({
@@ -29,6 +30,11 @@ const JournalRoute = JournalRouteImport.update({
   path: '/journal',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AlertsRoute = AlertsRouteImport.update({
+  id: '/alerts',
+  path: '/alerts',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
@@ -37,12 +43,14 @@ const IndexRoute = IndexRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/alerts': typeof AlertsRoute
   '/journal': typeof JournalRoute
   '/portfolio': typeof PortfolioRoute
   '/theses': typeof ThesesRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/alerts': typeof AlertsRoute
   '/journal': typeof JournalRoute
   '/portfolio': typeof PortfolioRoute
   '/theses': typeof ThesesRoute
@@ -50,20 +58,22 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/alerts': typeof AlertsRoute
   '/journal': typeof JournalRoute
   '/portfolio': typeof PortfolioRoute
   '/theses': typeof ThesesRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/journal' | '/portfolio' | '/theses'
+  fullPaths: '/' | '/alerts' | '/journal' | '/portfolio' | '/theses'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/journal' | '/portfolio' | '/theses'
-  id: '__root__' | '/' | '/journal' | '/portfolio' | '/theses'
+  to: '/' | '/alerts' | '/journal' | '/portfolio' | '/theses'
+  id: '__root__' | '/' | '/alerts' | '/journal' | '/portfolio' | '/theses'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  AlertsRoute: typeof AlertsRoute
   JournalRoute: typeof JournalRoute
   PortfolioRoute: typeof PortfolioRoute
   ThesesRoute: typeof ThesesRoute
@@ -92,6 +102,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof JournalRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/alerts': {
+      id: '/alerts'
+      path: '/alerts'
+      fullPath: '/alerts'
+      preLoaderRoute: typeof AlertsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/': {
       id: '/'
       path: '/'
@@ -104,6 +121,7 @@ declare module '@tanstack/react-router' {
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  AlertsRoute: AlertsRoute,
   JournalRoute: JournalRoute,
   PortfolioRoute: PortfolioRoute,
   ThesesRoute: ThesesRoute,
