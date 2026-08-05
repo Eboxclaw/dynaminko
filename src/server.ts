@@ -47,20 +47,7 @@ function isH3SwallowedErrorBody(body: string): boolean {
 
 export default {
   async fetch(request: Request, env: unknown, ctx: unknown) {
-    const url = new URL(request.url);
-    if (url.pathname === "/api/public-data") {
-      try {
-        const data = await getPublicDataSnapshot();
-        return Response.json(data, {
-          headers: {
-            "cache-control": "public, max-age=60, stale-while-revalidate=180",
-          },
-        });
-      } catch (error) {
-        console.error(error);
-        return Response.json({ error: "public_data_unavailable" }, { status: 502 });
-      }
-    }
+
 
     try {
       const handler = await getServerEntry();
