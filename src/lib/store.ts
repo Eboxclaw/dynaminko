@@ -233,20 +233,45 @@ export function addEntry(input: Partial<Entry>): Entry {
     sentiment: input.sentiment ?? null,
     sizing: input.sizing ?? null,
     emotion: input.emotion ?? null,
+    health: input.health ?? null,
+    finances: input.finances ?? null,
+    ghost: input.ghost ?? input.tradeId == null,
     confidence: input.confidence ?? 3,
     createdAt: input.createdAt ?? Date.now(),
   };
   update((d) => {
     d.entries.unshift(entry);
+    if (entry.tradeId) {
+      const sig = d.signals.find((s) => s.id === entry.tradeId);
+      if (sig) sig.state = "linked";
+    }
   });
   return entry;
 }
 
-export function removeEntry(id: string) {
+/** The agent writes here. Existing ids are never overwritten or duplicated. */
+export function ingestSignals(incoming: Signal[]) {
+  if (incoming.length === 0) return;
   update((d) => {
-    d.entries = d.entries.filter((e) => e.id !== id);
+    const known = new Set(d.signals.map((s) => s.id));
+    const linked = new Set(d.entries.map((e) => e.tradeId).filter(Boolean) as string[]);
+    const fresh = incoming
+      .filter((s) => !known.has(s.id))
+      .map((s) => ({ ...s, state: linked.has(s.id) ? ("linked" as const) : s.state }));
+    if (fresh.length === 0) return;
+    d.signals = [...fresh, ...d.signals]
+      .sort((a, b) => b.ts - a.ts)
+      .slice(0, 300);
   });
 }
+
+export function setSignalState(id: string, state: Signal["state"]) {
+  update((d) => {
+    const s = d.signals.find((x) => x.id === id);
+    if (s) s.state = state;
+  });
+}
+
 
 export function dismissTrade(tradeId: string) {
   update((d) => {
