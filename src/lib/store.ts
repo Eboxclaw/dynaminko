@@ -272,6 +272,12 @@ export function setSignalState(id: string, state: Signal["state"]) {
   });
 }
 
+export function removeEntry(id: string) {
+  update((d) => {
+    d.entries = d.entries.filter((e) => e.id !== id);
+  });
+}
+
 
 export function dismissTrade(tradeId: string) {
   update((d) => {
