@@ -12,6 +12,7 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as TradeRouteImport } from './routes/trade'
 import { Route as ThesesRouteImport } from './routes/theses'
 import { Route as SettingsRouteImport } from './routes/settings'
+import { Route as PotRouteImport } from './routes/pot'
 import { Route as PortfolioRouteImport } from './routes/portfolio'
 import { Route as JournalRouteImport } from './routes/journal'
 import { Route as AlertsRouteImport } from './routes/alerts'
@@ -30,6 +31,11 @@ const ThesesRoute = ThesesRouteImport.update({
 const SettingsRoute = SettingsRouteImport.update({
   id: '/settings',
   path: '/settings',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const PotRoute = PotRouteImport.update({
+  id: '/pot',
+  path: '/pot',
   getParentRoute: () => rootRouteImport,
 } as any)
 const PortfolioRoute = PortfolioRouteImport.update({
@@ -58,6 +64,7 @@ export interface FileRoutesByFullPath {
   '/alerts': typeof AlertsRoute
   '/journal': typeof JournalRoute
   '/portfolio': typeof PortfolioRoute
+  '/pot': typeof PotRoute
   '/settings': typeof SettingsRoute
   '/theses': typeof ThesesRoute
   '/trade': typeof TradeRoute
@@ -67,6 +74,7 @@ export interface FileRoutesByTo {
   '/alerts': typeof AlertsRoute
   '/journal': typeof JournalRoute
   '/portfolio': typeof PortfolioRoute
+  '/pot': typeof PotRoute
   '/settings': typeof SettingsRoute
   '/theses': typeof ThesesRoute
   '/trade': typeof TradeRoute
@@ -77,6 +85,7 @@ export interface FileRoutesById {
   '/alerts': typeof AlertsRoute
   '/journal': typeof JournalRoute
   '/portfolio': typeof PortfolioRoute
+  '/pot': typeof PotRoute
   '/settings': typeof SettingsRoute
   '/theses': typeof ThesesRoute
   '/trade': typeof TradeRoute
@@ -88,6 +97,7 @@ export interface FileRouteTypes {
     | '/alerts'
     | '/journal'
     | '/portfolio'
+    | '/pot'
     | '/settings'
     | '/theses'
     | '/trade'
@@ -97,6 +107,7 @@ export interface FileRouteTypes {
     | '/alerts'
     | '/journal'
     | '/portfolio'
+    | '/pot'
     | '/settings'
     | '/theses'
     | '/trade'
@@ -106,6 +117,7 @@ export interface FileRouteTypes {
     | '/alerts'
     | '/journal'
     | '/portfolio'
+    | '/pot'
     | '/settings'
     | '/theses'
     | '/trade'
@@ -116,6 +128,7 @@ export interface RootRouteChildren {
   AlertsRoute: typeof AlertsRoute
   JournalRoute: typeof JournalRoute
   PortfolioRoute: typeof PortfolioRoute
+  PotRoute: typeof PotRoute
   SettingsRoute: typeof SettingsRoute
   ThesesRoute: typeof ThesesRoute
   TradeRoute: typeof TradeRoute
@@ -142,6 +155,13 @@ declare module '@tanstack/react-router' {
       path: '/settings'
       fullPath: '/settings'
       preLoaderRoute: typeof SettingsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/pot': {
+      id: '/pot'
+      path: '/pot'
+      fullPath: '/pot'
+      preLoaderRoute: typeof PotRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/portfolio': {
@@ -180,6 +200,7 @@ const rootRouteChildren: RootRouteChildren = {
   AlertsRoute: AlertsRoute,
   JournalRoute: JournalRoute,
   PortfolioRoute: PortfolioRoute,
+  PotRoute: PotRoute,
   SettingsRoute: SettingsRoute,
   ThesesRoute: ThesesRoute,
   TradeRoute: TradeRoute,
