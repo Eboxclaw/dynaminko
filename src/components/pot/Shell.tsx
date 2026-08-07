@@ -1,14 +1,13 @@
 import { Link, useRouterState } from "@tanstack/react-router";
 import {
   BellRing,
-  BookOpen,
-  Home,
-  Lightbulb,
+  Gauge,
+  LayoutGrid,
   Moon,
-  PieChart,
-  Plus,
+  NotebookPen,
   Settings as SettingsIcon,
   Sun,
+  Wallet,
 } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 
@@ -20,10 +19,10 @@ import { Mark, Wordmark } from "./Mark";
 import { WalletChip } from "./WalletChip";
 
 const NAV = [
-  { to: "/", label: "Today", icon: Home },
-  { to: "/portfolio", label: "Portfolio", icon: PieChart },
-  { to: "/journal", label: "Journal", icon: BookOpen },
-  { to: "/theses", label: "Theses", icon: Lightbulb },
+  { to: "/", label: "Dashboard", icon: LayoutGrid },
+  { to: "/portfolio", label: "Baskets", icon: Wallet },
+  { to: "/journal", label: "Theses", icon: NotebookPen },
+  { to: "/pot", label: "POT Index", icon: Gauge },
   { to: "/alerts", label: "Alerts", icon: BellRing },
 ] as const;
 
@@ -47,7 +46,7 @@ function ThemeToggle() {
         }
         patchSettings({ theme: next ? "dark" : "light" });
       }}
-      className="doodle-pill grid h-9 w-9 place-items-center text-ink-soft transition hover:bg-accent-soft hover:text-ink"
+      className="doodle-pill grid h-8 w-8 place-items-center text-ink-faint hover:border-ink hover:text-ink"
     >
       {dark ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
     </button>
@@ -67,16 +66,19 @@ export function Shell({
 }) {
   const path = useRouterState({ select: (s) => s.location.pathname });
   const doc = useDoc();
-  const openTheses = doc.theses.filter((t) => t.status === "open").length;
+  const inbox = doc.signals.filter((s) => s.state === "inbox").length;
 
   return (
     <div className="min-h-dvh bg-paper text-ink">
-      {/* desktop rail */}
-      <aside className="fixed inset-y-0 left-0 z-30 hidden w-[248px] flex-col border-r border-stroke bg-paper px-5 py-6 lg:flex">
-        <Link to="/" className="mb-8">
-          <Wordmark />
+      {/* desktop rail — icons, expands on hover */}
+      <aside className="group fixed inset-y-0 left-0 z-30 hidden w-[68px] flex-col border-r border-stroke bg-surface py-4 transition-[width] duration-200 hover:w-[212px] lg:flex">
+        <Link to="/" className="mb-6 flex h-8 items-center overflow-hidden px-[21px]">
+          <Mark className="h-[26px] w-[26px] shrink-0" />
+          <span className="ml-3 whitespace-nowrap text-[14px] font-semibold tracking-tight opacity-0 transition-opacity duration-150 group-hover:opacity-100">
+            Proof of Thesis
+          </span>
         </Link>
-        <nav className="flex flex-col gap-1">
+        <nav className="flex flex-col gap-0.5 px-2">
           {NAV.map((item) => {
             const active = item.to === "/" ? path === "/" : path.startsWith(item.to);
             return (
@@ -84,56 +86,50 @@ export function Shell({
                 key={item.to}
                 to={item.to}
                 className={cn(
-                  "group flex items-center gap-3 rounded-[16px_14px_17px_13px/13px_17px_13px_16px] px-3 py-2.5 text-[15px] transition",
-                  active
-                    ? "bg-accent-soft font-medium text-ink"
-                    : "text-ink-soft hover:bg-sunken hover:text-ink",
+                  "relative flex h-10 items-center overflow-hidden rounded-[2px] px-[13px] transition",
+                  active ? "bg-sunken text-ink" : "text-ink-faint hover:text-ink",
                 )}
               >
-                <item.icon className="h-[18px] w-[18px]" strokeWidth={1.9} />
-                {item.label}
-                {item.to === "/theses" && openTheses > 0 && (
-                  <span className="num ml-auto text-[11px] text-ink-faint">{openTheses}</span>
+                {active && <span className="absolute inset-y-1 left-0 w-[2px] bg-ink" />}
+                <item.icon className="h-[18px] w-[18px] shrink-0" strokeWidth={1.7} />
+                <span className="ml-3 whitespace-nowrap text-[13px] opacity-0 transition-opacity duration-150 group-hover:opacity-100">
+                  {item.label}
+                </span>
+                {item.to === "/journal" && inbox > 0 && (
+                  <span className="num absolute right-2 top-1.5 text-[10px] text-ink-faint group-hover:static group-hover:ml-auto">
+                    {inbox}
+                  </span>
                 )}
               </Link>
             );
           })}
         </nav>
-
-        <div className="mt-auto space-y-3">
-          <Link
-            to="/trade"
-            className="block rounded-[16px_14px_17px_13px/13px_17px_13px_16px] px-3 py-2.5 text-[15px] text-ink-soft transition hover:bg-sunken hover:text-ink"
-          >
-            Trade
-            <span className="ml-2 font-hand text-[13px] text-ink-faint">soon</span>
-          </Link>
+        <div className="mt-auto px-2">
           <Link
             to="/settings"
             className={cn(
-              "flex items-center gap-3 rounded-[16px_14px_17px_13px/13px_17px_13px_16px] px-3 py-2.5 text-[15px] transition",
-              path.startsWith("/settings")
-                ? "bg-accent-soft font-medium text-ink"
-                : "text-ink-soft hover:bg-sunken hover:text-ink",
+              "flex h-10 items-center overflow-hidden rounded-[2px] px-[13px] transition",
+              path.startsWith("/settings") ? "bg-sunken text-ink" : "text-ink-faint hover:text-ink",
             )}
           >
-            <SettingsIcon className="h-[18px] w-[18px]" strokeWidth={1.9} />
-            Settings
+            <SettingsIcon className="h-[18px] w-[18px] shrink-0" strokeWidth={1.7} />
+            <span className="ml-3 whitespace-nowrap text-[13px] opacity-0 transition-opacity duration-150 group-hover:opacity-100">
+              Settings
+            </span>
           </Link>
         </div>
       </aside>
 
-      {/* header */}
-      <header className="sticky top-0 z-20 border-b border-stroke bg-paper/85 backdrop-blur-xl lg:pl-[248px]">
-        <div className="mx-auto flex max-w-4xl items-center gap-3 px-4 py-3 md:px-8">
+      <header className="sticky top-0 z-20 border-b border-stroke bg-paper/90 backdrop-blur-xl lg:pl-[68px]">
+        <div className="mx-auto flex max-w-5xl items-center gap-3 px-4 py-3 md:px-8">
           <Link to="/" className="lg:hidden">
-            <Mark className="h-7 w-7 text-accent" />
+            <Mark className="h-6 w-6" />
           </Link>
           <div className="min-w-0 flex-1">
             {title && (
-              <h1 className="truncate text-[17px] font-semibold leading-tight">{title}</h1>
+              <h1 className="truncate text-[15px] font-semibold leading-tight">{title}</h1>
             )}
-            {subtitle && <p className="truncate text-[13px] text-ink-faint">{subtitle}</p>}
+            {subtitle && <p className="eyebrow mt-1 truncate">{subtitle}</p>}
           </div>
           {action}
           <WalletChip />
@@ -141,55 +137,67 @@ export function Shell({
         </div>
       </header>
 
-      <main className="mx-auto max-w-4xl px-4 pb-32 pt-5 md:px-8 lg:pb-16 lg:pl-[280px] lg:pr-8">
+      <main className="mx-auto max-w-5xl px-4 pb-28 pt-5 md:px-8 lg:pb-14 lg:pl-[92px] lg:pr-8">
         {children}
       </main>
 
-      {/* mobile tab bar */}
       <nav className="fixed inset-x-0 bottom-0 z-30 border-t border-stroke bg-paper/95 pb-[env(safe-area-inset-bottom)] backdrop-blur-xl lg:hidden">
-        <div className="mx-auto flex max-w-md items-end justify-between px-4 py-2">
-          {NAV.slice(0, 2).map((item) => (
-            <TabLink key={item.to} {...item} path={path} />
-          ))}
-          <Link
-            to="/journal"
-            search={{ compose: true }}
-            className="doodle-pill -mt-6 grid h-14 w-14 place-items-center border-2 border-ink bg-ink text-paper shadow-lg"
-            aria-label="New entry"
-          >
-            <Plus className="h-6 w-6" strokeWidth={2.2} />
-          </Link>
-          {NAV.slice(3).map((item) => (
-            <TabLink key={item.to} {...item} path={path} />
-          ))}
+        <div className="mx-auto flex max-w-md items-stretch justify-between px-2 py-1.5">
+          {NAV.map((item) => {
+            const active = item.to === "/" ? path === "/" : path.startsWith(item.to);
+            return (
+              <Link
+                key={item.to}
+                to={item.to}
+                className={cn(
+                  "relative flex flex-1 flex-col items-center gap-1 py-1.5 transition",
+                  active ? "text-ink" : "text-ink-faint",
+                )}
+              >
+                <item.icon className="h-[19px] w-[19px]" strokeWidth={active ? 2 : 1.6} />
+                <span className="eyebrow text-[9px]">{item.label}</span>
+                {item.to === "/journal" && inbox > 0 && (
+                  <span className="absolute right-3 top-1 h-1.5 w-1.5 rounded-full bg-ink" />
+                )}
+              </Link>
+            );
+          })}
         </div>
       </nav>
     </div>
   );
 }
 
-function TabLink({
-  to,
-  label,
-  icon: Icon,
-  path,
+export function Panel({
+  eyebrow,
+  title,
+  action,
+  children,
+  className,
+  delay = 0,
 }: {
-  to: string;
-  label: string;
-  icon: typeof Home;
-  path: string;
+  eyebrow?: string;
+  title?: string;
+  action?: ReactNode;
+  children: ReactNode;
+  className?: string;
+  delay?: number;
 }) {
-  const active = to === "/" ? path === "/" : path.startsWith(to);
   return (
-    <Link
-      to={to}
-      className={cn(
-        "flex w-16 flex-col items-center gap-1 py-1 text-[11px] transition",
-        active ? "text-ink" : "text-ink-faint",
-      )}
+    <section
+      className={cn("card animate-rise tick", className)}
+      style={{ animationDelay: `${delay}ms` }}
     >
-      <Icon className="h-[21px] w-[21px]" strokeWidth={active ? 2.2 : 1.8} />
-      {label}
-    </Link>
+      {(eyebrow || title || action) && (
+        <header className="flex items-center gap-3 border-b border-stroke px-4 py-2.5">
+          <div className="min-w-0 flex-1">
+            {eyebrow && <p className="eyebrow">{eyebrow}</p>}
+            {title && <h2 className="mt-1 text-[14px] font-semibold">{title}</h2>}
+          </div>
+          {action}
+        </header>
+      )}
+      {children}
+    </section>
   );
 }
