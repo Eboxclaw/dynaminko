@@ -97,6 +97,8 @@ export type PotDoc = {
   version: 1;
   theses: Thesis[];
   entries: Entry[];
+  /** agent-extracted trade events awaiting the user */
+  signals: Signal[];
   alerts: Alert[];
   wallets: WalletRef[];
   activeWallet: string | null; // `${chainId}:${address}`
@@ -107,17 +109,19 @@ export const EMPTY_DOC: PotDoc = {
   version: 1,
   theses: [],
   entries: [],
+  signals: [],
   alerts: [],
   wallets: [],
   activeWallet: null,
   settings: {
     hideBalances: false,
-    theme: "light",
+    theme: "dark",
     aiEnabled: false,
-    aiModelId: "smol-360",
+    aiModelId: "lfm2-450",
     onboarded: false,
     dismissedTrades: [],
   },
+
 };
 
 const KEY = "pot.doc.v1";
