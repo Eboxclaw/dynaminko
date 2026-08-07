@@ -6,6 +6,8 @@ export type Sentiment = "conviction" | "reactive" | "hedge" | "fomo" | "rebalanc
 export type Emotion = "calm" | "anxious" | "excited" | "uncertain";
 export type Alignment = "aligned" | "partial" | "deviated" | "no_thesis";
 export type Sizing = "starter" | "full" | "adding" | "oversized";
+export type Health = "rested" | "tired" | "stressed" | "unwell";
+export type Finances = "comfortable" | "tight" | "leveraged" | "flush";
 
 export type Thesis = {
   id: string;
@@ -20,6 +22,23 @@ export type Thesis = {
   updatedAt: number;
 };
 
+/** An agent-extracted on-chain moment waiting for the user to complete it. */
+export type Signal = {
+  id: string; // txHash:logIndex
+  txHash: string;
+  symbol: string;
+  side: "in" | "out";
+  amount: number;
+  value: number | null;
+  gasUsd: number | null;
+  feeNative: number | null;
+  counterparty: string;
+  chainId: number;
+  ts: number;
+  extractedAt: number;
+  state: "inbox" | "linked" | "dismissed";
+};
+
 export type Entry = {
   id: string;
   /** chain event this reconciles, when it came from the wallet */
@@ -31,9 +50,14 @@ export type Entry = {
   sentiment: Sentiment | null;
   sizing: Sizing | null;
   emotion: Emotion | null;
+  health: Health | null;
+  finances: Finances | null;
+  /** an intent written without a trade behind it — a ghost until executed */
+  ghost: boolean;
   confidence: number; // 1..5
   createdAt: number;
 };
+
 
 export type Alert = {
   id: string;
