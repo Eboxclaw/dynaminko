@@ -1,131 +1,146 @@
 @import "tailwindcss";
 
-@custom-variant dark (&:where(.dark, .dark *));
+/* Proof of Thesis — monochrome pearl & obsidian.
+   No colour. Hierarchy comes from value, weight, hairlines and space. */
 
-/* ── tokens ────────────────────────────────────────────────────────────── */
-:root {
-  --paper: oklch(0.962 0.004 85);
-  --paper-raised: oklch(0.985 0.003 85);
-  --paper-sunken: oklch(0.925 0.005 85);
-  --ink: oklch(0.235 0.006 60);
-  --ink-soft: oklch(0.5 0.008 60);
-  --ink-faint: oklch(0.68 0.006 60);
-  --stroke: oklch(0.83 0.006 60);
-  --stroke-strong: oklch(0.62 0.008 60);
-  --accent: oklch(0.63 0.14 45);
-  --accent-soft: oklch(0.9 0.045 60);
-  --gain: oklch(0.62 0.13 165);
-  --loss: oklch(0.6 0.14 20);
-  --shadow-card: 0 1px 0 oklch(0.99 0 0 / 0.7) inset, 0 10px 30px -18px oklch(0.2 0.01 60 / 0.55);
-  --radius: 1.25rem;
-}
+@theme {
+  --font-sans:
+    "IBM Plex Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
 
-.dark {
-  --paper: oklch(0.185 0.005 60);
-  --paper-raised: oklch(0.225 0.006 60);
-  --paper-sunken: oklch(0.15 0.005 60);
-  --ink: oklch(0.945 0.004 85);
-  --ink-soft: oklch(0.76 0.006 70);
-  --ink-faint: oklch(0.56 0.006 70);
-  --stroke: oklch(0.34 0.007 60);
-  --stroke-strong: oklch(0.52 0.008 60);
-  --accent: oklch(0.76 0.13 55);
-  --accent-soft: oklch(0.32 0.04 55);
-  --gain: oklch(0.75 0.13 165);
-  --loss: oklch(0.7 0.13 22);
-  --shadow-card: 0 1px 0 oklch(1 0 0 / 0.04) inset, 0 14px 34px -22px oklch(0 0 0 / 0.8);
-}
-
-@theme inline {
   --color-paper: var(--paper);
-  --color-raised: var(--paper-raised);
-  --color-sunken: var(--paper-sunken);
+  --color-surface: var(--surface);
+  --color-sunken: var(--sunken);
   --color-ink: var(--ink);
   --color-ink-soft: var(--ink-soft);
   --color-ink-faint: var(--ink-faint);
   --color-stroke: var(--stroke);
   --color-stroke-strong: var(--stroke-strong);
-  --color-accent: var(--accent);
-  --color-accent-soft: var(--accent-soft);
-  --color-gain: var(--gain);
-  --color-loss: var(--loss);
-
-  --font-sans: "Outfit", ui-sans-serif, system-ui, sans-serif;
-  --font-hand: "Caveat", "Outfit", cursive;
-  --font-mono: "IBM Plex Mono", ui-monospace, monospace;
-
-  --radius-doodle: 1.25rem;
+  --color-accent: var(--ink);
+  --color-accent-soft: var(--sunken);
 }
 
-@layer base {
-  * {
-    border-color: var(--stroke);
-  }
-  html {
-    -webkit-tap-highlight-color: transparent;
-  }
-  body {
-    background-color: var(--paper);
-    color: var(--ink);
-    font-family: var(--font-sans);
-    font-feature-settings: "ss01";
-    overscroll-behavior-y: none;
-  }
-  ::selection {
-    background: var(--accent-soft);
-  }
+:root {
+  --paper: #f6f5f3;
+  --surface: #fdfdfc;
+  --sunken: #ecebe8;
+  --ink: #101012;
+  --ink-soft: #4a4a4f;
+  --ink-faint: #8d8d93;
+  --stroke: #dedcd7;
+  --stroke-strong: #b9b7b1;
+  --grain: 0.025;
 }
 
-/* ── doodle language ───────────────────────────────────────────────────── */
+.dark {
+  --paper: #0a0a0b;
+  --surface: #131315;
+  --sunken: #1b1b1e;
+  --ink: #f3f2f0;
+  --ink-soft: #a5a4a8;
+  --ink-faint: #6d6d73;
+  --stroke: #26262a;
+  --stroke-strong: #3a3a40;
+  --grain: 0.04;
+}
 
-/* hand-drawn-feeling card: uneven radius + soft paper shadow */
+* {
+  border-color: var(--stroke);
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  background-color: var(--paper);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  font-feature-settings: "ss01", "cv05";
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ── primitives ──────────────────────────────────────────────────────── */
+
+@utility card {
+  background-color: var(--surface);
+  border: 1px solid var(--stroke);
+  border-radius: 2px;
+  position: relative;
+}
+
+/* legacy alias so every view shares one surface language */
 @utility doodle-card {
-  background: var(--paper-raised);
-  border: 1.5px solid var(--stroke);
-  border-radius: 22px 20px 24px 19px / 20px 24px 19px 23px;
-  box-shadow: var(--shadow-card);
+  background-color: var(--surface);
+  border: 1px solid var(--stroke);
+  border-radius: 2px;
+  position: relative;
 }
 
 @utility doodle-inset {
-  background: var(--paper-sunken);
-  border: 1.5px solid var(--stroke);
-  border-radius: 18px 20px 17px 21px / 20px 17px 21px 18px;
+  background-color: var(--paper);
+  border: 1px solid var(--stroke);
+  border-radius: 2px;
 }
 
 @utility doodle-pill {
-  border: 1.5px solid var(--stroke);
-  border-radius: 999px 999px 999px 999px / 40px 999px 40px 999px;
+  border: 1px solid var(--stroke);
+  border-radius: 999px;
+  background-color: transparent;
+  transition:
+    background-color 0.16s ease,
+    border-color 0.16s ease,
+    color 0.16s ease;
 }
 
-@utility scribble-underline {
-  background-image: linear-gradient(transparent 60%, var(--accent-soft) 60%);
-  background-size: 100% 100%;
-}
-
-@utility no-scrollbar {
-  scrollbar-width: none;
-  &::-webkit-scrollbar {
-    display: none;
-  }
+@utility tick {
+  /* clipped corner tick, the dossier mark */
+  clip-path: polygon(0 0, calc(100% - 10px) 0, 100% 10px, 100% 100%, 0 100%);
 }
 
 @utility num {
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
-  letter-spacing: -0.02em;
+  letter-spacing: -0.01em;
 }
 
-/* ── motion ────────────────────────────────────────────────────────────── */
+@utility eyebrow {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  line-height: 1;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+
+@utility hairline {
+  border-top: 1px solid var(--stroke);
+}
+
+@utility focus-ring {
+  outline: none;
+  box-shadow: 0 0 0 1px var(--ink);
+}
+
+/* handwriting is retired — keep the class mapped to mono eyebrow */
+.font-hand {
+  font-family: var(--font-mono);
+  letter-spacing: 0.02em;
+}
+
+/* ── motion: minimal, functional ─────────────────────────────────────── */
+
 @keyframes rise {
   from {
     opacity: 0;
-    transform: translateY(14px);
+    transform: translateY(6px);
   }
   to {
     opacity: 1;
     transform: none;
   }
 }
+
 @keyframes fade {
   from {
     opacity: 0;
@@ -134,42 +149,58 @@
     opacity: 1;
   }
 }
-@keyframes draw {
+
+@keyframes sweep {
+  from {
+    transform: translateX(-100%);
+  }
   to {
-    stroke-dashoffset: 0;
-  }
-}
-@keyframes bob {
-  0%,
-  100% {
-    transform: translateY(0) rotate(-0.4deg);
-  }
-  50% {
-    transform: translateY(-4px) rotate(0.4deg);
+    transform: translateX(300%);
   }
 }
 
-@utility animate-rise {
-  animation: rise 0.55s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+.animate-rise {
+  animation: rise 0.32s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
-@utility animate-fade {
-  animation: fade 0.6s ease both;
+
+.animate-fade {
+  animation: fade 0.4s ease both;
 }
-@utility animate-bob {
-  animation: bob 6s ease-in-out infinite;
-}
-@utility draw-stroke {
-  stroke-dasharray: 1200;
-  stroke-dashoffset: 1200;
-  animation: draw 1.6s cubic-bezier(0.3, 0.8, 0.3, 1) forwards;
+
+.scan::after {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 25%;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    color-mix(in oklab, var(--ink) 8%, transparent),
+    transparent
+  );
+  animation: sweep 1.4s linear infinite;
 }
 
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
   *::after {
-    animation-duration: 0.001ms !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: 0.001ms !important;
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
   }
+}
+
+::selection {
+  background: var(--ink);
+  color: var(--paper);
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--stroke-strong);
+  border: 3px solid var(--paper);
+  border-radius: 999px;
 }
