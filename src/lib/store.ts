@@ -6,6 +6,8 @@ export type Sentiment = "conviction" | "reactive" | "hedge" | "fomo" | "rebalanc
 export type Emotion = "calm" | "anxious" | "excited" | "uncertain";
 export type Alignment = "aligned" | "partial" | "deviated" | "no_thesis";
 export type Sizing = "starter" | "full" | "adding" | "oversized";
+export type Health = "rested" | "tired" | "stressed" | "unwell";
+export type Finances = "comfortable" | "tight" | "leveraged" | "flush";
 
 export type Thesis = {
   id: string;
@@ -20,6 +22,23 @@ export type Thesis = {
   updatedAt: number;
 };
 
+/** An agent-extracted on-chain moment waiting for the user to complete it. */
+export type Signal = {
+  id: string; // txHash:logIndex
+  txHash: string;
+  symbol: string;
+  side: "in" | "out";
+  amount: number;
+  value: number | null;
+  gasUsd: number | null;
+  feeNative: number | null;
+  counterparty: string;
+  chainId: number;
+  ts: number;
+  extractedAt: number;
+  state: "inbox" | "linked" | "dismissed";
+};
+
 export type Entry = {
   id: string;
   /** chain event this reconciles, when it came from the wallet */
@@ -31,9 +50,14 @@ export type Entry = {
   sentiment: Sentiment | null;
   sizing: Sizing | null;
   emotion: Emotion | null;
+  health: Health | null;
+  finances: Finances | null;
+  /** an intent written without a trade behind it — a ghost until executed */
+  ghost: boolean;
   confidence: number; // 1..5
   createdAt: number;
 };
+
 
 export type Alert = {
   id: string;
@@ -73,6 +97,8 @@ export type PotDoc = {
   version: 1;
   theses: Thesis[];
   entries: Entry[];
+  /** agent-extracted trade events awaiting the user */
+  signals: Signal[];
   alerts: Alert[];
   wallets: WalletRef[];
   activeWallet: string | null; // `${chainId}:${address}`
@@ -83,17 +109,19 @@ export const EMPTY_DOC: PotDoc = {
   version: 1,
   theses: [],
   entries: [],
+  signals: [],
   alerts: [],
   wallets: [],
   activeWallet: null,
   settings: {
     hideBalances: false,
-    theme: "light",
+    theme: "dark",
     aiEnabled: false,
-    aiModelId: "smol-360",
+    aiModelId: "lfm2-450",
     onboarded: false,
     dismissedTrades: [],
   },
+
 };
 
 const KEY = "pot.doc.v1";
@@ -205,13 +233,43 @@ export function addEntry(input: Partial<Entry>): Entry {
     sentiment: input.sentiment ?? null,
     sizing: input.sizing ?? null,
     emotion: input.emotion ?? null,
+    health: input.health ?? null,
+    finances: input.finances ?? null,
+    ghost: input.ghost ?? input.tradeId == null,
     confidence: input.confidence ?? 3,
     createdAt: input.createdAt ?? Date.now(),
   };
   update((d) => {
     d.entries.unshift(entry);
+    if (entry.tradeId) {
+      const sig = d.signals.find((s) => s.id === entry.tradeId);
+      if (sig) sig.state = "linked";
+    }
   });
   return entry;
+}
+
+/** The agent writes here. Existing ids are never overwritten or duplicated. */
+export function ingestSignals(incoming: Signal[]) {
+  if (incoming.length === 0) return;
+  update((d) => {
+    const known = new Set(d.signals.map((s) => s.id));
+    const linked = new Set(d.entries.map((e) => e.tradeId).filter(Boolean) as string[]);
+    const fresh = incoming
+      .filter((s) => !known.has(s.id))
+      .map((s) => ({ ...s, state: linked.has(s.id) ? ("linked" as const) : s.state }));
+    if (fresh.length === 0) return;
+    d.signals = [...fresh, ...d.signals]
+      .sort((a, b) => b.ts - a.ts)
+      .slice(0, 300);
+  });
+}
+
+export function setSignalState(id: string, state: Signal["state"]) {
+  update((d) => {
+    const s = d.signals.find((x) => x.id === id);
+    if (s) s.state = state;
+  });
 }
 
 export function removeEntry(id: string) {
@@ -219,6 +277,7 @@ export function removeEntry(id: string) {
     d.entries = d.entries.filter((e) => e.id !== id);
   });
 }
+
 
 export function dismissTrade(tradeId: string) {
   update((d) => {
