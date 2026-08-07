@@ -1,175 +1,231 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
+import { ArrowUpRight, Eye, EyeOff, Plus, RefreshCw } from "lucide-react";
+import { useState } from "react";
 
-import { Shell } from "@/components/pot/Shell";
+import { BasketOrb } from "@/components/pot/BasketOrb";
+import { Reconcile } from "@/components/pot/Reconcile";
+import { Panel, Shell } from "@/components/pot/Shell";
 import { WalletPanel } from "@/components/pot/WalletChip";
+import { useAgent } from "@/hooks/useAgent";
 import { useDoc } from "@/hooks/useDoc";
 import { useActiveWallet, usePortfolio } from "@/hooks/usePortfolio";
-import { greeting, relativeTime, usd } from "@/lib/format";
+import { relativeTime, usd } from "@/lib/format";
 import { SECTOR_BY_ID } from "@/lib/sectors";
-import { walletKey } from "@/lib/store";
+import { patchSettings } from "@/lib/store";
+import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
-      { title: "Today — Proof of Thesis" },
+      { title: "Dashboard — Proof of Thesis" },
       {
         name: "description",
         content:
-          "Your wallet, your open theses and the trades still waiting for a reason, in one calm page.",
+          "Your wallet split into conviction baskets, with every on-chain move the agent has extracted and queued for you to explain.",
       },
-      { property: "og:title", content: "Today — Proof of Thesis" },
+      { property: "og:title", content: "Dashboard — Proof of Thesis" },
       {
         property: "og:description",
-        content: "Your wallet, your open theses and the trades still waiting for a reason.",
+        content: "Wallet baskets, extracted trades, and the theses behind them.",
       },
     ],
   }),
-  component: Today,
+  component: Dashboard,
 });
 
-function Today() {
+function Dashboard() {
   const doc = useDoc();
-  const { wallets, active } = useActiveWallet();
-  const { portfolio, trades, isFetching, fetchedAt } = usePortfolio();
-
-  const answered = new Set(doc.entries.map((e) => e.tradeId).filter(Boolean));
-  const dismissed = new Set(doc.settings.dismissedTrades);
-  const waiting = trades.filter((t) => !answered.has(t.id) && !dismissed.has(t.id));
+  const { wallets } = useActiveWallet();
+  const { portfolio, isFetching, fetchedAt, refresh } = usePortfolio();
+  const { inbox } = useAgent();
+  const [composing, setComposing] = useState(false);
   const hidden = doc.settings.hideBalances;
+
+  if (wallets.length === 0) {
+    return (
+      <Shell title="Dashboard" subtitle="no wallet yet">
+        <Panel eyebrow="Step 01 // Context" title="Point it at a wallet">
+          <div className="p-4">
+            <p className="max-w-lg text-[14px] text-ink-soft">
+              Watch any address read-only, or connect one you control. From that moment the
+              agent extracts every swap, send and receive into your inbox — you only answer
+              why.
+            </p>
+            <div className="mt-4">
+              <WalletPanel wallets={wallets} activeKey={null} />
+            </div>
+          </div>
+        </Panel>
+      </Shell>
+    );
+  }
+
+  const top = portfolio.slices[0];
 
   return (
     <Shell
-      title={`${greeting()}.`}
-      subtitle={
-        active
-          ? isFetching
-            ? "reading your wallet…"
-            : fetchedAt
-              ? `updated ${relativeTime(fetchedAt)}`
-              : undefined
-          : "let's start with a wallet"
+      title="Dashboard"
+      subtitle={isFetching ? "reading chain…" : fetchedAt ? `synced ${relativeTime(fetchedAt)}` : "—"}
+      action={
+        <button
+          type="button"
+          onClick={refresh}
+          aria-label="Refresh"
+          className="doodle-pill grid h-8 w-8 place-items-center text-ink-faint hover:border-ink hover:text-ink"
+        >
+          <RefreshCw className={cn("h-3.5 w-3.5", isFetching && "animate-spin")} />
+        </button>
       }
     >
-      {wallets.length === 0 ? (
-        <section className="doodle-card animate-rise overflow-hidden p-6">
-          <p className="font-hand text-2xl text-accent">First, a wallet.</p>
-          <p className="mt-1 max-w-md text-[15px] text-ink-soft">
-            Paste an address to watch or connect one you already have. Everything you write
-            afterwards stays on this device.
-          </p>
-          <div className="mt-4 doodle-inset">
-            <WalletPanel wallets={wallets} activeKey={null} />
-          </div>
-        </section>
-      ) : (
-        <div className="space-y-5">
-          <section className="doodle-card animate-rise p-5">
-            <p className="text-[12px] uppercase tracking-wide text-ink-faint">Portfolio</p>
-            <p className="num mt-1 text-4xl font-semibold tracking-tight">
-              {portfolio.priced ? usd(portfolio.total, hidden) : "—"}
+      <div className="grid gap-4 lg:grid-cols-[1.15fr_1fr]">
+        <Panel eyebrow="Net worth // Ink" className={cn(isFetching && "scan overflow-hidden")}>
+          <div className="p-4">
+            <div className="flex items-start gap-3">
+              <p className="num text-[38px] font-semibold leading-none tracking-tight">
+                {portfolio.priced ? usd(portfolio.total, hidden) : "—"}
+              </p>
+              <button
+                type="button"
+                onClick={() => patchSettings({ hideBalances: !hidden })}
+                aria-label="Toggle balance privacy"
+                className="mt-1 text-ink-faint hover:text-ink"
+              >
+                {hidden ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+              </button>
+            </div>
+            <p className="eyebrow mt-3">
+              {portfolio.holdings.length} assets · {portfolio.slices.length} baskets
+              {top && ` · ${SECTOR_BY_ID[top.sector]?.label} leads at ${Math.round(top.share * 100)}%`}
             </p>
-            <div className="mt-4 flex flex-wrap gap-2">
-              {portfolio.slices.slice(0, 4).map((s) => (
-                <span key={s.sector} className="doodle-pill px-3 py-1 text-[12px] text-ink-soft">
-                  {SECTOR_BY_ID[s.sector]?.label ?? s.sector}
-                  <span className="num ml-2 text-ink">{Math.round(s.share * 100)}%</span>
-                </span>
-              ))}
-              {portfolio.slices.length === 0 && (
-                <span className="text-[13px] text-ink-faint">
-                  No priced holdings on this wallet yet.
-                </span>
-              )}
+            <div className="mt-2">
+              <BasketOrb
+                slices={portfolio.slices.map((s) => ({
+                  label: SECTOR_BY_ID[s.sector]?.label ?? s.sector,
+                  share: s.share,
+                }))}
+              />
             </div>
-            <Link
-              to="/portfolio"
-              className="mt-4 inline-block text-[13px] font-medium text-accent underline-offset-4 hover:underline"
-            >
-              See the breakdown →
-            </Link>
-          </section>
+          </div>
+        </Panel>
 
-          <section
-            className="doodle-card animate-rise p-5"
-            style={{ animationDelay: "60ms" }}
-          >
-            <div className="flex items-baseline justify-between">
-              <p className="text-[15px] font-semibold">Waiting for a reason</p>
-              <span className="num text-[13px] text-ink-faint">{waiting.length}</span>
-            </div>
-            {waiting.length === 0 ? (
-              <p className="mt-2 text-[14px] text-ink-soft">
-                Nothing unexplained. Every move on this wallet has a note next to it.
-              </p>
-            ) : (
-              <ul className="mt-3 space-y-2">
-                {waiting.slice(0, 4).map((t) => (
-                  <li key={t.id} className="doodle-inset flex items-center gap-3 px-3 py-2.5">
-                    <span
-                      className={
-                        t.side === "in"
-                          ? "num text-[13px] text-gain"
-                          : "num text-[13px] text-loss"
-                      }
-                    >
-                      {t.side === "in" ? "+" : "−"}
-                    </span>
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate text-[14px]">
-                        {t.symbol}{" "}
-                        <span className="text-ink-faint">
-                          {t.value != null ? usd(t.value, hidden) : ""}
-                        </span>
+        <Panel eyebrow="Exposure // Baskets" delay={60}>
+          {portfolio.slices.length === 0 ? (
+            <p className="p-4 text-[13px] text-ink-faint">
+              Nothing priced on this wallet yet.
+            </p>
+          ) : (
+            <ul>
+              {portfolio.slices.map((s) => {
+                const sector = SECTOR_BY_ID[s.sector];
+                return (
+                  <li key={s.sector} className="border-b border-stroke px-4 py-3 last:border-0">
+                    <div className="flex items-baseline gap-3">
+                      <span className="flex-1 text-[13px] font-medium">
+                        {sector?.label ?? s.sector}
                       </span>
-                      <span className="text-[12px] text-ink-faint">{relativeTime(t.ts)}</span>
-                    </span>
-                    <Link
-                      to="/journal"
-                      className="doodle-pill px-3 py-1 text-[12px] font-medium hover:bg-accent-soft"
-                    >
-                      Explain
-                    </Link>
+                      <span className="num text-[13px]">{usd(s.value, hidden)}</span>
+                      <span className="num w-10 text-right text-[12px] text-ink-faint">
+                        {Math.round(s.share * 100)}%
+                      </span>
+                    </div>
+                    <div className="mt-2 h-[3px] w-full bg-sunken">
+                      <div
+                        className="h-full bg-ink transition-[width] duration-500"
+                        style={{ width: `${Math.max(s.share * 100, 1.5)}%` }}
+                      />
+                    </div>
+                    <p className="eyebrow mt-1.5">{s.symbols.join(" · ")}</p>
                   </li>
-                ))}
-              </ul>
-            )}
-          </section>
+                );
+              })}
+            </ul>
+          )}
+        </Panel>
+      </div>
 
-          <section
-            className="doodle-card animate-rise p-5"
-            style={{ animationDelay: "120ms" }}
-          >
-            <p className="text-[15px] font-semibold">Open theses</p>
-            {doc.theses.length === 0 ? (
-              <p className="mt-2 text-[14px] text-ink-soft">
-                Write one line about what you believe. It becomes the thing your trades are
-                measured against.{" "}
-                <Link to="/theses" className="text-accent underline-offset-4 hover:underline">
-                  Start one
-                </Link>
-                .
-              </p>
-            ) : (
-              <ul className="mt-3 space-y-2">
-                {doc.theses
-                  .filter((t) => t.status === "open")
-                  .slice(0, 3)
-                  .map((t) => (
-                    <li key={t.id} className="doodle-inset px-3 py-2.5">
-                      <p className="text-[14px]">{t.title}</p>
-                      <p className="text-[12px] text-ink-faint">
-                        {t.symbols.join(" · ") || "no tickers"} · {relativeTime(t.updatedAt)}
-                      </p>
-                    </li>
-                  ))}
-              </ul>
+      <div className="mt-4 grid gap-4 lg:grid-cols-[1.15fr_1fr]">
+        <Panel
+          eyebrow="Agent // Extracted"
+          title={inbox.length > 0 ? `${inbox.length} moments need a reason` : "Inbox clear"}
+          delay={100}
+          action={
+            <Link
+              to="/journal"
+              search={{ tab: "inbox" }}
+              className="doodle-pill inline-flex items-center gap-1 px-3 py-1 text-[12px] hover:border-ink"
+            >
+              Open <ArrowUpRight className="h-3 w-3" />
+            </Link>
+          }
+        >
+          <ul className="max-h-[260px] overflow-y-auto">
+            {inbox.slice(0, 6).map((s) => (
+              <li
+                key={s.id}
+                className="flex items-center gap-3 border-b border-stroke px-4 py-2.5 last:border-0"
+              >
+                <span className="num text-[11px] text-ink-faint">
+                  {s.side === "in" ? "IN" : "OUT"}
+                </span>
+                <span className="min-w-0 flex-1 truncate text-[13px]">
+                  {s.symbol}
+                  <span className="num ml-2 text-ink-faint">
+                    {s.value != null ? usd(s.value, hidden) : "—"}
+                  </span>
+                </span>
+                <span className="eyebrow">{relativeTime(s.ts)}</span>
+              </li>
+            ))}
+            {inbox.length === 0 && (
+              <li className="px-4 py-6 text-center text-[13px] text-ink-faint">
+                Every extracted trade has been answered.
+              </li>
             )}
-          </section>
-        </div>
+          </ul>
+        </Panel>
+
+        <Panel eyebrow="Holdings // Detail" delay={140}>
+          <ul className="max-h-[260px] overflow-y-auto">
+            {portfolio.holdings.slice(0, 12).map((h) => (
+              <li
+                key={h.key}
+                className="flex items-center gap-3 border-b border-stroke px-4 py-2.5 last:border-0"
+              >
+                <span className="min-w-0 flex-1">
+                  <span className="block text-[13px] font-medium">{h.symbol}</span>
+                  <span className="eyebrow">{SECTOR_BY_ID[h.sector]?.label}</span>
+                </span>
+                <span className="num text-right text-[13px]">
+                  {h.value != null ? usd(h.value, hidden) : "—"}
+                  <span className="block text-[11px] text-ink-faint">
+                    {hidden ? "•••" : h.amount.toLocaleString(undefined, { maximumFractionDigits: 4 })}
+                  </span>
+                </span>
+              </li>
+            ))}
+            {portfolio.holdings.length === 0 && (
+              <li className="px-4 py-6 text-center text-[13px] text-ink-faint">No balances.</li>
+            )}
+          </ul>
+        </Panel>
+      </div>
+
+      <button
+        type="button"
+        onClick={() => setComposing(true)}
+        className="fixed bottom-20 right-4 z-30 inline-flex items-center gap-2 bg-ink px-4 py-3 text-[13px] font-medium text-paper shadow-lg transition hover:opacity-90 lg:bottom-6 lg:right-6"
+      >
+        <Plus className="h-4 w-4" /> New entry
+      </button>
+
+      {composing && (
+        <Reconcile
+          signal={null}
+          theses={doc.theses}
+          hidden={hidden}
+          onClose={() => setComposing(false)}
+        />
       )}
-      <p className="mt-6 text-center font-hand text-[15px] text-ink-faint">
-        {active ? walletKey(active.chainId, active.address).split(":")[0] : ""}
-      </p>
     </Shell>
   );
 }
