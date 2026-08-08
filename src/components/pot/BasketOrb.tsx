@@ -69,7 +69,7 @@ export function BasketOrb({ slices }: { slices: OrbSlice[] }) {
 
       const scene = new THREE.Scene();
       const camera = new THREE.PerspectiveCamera(34, w / h, 0.1, 100);
-      camera.position.set(0, 2.6, 6.6);
+      camera.position.set(0, 2.9, 7.6);
       camera.lookAt(0, 0, 0);
 
       const css = getComputedStyle(document.documentElement);
@@ -91,7 +91,7 @@ export function BasketOrb({ slices }: { slices: OrbSlice[] }) {
         const weight = d.share / (peak || 1);
         const geo = new THREE.TorusGeometry(
           2.05 + i * 0.035,
-          0.07 + weight * 0.3,
+          0.06 + weight * 0.17,
           radial,
           Math.max(8, Math.round(tubular * d.share) + 8),
           span,
