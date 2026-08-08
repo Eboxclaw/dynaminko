@@ -1,10 +1,13 @@
-import { useEffect, useRef } from "react";
+import { useEffect } from "react";
 
 import { extractSignals } from "@/lib/agent/extract";
 import { ingestSignals, walletKey } from "@/lib/store";
 
 import { useDoc } from "./useDoc";
 import { usePortfolio } from "./usePortfolio";
+
+/** ids already handed to the store, so re-renders never re-ingest. */
+const seen = new Set<string>();
 
 /**
  * Runs the extraction agent whenever a fresh wallet read lands. New on-chain
@@ -15,17 +18,14 @@ export function useAgent() {
   const { trades, active, fetchedAt } = usePortfolio();
 
   const key = active ? walletKey(active.chainId, active.address) : null;
+  const chainId = active?.chainId ?? null;
   const stamp = `${key ?? ""}:${fetchedAt ?? 0}:${trades.length}`;
-  const last = useRef<string | null>(null);
-  const latest = useRef(trades);
-  latest.current = trades;
 
   useEffect(() => {
-    if (!key || !active) return;
-    if (latest.current.length === 0) return;
-    if (last.current === stamp) return;
-    last.current = stamp;
-    ingestSignals(extractSignals({ trades: latest.current, chainId: active.chainId }));
+    if (!key || chainId == null || seen.has(stamp)) return;
+    seen.add(stamp);
+    const fresh = extractSignals({ trades, chainId });
+    if (fresh.length > 0) ingestSignals(fresh);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stamp]);
 
