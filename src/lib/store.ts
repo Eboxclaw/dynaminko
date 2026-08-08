@@ -172,8 +172,12 @@ export function subscribe(fn: () => void): () => void {
 
 export function update(mutate: (draft: PotDoc) => PotDoc | void) {
   ensureLoaded();
-  const draft: PotDoc = JSON.parse(JSON.stringify(doc)) as PotDoc;
+  const before = JSON.stringify(doc);
+  const draft: PotDoc = JSON.parse(before) as PotDoc;
   const next = mutate(draft) ?? draft;
+  // No-op mutations must not replace the document: a new object identity would
+  // re-trigger every subscriber and can loop effects that write back to the store.
+  if (JSON.stringify(next) === before) return;
   doc = next;
   persist();
   listeners.forEach((fn) => fn());
