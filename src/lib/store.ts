@@ -256,16 +256,15 @@ export function addEntry(input: Partial<Entry>): Entry {
 /** The agent writes here. Existing ids are never overwritten or duplicated. */
 export function ingestSignals(incoming: Signal[]) {
   if (incoming.length === 0) return;
+  ensureLoaded();
+  const known = new Set(doc.signals.map((s) => s.id));
+  const linked = new Set(doc.entries.map((e) => e.tradeId).filter(Boolean) as string[]);
+  const fresh = incoming
+    .filter((s) => !known.has(s.id))
+    .map((s) => ({ ...s, state: linked.has(s.id) ? ("linked" as const) : s.state }));
+  if (fresh.length === 0) return;
   update((d) => {
-    const known = new Set(d.signals.map((s) => s.id));
-    const linked = new Set(d.entries.map((e) => e.tradeId).filter(Boolean) as string[]);
-    const fresh = incoming
-      .filter((s) => !known.has(s.id))
-      .map((s) => ({ ...s, state: linked.has(s.id) ? ("linked" as const) : s.state }));
-    if (fresh.length === 0) return;
-    d.signals = [...fresh, ...d.signals]
-      .sort((a, b) => b.ts - a.ts)
-      .slice(0, 300);
+    d.signals = [...fresh, ...d.signals].sort((a, b) => b.ts - a.ts).slice(0, 300);
   });
 }
 
