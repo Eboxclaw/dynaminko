@@ -81,7 +81,7 @@ function Dashboard() {
         <Panel eyebrow="Net worth // Ink" className={cn(isFetching && "scan overflow-hidden")}>
           <div className="p-4">
             <div className="flex items-start gap-3">
-              <p className="num text-[38px] font-semibold leading-none tracking-tight">
+              <p className="num text-[30px] font-semibold leading-none tracking-tight sm:text-[38px]">
                 {portfolio.priced ? usd(portfolio.total, hidden) : "—"}
               </p>
               <button
