@@ -88,7 +88,7 @@ function Dashboard() {
                 type="button"
                 onClick={() => patchSettings({ hideBalances: !hidden })}
                 aria-label="Toggle balance privacy"
-                className="mt-1 text-ink-faint hover:text-ink"
+                className="-m-2 mt-0 grid h-9 w-9 place-items-center text-ink-faint transition hover:text-ink"
               >
                 {hidden ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
               </button>
@@ -158,11 +158,11 @@ function Dashboard() {
             </Link>
           }
         >
-          <ul className="max-h-[260px] overflow-y-auto">
+          <ul className="max-h-[300px] overflow-y-auto overscroll-contain sm:max-h-[260px]">
             {inbox.slice(0, 6).map((s) => (
               <li
                 key={s.id}
-                className="flex items-center gap-3 border-b border-stroke px-4 py-2.5 last:border-0"
+                className="flex items-center gap-3 border-b border-stroke px-4 py-3 last:border-0 sm:py-2.5"
               >
                 <span className="num text-[11px] text-ink-faint">
                   {s.side === "in" ? "IN" : "OUT"}
@@ -185,11 +185,11 @@ function Dashboard() {
         </Panel>
 
         <Panel eyebrow="Holdings // Detail" delay={140}>
-          <ul className="max-h-[260px] overflow-y-auto">
+          <ul className="max-h-[300px] overflow-y-auto overscroll-contain sm:max-h-[260px]">
             {portfolio.holdings.slice(0, 12).map((h) => (
               <li
                 key={h.key}
-                className="flex items-center gap-3 border-b border-stroke px-4 py-2.5 last:border-0"
+                className="flex items-center gap-3 border-b border-stroke px-4 py-3 last:border-0 sm:py-2.5"
               >
                 <span className="min-w-0 flex-1">
                   <span className="block text-[13px] font-medium">{h.symbol}</span>
@@ -213,7 +213,7 @@ function Dashboard() {
       <button
         type="button"
         onClick={() => setComposing(true)}
-        className="fixed bottom-20 right-4 z-30 inline-flex items-center gap-2 bg-ink px-4 py-3 text-[13px] font-medium text-paper shadow-lg transition hover:opacity-90 lg:bottom-6 lg:right-6"
+        className="fixed bottom-[calc(env(safe-area-inset-bottom)+72px)] right-4 z-30 rounded-full inline-flex items-center gap-2 bg-ink px-4 py-3 text-[13px] font-medium text-paper shadow-lg active:scale-95 transition hover:opacity-90 lg:bottom-6 lg:right-6"
       >
         <Plus className="h-4 w-4" /> New entry
       </button>
