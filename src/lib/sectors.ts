@@ -1,16 +1,13 @@
-// Sector taxonomy. Classification only — no invented prices or balances.
-// A token you hold gets a sector so the portfolio can be told as a story
+// Basket taxonomy. Classification only — no invented prices or balances.
+// A token you hold gets a basket so the portfolio can be told as a story
 // instead of a flat list.
 
 export type SectorId =
-  | "privacy"
+  | "memes"
   | "store-of-value"
-  | "health"
-  | "defense"
-  | "firearms"
-  | "semis"
-  | "ai"
+  | "defi"
   | "stables"
+  | "stocks"
   | "unsorted";
 
 export type Sector = {
@@ -21,14 +18,11 @@ export type Sector = {
 };
 
 export const SECTORS: Sector[] = [
-  { id: "ai", label: "AI", blurb: "Compute, agents, inference", hue: 265 },
-  { id: "semis", label: "Semiconductors", blurb: "Chips and fabrication", hue: 205 },
-  { id: "privacy", label: "Privacy", blurb: "Untraceable money and comms", hue: 160 },
   { id: "store-of-value", label: "Store of value", blurb: "Hard, scarce, boring", hue: 45 },
-  { id: "health", label: "Health", blurb: "Bio, longevity, care", hue: 340 },
-  { id: "defense", label: "Defense", blurb: "Sovereignty and deterrence", hue: 20 },
-  { id: "firearms", label: "Firearms", blurb: "Small arms and optics", hue: 5 },
-  { id: "stables", label: "Cash", blurb: "Stablecoins and dry powder", hue: 120 },
+  { id: "stocks", label: "Stocks", blurb: "Tokenized equities", hue: 205 },
+  { id: "defi", label: "DeFi", blurb: "Protocol equity and yield", hue: 265 },
+  { id: "memes", label: "Memes", blurb: "Attention assets", hue: 340 },
+  { id: "stables", label: "Stables", blurb: "Dry powder", hue: 150 },
   { id: "unsorted", label: "Unsorted", blurb: "Not classified yet", hue: 0 },
 ];
 
@@ -37,62 +31,90 @@ export const SECTOR_BY_ID = Object.fromEntries(SECTORS.map((s) => [s.id, s])) as
   Sector
 >;
 
-/** Symbol → sector. Extend freely; unknown symbols fall into "unsorted". */
+/** Order used whenever baskets are listed. */
+export const SECTOR_ORDER: SectorId[] = SECTORS.map((s) => s.id);
+
+/** Symbol → basket. Extend freely; unknown symbols fall into "unsorted". */
 const SYMBOL_SECTOR: Record<string, SectorId> = {
-  // cash
+  // stables
   USDC: "stables",
   USDT: "stables",
   DAI: "stables",
   USDCE: "stables",
   "USDC.E": "stables",
   USDGLO: "stables",
+  USDE: "stables",
+  SUSDE: "stables",
+  FRAX: "stables",
+  LUSD: "stables",
+  GHO: "stables",
   // store of value
   ETH: "store-of-value",
   WETH: "store-of-value",
+  STETH: "store-of-value",
+  WSTETH: "store-of-value",
   BTC: "store-of-value",
   WBTC: "store-of-value",
   CBBTC: "store-of-value",
+  TBTC: "store-of-value",
   PAXG: "store-of-value",
   XAUT: "store-of-value",
-  // privacy
-  XMR: "privacy",
-  ZEC: "privacy",
-  SCRT: "privacy",
-  ROSE: "privacy",
-  // ai
-  TAO: "ai",
-  RNDR: "ai",
-  RENDER: "ai",
-  FET: "ai",
-  AKT: "ai",
-  NEAR: "ai",
-  TNSR: "ai",
-  // semis
-  TSM: "semis",
-  NVDA: "semis",
-  AMD: "semis",
-  ASML: "semis",
-  TTSM: "semis",
-  TNVDA: "semis",
-  // health
-  LLY: "health",
-  NVO: "health",
-  UNH: "health",
-  TLLY: "health",
-  // defense
-  LMT: "defense",
-  RTX: "defense",
-  NOC: "defense",
-  TLMT: "defense",
-  // firearms
-  SWBI: "firearms",
-  RGR: "firearms",
-  POWW: "firearms",
+  // defi
+  VELO: "defi",
+  AERO: "defi",
+  UNI: "defi",
+  AAVE: "defi",
+  CRV: "defi",
+  CVX: "defi",
+  LDO: "defi",
+  PENDLE: "defi",
+  SNX: "defi",
+  COMP: "defi",
+  MKR: "defi",
+  SKY: "defi",
+  OP: "defi",
+  TYDRO: "defi",
+  NADO: "defi",
+  HYPE: "defi",
+  KRK: "defi",
+  // memes
+  INKO: "memes",
+  DOGE: "memes",
+  SHIB: "memes",
+  PEPE: "memes",
+  WIF: "memes",
+  BONK: "memes",
+  BRETT: "memes",
+  MOG: "memes",
+  SQUID: "memes",
+  // tokenized stocks (xStocks and friends)
+  TSM: "stocks",
+  NVDA: "stocks",
+  AMD: "stocks",
+  ASML: "stocks",
+  LLY: "stocks",
+  NVO: "stocks",
+  UNH: "stocks",
+  LMT: "stocks",
+  RTX: "stocks",
+  NOC: "stocks",
+  SWBI: "stocks",
+  RGR: "stocks",
+  POWW: "stocks",
+  AAPL: "stocks",
+  MSFT: "stocks",
+  TSLA: "stocks",
+  SPY: "stocks",
+  QQQ: "stocks",
+  COIN: "stocks",
+  MSTR: "stocks",
 };
 
 export function sectorFor(symbol: string): SectorId {
-  const key = symbol.trim().toUpperCase().replace(/^X/, "");
-  return SYMBOL_SECTOR[symbol.trim().toUpperCase()] ?? SYMBOL_SECTOR[key] ?? "unsorted";
+  const upper = symbol.trim().toUpperCase();
+  // tokenized equities are commonly prefixed (tLMT, xTSM, TSMx)
+  const stripped = upper.replace(/^[TX]/, "").replace(/X$/, "");
+  return SYMBOL_SECTOR[upper] ?? SYMBOL_SECTOR[stripped] ?? "unsorted";
 }
 
 export function sectorColor(id: SectorId, dark = false): string {

@@ -36,7 +36,7 @@ export type Signal = {
   chainId: number;
   ts: number;
   extractedAt: number;
-  state: "inbox" | "linked" | "dismissed";
+  state: "inbox" | "linked";
 };
 
 export type Entry = {
@@ -115,7 +115,7 @@ export const EMPTY_DOC: PotDoc = {
   activeWallet: null,
   settings: {
     hideBalances: false,
-    theme: "dark",
+    theme: "light",
     aiEnabled: false,
     aiModelId: "lfm2-450",
     onboarded: false,

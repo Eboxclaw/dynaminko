@@ -220,7 +220,7 @@ function Dashboard() {
 
       {composing && (
         <Reconcile
-          signal={null}
+          signals={[]}
           theses={doc.theses}
           hidden={hidden}
           onClose={() => setComposing(false)}
