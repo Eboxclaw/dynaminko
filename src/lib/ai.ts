@@ -32,10 +32,15 @@ export type ModelSpec = {
   /** can generate prose at all (the encoder cannot) */
   generative: boolean;
   maxCtx: number;
+  /** which browser backend this model prefers, and what it falls back to */
+  backend: { preferred: "webgpu"; fallback: "wasm" };
 };
 
-/** Strongest first — the recommendation walks down this list. */
-export const MODELS: ModelSpec[] = [
+/** Every model here runs in the browser: GPU when the device has one. */
+const BROWSER_BACKEND = { preferred: "webgpu", fallback: "wasm" } as const;
+
+const MODEL_LIST: Omit<ModelSpec, "backend">[] = [
+
   {
     id: "lfm2-2_6",
     label: "LFM 2.5 2.6B",
