@@ -330,8 +330,25 @@ function ChatConsole({
     if (cmd) {
       const { name, rest } = cmd;
       if (name === "clear") {
-        clearSession();
         setMessages([]);
+        return;
+      }
+      if (name === "new") {
+        startSession(rest);
+        return;
+      }
+      if (name === "sessions") {
+        push({
+          role: "note",
+          text: sessions.length
+            ? sessions
+                .map(
+                  (s) =>
+                    `${s.id === activeId ? "→" : " "} ${s.title} · ${s.turns} turns · ${relativeTime(s.updatedAt)}`,
+                )
+                .join("\n")
+            : "No saved sessions yet.",
+        });
         return;
       }
       if (name === "help") {
@@ -341,11 +358,60 @@ function ChatConsole({
         });
         return;
       }
+      if (name === "models") {
+        push({
+          role: "note",
+          text: MODELS.map(
+            (m) => `${m.label} — ${m.role} · ${STATE_LABEL[ai.states[m.id]]}\n  ${m.serve}`,
+          ).join("\n"),
+        });
+        return;
+      }
+      if (name === "tools") {
+        push({
+          role: "note",
+          text: TOOLS.filter((t) => t.live)
+            .map((t) => `${t.id} [${t.access}] — ${t.purpose}`)
+            .join("\n"),
+        });
+        return;
+      }
+      if (name === "skills") {
+        push({
+          role: "note",
+          text: SKILLS.map(
+            (s) =>
+              `${s.id} — ${s.purpose} (${s.aiRequired ? "needs a model" : "no model"})`,
+          ).join("\n"),
+        });
+        return;
+      }
+      if (name === "context") {
+        const n = Number(rest);
+        if (Number.isFinite(n) && n > 0) {
+          ai.setCtx(n);
+          push({ role: "note", text: `Context window set to ${n} tokens. Reload to apply.` });
+        } else {
+          const used = contextFor(messages, Math.floor(ai.ctx * 0.4), MAX_CONTEXT_MESSAGES);
+          push({
+            role: "note",
+            text: `ctx ${ai.ctx} · last ${used.turns} turns replayed · ~${used.used} tokens of history · cap ${MAX_CONTEXT_MESSAGES} messages.`,
+          });
+        }
+        return;
+      }
       if (name === "model") {
+        const wanted = MODELS.find((m) => m.id === rest || m.label.toLowerCase() === rest.toLowerCase());
+        if (wanted) {
+          ai.select(wanted.id);
+          push({ role: "note", text: `${wanted.label} selected — ${STATE_LABEL[ai.states[wanted.id]]}.` });
+          return;
+        }
         onOpenRail("model");
         push({ role: "note", text: "Model harness opened in the panel." });
         return;
       }
+
       if (name === "pot") return void runSkillTurn("journal.review");
       if (name === "skill") return void runSkillTurn(rest.split(/\s+/)[0]);
       if (name === "tool") {
