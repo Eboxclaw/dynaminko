@@ -1,16 +1,15 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { useState } from "react";
 
 import { Panel, Shell } from "@/components/pot/Shell";
 import { useAi } from "@/hooks/useAi";
 import { useDoc } from "@/hooks/useDoc";
 import { relativeTime } from "@/lib/format";
-import {
-  AGENTS,
-  SKILLS,
-  TOOLS,
-  automationOn,
-  type AgentDef,
-} from "@/lib/agents/registry";
+import { AGENTS, automationOn, type AgentDef } from "@/lib/agents/registry";
+import { SKILLS } from "@/lib/skills/registry";
+import { runSkill, type SkillResult } from "@/lib/skills/run";
+import { TOOLS, TOOL_GROUPS } from "@/lib/tools/registry";
+import { POLICY } from "@/lib/tools/types";
 import {
   clearLogs,
   patchAssistant,
@@ -22,6 +21,7 @@ import { cn } from "@/lib/utils";
 
 const TABS = [
   { id: "agents", label: "Agents" },
+  { id: "ask", label: "Ask" },
   { id: "models", label: "Models" },
   { id: "skills", label: "Skills" },
   { id: "tools", label: "Tools" },
@@ -29,6 +29,7 @@ const TABS = [
 ] as const;
 
 type Tab = (typeof TABS)[number]["id"];
+
 
 export const Route = createFileRoute("/agents")({
   validateSearch: (s: Record<string, unknown>) => ({
@@ -79,6 +80,7 @@ function AgentsPage() {
       </nav>
 
       {tab === "agents" && <AgentsTab automation={doc.settings.automation} />}
+      {tab === "ask" && <AskTab />}
       {tab === "models" && <ModelsTab />}
       {tab === "skills" && <SkillsTab selected={doc.settings.assistant.skills} />}
       {tab === "tools" && <ToolsTab selected={doc.settings.assistant.tools} />}
@@ -244,34 +246,28 @@ function ModelsTab() {
 
 function SkillsTab({ selected }: { selected: string[] }) {
   return (
-    <Panel eyebrow="Skills // What an agent knows how to do">
+    <Panel eyebrow="Skills // Orchestrate tools · AI only for the last step">
       <ul>
-        {SKILLS.map((s) => {
-          const assistantSkill = s.agents.includes("assistant");
-          return (
-            <li key={s.id} className="border-b border-stroke px-4 py-3 last:border-0">
-              <div className="flex items-baseline gap-3">
-                <span className="flex-1 text-[13px] font-medium">{s.label}</span>
-                {assistantSkill ? (
-                  <button
-                    type="button"
-                    onClick={() => toggleAssistantItem("skills", s.id)}
-                    className={cn(
-                      "doodle-pill px-3 py-1 text-[11px]",
-                      selected.includes(s.id) ? "bg-ink text-paper" : "text-ink-faint",
-                    )}
-                  >
-                    {selected.includes(s.id) ? "On" : "Off"}
-                  </button>
-                ) : (
-                  <span className="eyebrow">automation</span>
+        {SKILLS.map((s) => (
+          <li key={s.id} className="border-b border-stroke px-4 py-3 last:border-0">
+            <div className="flex items-baseline gap-3">
+              <span className="flex-1 text-[13px] font-medium">{s.label}</span>
+              <span className="eyebrow">{s.aiRequired ? "needs a model" : "no model"}</span>
+              <button
+                type="button"
+                onClick={() => toggleAssistantItem("skills", s.id)}
+                className={cn(
+                  "doodle-pill px-3 py-1 text-[11px]",
+                  selected.includes(s.id) ? "bg-ink text-paper" : "text-ink-faint",
                 )}
-              </div>
-              <p className="mt-1 text-[12px] text-ink-soft">{s.blurb}</p>
-              <p className="eyebrow mt-1.5">used by {s.agents.join(", ")}</p>
-            </li>
-          );
-        })}
+              >
+                {selected.includes(s.id) ? "On" : "Off"}
+              </button>
+            </div>
+            <p className="mt-1 text-[12px] text-ink-soft">{s.purpose}</p>
+            <p className="num eyebrow mt-1.5">{s.tools.join(" → ") || "no tools"}</p>
+          </li>
+        ))}
       </ul>
     </Panel>
   );
@@ -279,32 +275,126 @@ function SkillsTab({ selected }: { selected: string[] }) {
 
 function ToolsTab({ selected }: { selected: string[] }) {
   return (
-    <Panel eyebrow="Tools // What an agent may touch">
-      <ul>
-        {TOOLS.map((t) => (
-          <li key={t.id} className="border-b border-stroke px-4 py-3 last:border-0">
-            <div className="flex items-baseline gap-3">
-              <span className="flex-1 text-[13px] font-medium">{t.label}</span>
-              <span className="eyebrow">{t.access}</span>
-              <button
-                type="button"
-                onClick={() => toggleAssistantItem("tools", t.id)}
-                className={cn(
-                  "doodle-pill px-3 py-1 text-[11px]",
-                  selected.includes(t.id) ? "bg-ink text-paper" : "text-ink-faint",
-                )}
-              >
-                {selected.includes(t.id) ? "Granted" : "Denied"}
-              </button>
-            </div>
-            <p className="mt-1 text-[12px] text-ink-soft">{t.blurb}</p>
-            {!t.live && <p className="eyebrow mt-1.5">not wired yet</p>}
-          </li>
-        ))}
-      </ul>
-    </Panel>
+    <div className="grid gap-4">
+      {TOOL_GROUPS.map((group, i) => (
+        <Panel key={group} eyebrow={`${group} // deterministic, no model`} delay={i * 20}>
+          <ul>
+            {TOOLS.filter((t) => t.group === group).map((t) => {
+              const policy = POLICY[t.access];
+              return (
+                <li key={t.id} className="border-b border-stroke px-4 py-3 last:border-0">
+                  <div className="flex flex-wrap items-baseline gap-2">
+                    <span className="num flex-1 text-[13px] font-medium">{t.id}</span>
+                    <span className="eyebrow">{t.access}</span>
+                    <button
+                      type="button"
+                      disabled={!t.live}
+                      onClick={() => toggleAssistantItem("tools", t.id)}
+                      className={cn(
+                        "doodle-pill px-3 py-1 text-[11px]",
+                        !t.live
+                          ? "text-ink-faint opacity-50"
+                          : selected.includes(t.id)
+                            ? "bg-ink text-paper"
+                            : "text-ink-faint",
+                      )}
+                    >
+                      {!t.live ? "Not built" : selected.includes(t.id) ? "Granted" : "Denied"}
+                    </button>
+                  </div>
+                  <p className="mt-1 text-[12px] text-ink-soft">{t.purpose}</p>
+                  <p className="num eyebrow mt-1.5">
+                    in {t.inputs} · out {t.output}
+                  </p>
+                  <p className="eyebrow mt-1">
+                    approval {policy.approval} · {policy.logged ? "always logged" : "log optional"}
+                  </p>
+                </li>
+              );
+            })}
+          </ul>
+        </Panel>
+      ))}
+    </div>
   );
 }
+
+function AskTab() {
+  const ai = useAi();
+  const [result, setResult] = useState<SkillResult | null>(null);
+  const [answer, setAnswer] = useState("");
+  const askable = SKILLS.filter((s) => s.askable);
+
+  const run = (id: string) => {
+    setAnswer("");
+    setResult(runSkill(id));
+  };
+
+  const reason = async () => {
+    if (!result) return;
+    const text = await ai.ask({
+      system: "You are a trading-journal analyst. Be concise and concrete.",
+      user: result.prompt,
+    });
+    setAnswer(text);
+  };
+
+  return (
+    <div className="grid gap-4">
+      <Panel eyebrow="Ask // Tools run first, the model only if needed">
+        <div className="flex flex-wrap gap-2 px-4 py-3">
+          {askable.map((s) => (
+            <button
+              key={s.id}
+              type="button"
+              onClick={() => run(s.id)}
+              className="doodle-pill px-3.5 py-1.5 text-[12px] hover:border-ink"
+            >
+              {s.label}
+            </button>
+          ))}
+        </div>
+      </Panel>
+
+      {result && (
+        <Panel eyebrow={`Result // ${result.skill.tools.join(" → ") || "no tools"}`} delay={40}>
+          <ul className="px-4 py-3">
+            {result.facts.map((f) => (
+              <li key={f} className="text-[13px] leading-relaxed">
+                {f}
+              </li>
+            ))}
+          </ul>
+          <div className="border-t border-stroke px-4 py-3">
+            {ai.status.phase !== "ready" ? (
+              <p className="text-[12px] text-ink-soft">
+                {result.aiRequired
+                  ? "This one needs a model to go further. "
+                  : "Numbers above are computed locally, no model involved. For an interpretation, "}
+                download one in the Models tab.
+              </p>
+            ) : (
+              <button
+                type="button"
+                onClick={() => void reason()}
+                disabled={ai.running}
+                className="doodle-pill bg-ink px-4 py-1.5 text-[12px] font-medium text-paper"
+              >
+                {ai.running ? "Reasoning…" : "Interpret with the model"}
+              </button>
+            )}
+            {(answer || ai.output) && (
+              <p className="mt-3 whitespace-pre-wrap text-[13px] leading-relaxed">
+                {answer || ai.output}
+              </p>
+            )}
+          </div>
+        </Panel>
+      )}
+    </div>
+  );
+}
+
 
 function LogsTab() {
   const doc = useDoc();

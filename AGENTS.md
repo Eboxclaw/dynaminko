@@ -152,3 +152,25 @@ Networking	★★★★☆
 Cryptography	★★★★☆
 Rust	★★★☆☆ (performance modules only)
 
+
+## Agent Architecture — AI Only When Necessary
+
+**Principle (permanent):** `Extract → Parse → Index → Calculate → Retrieve → Reason only when necessary.`
+
+| Layer | Definition | Model? |
+| --- | --- | --- |
+| Tool | Deterministic action: read, parse, index, filter, calculate, format, notify, RPC | Never |
+| Skill | Orchestrates tools; may end with a reasoning step | Only the last step |
+| Agent / AI | Reasoning, interpretation, synthesis, planning, natural language | Only when the task genuinely needs it |
+
+Rules:
+- Do not send work to a model because a model *can* do it. If code, an index, an API or a cached value can answer it, they must.
+- A model never scans the journal card by card. Tools index, filter and compute; the model receives a compact structured result.
+- Every AI feature is opt-in. If a surface needs a model that is not downloaded, show the deterministic result and link the user to `/agents` to download one — never fail silently.
+- Every tool declares an access level. Approval and logging follow from it:
+  `READ`/`COMPUTE` — no approval, optional log. `WRITE`/`EDIT` — approval when appropriate, always logged.
+  `DELETE`/`EXECUTE`/`EXTERNAL` — explicit approval, always logged.
+- Mutations stop before execution and present the intended action (tool, target, changes) for approval.
+
+Registries: `src/lib/tools/registry.ts`, `src/lib/skills/registry.ts`.
+Docs: `docs/tools/*.md`, `docs/skills/*.md` (compact, machine-readable). `node scripts/check-docs.mjs` fails when a registered group or skill is undocumented.
