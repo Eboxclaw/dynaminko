@@ -11,15 +11,15 @@ UX that rewards engagement.
 2. Synergistic Input Layers
 To remove the friction of journaling, data entry is broken down into three distinct, interconnected layers:
 A. Manual Input (The "Thesis" Layer)
-Manual entry is stripped of tedious accounting. Instead, it is strictly focused on the trader's thesis, "shower
+Manual can be used but the idea is to strip of tedious accounting. Instead, it is strictly focused on the trader's thesis, "shower
 thoughts," or quick ticker ideas. Users document the why before the trade even happens.
 B. Auto-Fetched Input (The "Action" Layer)
 The core journal is built passively from the user's on-chain actions. By connecting wallets and monitoring
 exchange APIs, new trades are fetched and inserted daily. This separates execution from accounting—users
 don't have to chase their trades to log them.
-C. Assisted Input (The "AI Concierge" Layer)
-When new auto-fetched actions arrive, they trigger an event-driven AI workflow. A deterministic personal
-assistant reaches out to the user to reconcile the fetched trades with the earlier manual thesis. This creates a
+C. Assisted Input - multi card, multi option fast click replies and AI latter. (The "AI Concierge" Layer)
+When new auto-fetched actions arrive, they trigger an event-driven workflow. A deterministic personal
+assistant can reach out to the user to reconcile the fetched trades with the earlier manual thesis. This creates a
 complete journal entry with minimal friction.
 
 Architecture Note: The local AI framework splits responsibilities. A deterministic personal
@@ -27,8 +27,8 @@ assistant handles the strict journaling and routine setup, ensuring accounting a
 Simultaneously, a separate sentiment/meme agent processes external community
 feedback and market sentiment to provide context to the trades. Product Vision, UI/UX Architecture, and Development Roadmap
 
-3. The "Dynamic Performance" Metric
-Standard PNL (Profit & Loss) is insufficient for evaluating trader growth. INKO introduces the Dynamic
+3. The "POT Performance" Metric
+Standard PNL (Profit & Loss) is insufficient for evaluating trader growth. INKO introduces the POT
 Performance Status Graph. This multi-axis visualization evaluates trades across several vectors:
 Financial Performance: Raw ROI and risk-adjusted returns.
 Thesis Alignment: Did the execution match the original manual thesis?
@@ -36,7 +36,7 @@ Sentiment & Ecosystem: Community feedback and broader market mood during the tra
 Psychological Factors: Self-reported or AI-inferred emotional states (e.g., FOMO, conviction).
 4. UI/UX & Platform Architecture
 
-The application will be deployed as a Progressive Web App (PWA) on Inkchain, heavily themed around
+The application will be deployed as a Progressive Web App (PWA) on Inkchain, with a signature around
 "INKO the meme" to foster community alignment.
 Persistent Bottom Bar: The primary navigation is anchored at the bottom of the screen for one-handed
 mobile use.
@@ -49,7 +49,7 @@ To ensure a smooth rollout, the product will be developed in distinct phases, ev
 accounting tool into a complete decentralized execution environment.
 Phase 1: The Gamified Journal (Current Focus)
 Establish the PWA on Inkchain. Build the multi-modal FAB, wallet connection for auto-fetching trades,
-and the dual-agent AI system (deterministic assistant + sentiment meme agent). Launch the Dynamic
+and the dual-agent AI system (deterministic assistant + sentiment meme agent). Launch the POT
 Performance metric.
 
 Phase 2: Execution & Framework Integration
