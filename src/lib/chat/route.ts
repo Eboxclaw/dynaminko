@@ -1,8 +1,11 @@
 // Deterministic router. Plain prose is matched against skills and journal
-// nouns before any model is considered. No model runs here.
+// nouns before any model is considered. No generative model runs here; the
+// encoder is only consulted when the keyword pass finds nothing.
 
 import { getDoc, type Sentiment } from "@/lib/store";
 import { SKILLS } from "@/lib/skills/registry";
+import { TOOLS } from "@/lib/tools/registry";
+import { rank } from "@/lib/ai/encoder";
 
 export type Routed =
   | { kind: "skill"; skillId: string; motive?: Sentiment; thesisId?: string; why: string }
@@ -59,4 +62,45 @@ export function routeMessage(text: string): Routed {
   if (ticker) return { kind: "search", query: ticker, why: `looked up ${ticker}` };
 
   return { kind: "none" };
+}
+
+/** Minimum similarity before the encoder is allowed to pick a skill. */
+const THRESHOLD = 0.42;
+
+/**
+ * Second pass: embed the message and the skill/tool catalogue and take the best
+ * match. Costs one small encoder call, never a generative one. Returns
+ * `{ kind: "none" }` when the encoder is unavailable or nothing is close.
+ */
+export async function routeSemantic(text: string): Promise<Routed> {
+  const targets = [
+    ...SKILLS.map((s) => ({ id: `skill:${s.id}`, text: `${s.label}. ${s.purpose}` })),
+    ...TOOLS.filter((t) => t.live).map((t) => ({
+      id: `tool:${t.id}`,
+      text: `${t.label}. ${t.purpose}`,
+    })),
+  ];
+  const ranked = await rank(text, targets);
+  const best = ranked?.[0];
+  if (!best || best.score < THRESHOLD) return { kind: "none" };
+  const [kind, id] = best.id.split(":");
+  if (kind !== "skill") return { kind: "none" };
+  return {
+    kind: "skill",
+    skillId: id,
+    why: `closest match by the encoder (${best.score.toFixed(2)})`,
+  };
+}
+
+/** Tools and skills ranked semantically, for the command picker. */
+export async function discover(text: string, limit = 5) {
+  const targets = [
+    ...SKILLS.map((s) => ({ id: `/skill ${s.id}`, text: `${s.label}. ${s.purpose}` })),
+    ...TOOLS.filter((t) => t.live).map((t) => ({
+      id: `/tool ${t.id}`,
+      text: `${t.label}. ${t.purpose}`,
+    })),
+  ];
+  const ranked = await rank(text, targets);
+  return ranked?.slice(0, limit) ?? [];
 }

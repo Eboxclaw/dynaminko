@@ -7,19 +7,24 @@ import { Panel, Shell } from "@/components/pot/Shell";
 import { useAi } from "@/hooks/useAi";
 import { useDoc } from "@/hooks/useDoc";
 import { relativeTime } from "@/lib/format";
-import { splitThinking } from "@/lib/ai";
+import { MAX_CONTEXT_MESSAGES, MODELS, STATE_LABEL, splitThinking } from "@/lib/ai";
+import { encoderState } from "@/lib/ai/encoder";
 import { AGENTS, automationOn } from "@/lib/agents/registry";
 import { COMMANDS, parseCommand, suggestions, type Suggestion } from "@/lib/chat/commands";
 import { digestLine } from "@/lib/chat/context";
-import { routeMessage } from "@/lib/chat/route";
+import { routeMessage, routeSemantic } from "@/lib/chat/route";
+import { newMessage, type ChatMessage } from "@/lib/chat/session";
 import {
-  clearSession,
-  loadSession,
-  newMessage,
-  saveSession,
-  transcriptFor,
-  type ChatMessage,
-} from "@/lib/chat/session";
+  bootstrapSessions,
+  contextFor,
+  createSession,
+  deleteSession,
+  listSessions,
+  readSession,
+  writeSession,
+  type SessionMeta,
+} from "@/lib/chat/sessions";
+
 import { SKILLS } from "@/lib/skills/registry";
 import { runSkill } from "@/lib/skills/run";
 import { searchCards } from "@/lib/tools/journal";
@@ -82,19 +87,19 @@ function AgentsPage() {
         <button
           type="button"
           onClick={() => setRailOpen((v) => !v)}
-          className="doodle-pill px-3 py-1 text-[11px] hover:border-ink lg:hidden"
+          className="doodle-pill px-3 py-1 text-[11px] hover:border-ink"
         >
           {railOpen ? "Close" : "Panels"}
         </button>
       }
     >
-      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_320px]">
+      <div className={cn("grid gap-4", railOpen && "lg:grid-cols-[minmax(0,1fr)_320px]")}>
         <ChatConsole ai={ai} onOpenRail={openRail} />
 
         <aside
           className={cn(
             "grid content-start gap-4",
-            !railOpen && "hidden lg:grid",
+            !railOpen && "hidden",
           )}
         >
           <nav className="flex gap-1 overflow-x-auto">
@@ -137,6 +142,8 @@ function ChatConsole({
   ai: ReturnType<typeof useAi>;
   onOpenRail: (tab: RailTab) => void;
 }) {
+  const [sessions, setSessions] = useState<SessionMeta[]>([]);
+  const [activeId, setActiveId] = useState<string | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [image, setImage] = useState<string | null>(null);
@@ -148,19 +155,26 @@ function ChatConsole({
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
+  // One idempotent bootstrap: read the index, create a session only when empty.
   useEffect(() => {
-    setMessages(loadSession());
+    const boot = bootstrapSessions();
+    setSessions(boot.sessions);
+    setActiveId(boot.activeId);
+    setMessages(readSession(boot.activeId));
   }, []);
+
   useEffect(() => {
-    saveSession(messages);
+    if (!activeId) return;
+    writeSession(activeId, messages);
+    setSessions(listSessions());
     boxRef.current?.scrollTo({ top: boxRef.current.scrollHeight });
-  }, [messages]);
+  }, [messages, activeId]);
+
   useEffect(() => {
     inputRef.current?.focus();
-  }, [busy]);
+  }, [busy, activeId]);
 
   const picks = useMemo(() => suggestions(input), [input]);
-  const modelReady = ai.status.phase === "ready";
   const canSee = Boolean(ai.spec?.vision);
   const canReason = Boolean(ai.spec?.reasoning);
 
@@ -170,19 +184,39 @@ function ChatConsole({
     return msg;
   };
 
+  const openSession = (id: string) => {
+    setActiveId(id);
+    setMessages(readSession(id));
+  };
+
+  const startSession = (title?: string) => {
+    const meta = createSession(title || "New session");
+    setSessions(listSessions());
+    setActiveId(meta.id);
+    setMessages([]);
+  };
+
   const speak = async (system: string, user: string) => {
-    if (!modelReady) {
+    // Chatting is itself the request to download: the model loads on demand.
+    if (ai.status.phase !== "ready") {
       push({
         role: "note",
-        text: "No model loaded — the numbers above are computed locally. Load one in the Model panel for an interpretation.",
+        text: `${ai.spec?.label ?? "The model"} is not running yet — starting it now. First run downloads ~${ai.spec?.weightsGb ?? "?"} GB, then it stays on this device.`,
       });
-      return;
+      const ok = await ai.ensure();
+      if (!ok) {
+        push({
+          role: "note",
+          text: "The model could not start. The numbers above are still computed locally.",
+        });
+        return;
+      }
     }
     setBusy(true);
     try {
-      const history = transcriptFor(messages, Math.floor(ai.ctx * 0.4));
+      const history = contextFor(messages, Math.floor(ai.ctx * 0.4), MAX_CONTEXT_MESSAGES);
       const raw = await ai.ask(
-        { system: `${system}\n\nContext: ${digestLine()}`, user: `${history}\n\n${user}` },
+        { system: `${system}\n\nContext: ${digestLine()}`, user: `${history.text}\n\n${user}` },
         {
           thinking,
           images: vision && image ? [image] : undefined,
@@ -200,6 +234,7 @@ function ChatConsole({
       setBusy(false);
     }
   };
+
 
   const runSkillTurn = async (
     skillId: string,
@@ -295,8 +330,25 @@ function ChatConsole({
     if (cmd) {
       const { name, rest } = cmd;
       if (name === "clear") {
-        clearSession();
         setMessages([]);
+        return;
+      }
+      if (name === "new") {
+        startSession(rest);
+        return;
+      }
+      if (name === "sessions") {
+        push({
+          role: "note",
+          text: sessions.length
+            ? sessions
+                .map(
+                  (s) =>
+                    `${s.id === activeId ? "→" : " "} ${s.title} · ${s.turns} turns · ${relativeTime(s.updatedAt)}`,
+                )
+                .join("\n")
+            : "No saved sessions yet.",
+        });
         return;
       }
       if (name === "help") {
@@ -306,11 +358,60 @@ function ChatConsole({
         });
         return;
       }
+      if (name === "models") {
+        push({
+          role: "note",
+          text: MODELS.map(
+            (m) => `${m.label} — ${m.role} · ${STATE_LABEL[ai.states[m.id]]}\n  ${m.serve}`,
+          ).join("\n"),
+        });
+        return;
+      }
+      if (name === "tools") {
+        push({
+          role: "note",
+          text: TOOLS.filter((t) => t.live)
+            .map((t) => `${t.id} [${t.access}] — ${t.purpose}`)
+            .join("\n"),
+        });
+        return;
+      }
+      if (name === "skills") {
+        push({
+          role: "note",
+          text: SKILLS.map(
+            (s) =>
+              `${s.id} — ${s.purpose} (${s.aiRequired ? "needs a model" : "no model"})`,
+          ).join("\n"),
+        });
+        return;
+      }
+      if (name === "context") {
+        const n = Number(rest);
+        if (Number.isFinite(n) && n > 0) {
+          ai.setCtx(n);
+          push({ role: "note", text: `Context window set to ${n} tokens. Reload to apply.` });
+        } else {
+          const used = contextFor(messages, Math.floor(ai.ctx * 0.4), MAX_CONTEXT_MESSAGES);
+          push({
+            role: "note",
+            text: `ctx ${ai.ctx} · last ${used.turns} turns replayed · ~${used.used} tokens of history · cap ${MAX_CONTEXT_MESSAGES} messages.`,
+          });
+        }
+        return;
+      }
       if (name === "model") {
+        const wanted = MODELS.find((m) => m.id === rest || m.label.toLowerCase() === rest.toLowerCase());
+        if (wanted) {
+          ai.select(wanted.id);
+          push({ role: "note", text: `${wanted.label} selected — ${STATE_LABEL[ai.states[wanted.id]]}.` });
+          return;
+        }
         onOpenRail("model");
         push({ role: "note", text: "Model harness opened in the panel." });
         return;
       }
+
       if (name === "pot") return void runSkillTurn("journal.review");
       if (name === "skill") return void runSkillTurn(rest.split(/\s+/)[0]);
       if (name === "tool") {
@@ -368,6 +469,15 @@ function ChatConsole({
         if (!reasoning) return;
       }
     }
+    if (routed.kind === "none") {
+      // Second pass: the 230M encoder, not a generative model.
+      const semantic = await routeSemantic(text);
+      if (semantic.kind === "skill") {
+        push({ role: "note", text: `Running ${semantic.skillId} — ${semantic.why}.` });
+        return void runSkillTurn(semantic.skillId);
+      }
+    }
+
     await speak(
       "You are the assistant inside a trading journal. Answer briefly. If a number is needed, say which tool would produce it instead of guessing.",
       text,
@@ -379,10 +489,59 @@ function ChatConsole({
     inputRef.current?.focus();
   };
 
+  const active = sessions.find((s) => s.id === activeId);
+  const ctxUsed = contextFor(messages, Math.floor(ai.ctx * 0.4), MAX_CONTEXT_MESSAGES);
+
   return (
     <div className="grid content-start gap-3">
-      <Panel eyebrow={`Session // ${messages.length} turns · ctx ${ai.ctx}`}>
+      <Panel
+        eyebrow={`Session // ${active?.title ?? "new"} · ${messages.length} turns`}
+        action={
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              onClick={() => startSession()}
+              className="doodle-pill px-2.5 py-0.5 text-[11px] hover:border-ink"
+            >
+              New
+            </button>
+            {activeId && sessions.length > 1 && (
+              <button
+                type="button"
+                onClick={() => {
+                  deleteSession(activeId);
+                  const rest = listSessions();
+                  setSessions(rest);
+                  if (rest[0]) openSession(rest[0].id);
+                  else startSession();
+                }}
+                className="doodle-pill px-2.5 py-0.5 text-[11px] hover:border-ink"
+              >
+                Delete
+              </button>
+            )}
+          </div>
+        }
+      >
+        {sessions.length > 1 && (
+          <div className="flex gap-1 overflow-x-auto border-b border-stroke px-3 py-2">
+            {sessions.map((s) => (
+              <button
+                key={s.id}
+                type="button"
+                onClick={() => openSession(s.id)}
+                className={cn(
+                  "doodle-pill shrink-0 max-w-[160px] truncate px-2.5 py-0.5 text-[11px]",
+                  s.id === activeId ? "bg-ink text-paper" : "text-ink-soft hover:border-ink",
+                )}
+              >
+                {s.title}
+              </button>
+            ))}
+          </div>
+        )}
         <div ref={boxRef} className="max-h-[52vh] min-h-[240px] overflow-y-auto px-4 py-3">
+
           {messages.length === 0 && (
             <div className="py-6 text-[13px] text-ink-soft">
               <p>Ask in plain words, or press / for a command.</p>
@@ -535,11 +694,11 @@ function ChatConsole({
             />
             <Toggle
               on={reasoning}
-              disabled={!modelReady}
               onClick={() => setReasoning((v) => !v)}
               icon={<Sparkles className="h-3 w-3" />}
               label="Reason"
             />
+
             <Toggle
               on={thinking}
               disabled={!canReason}
@@ -572,8 +731,9 @@ function ChatConsole({
               className="doodle-pill num ml-auto inline-flex items-center gap-1 px-2.5 py-1 text-[11px] hover:border-ink"
             >
               <SquareStack className="h-3 w-3" />
-              {ai.spec?.label ?? "no model"} · ctx {ai.ctx}
+              {ai.spec?.label ?? "no model"} · {STATE_LABEL[ai.states[ai.modelId]]}
             </button>
+
             <input
               ref={fileRef}
               type="file"
@@ -588,8 +748,21 @@ function ChatConsole({
               }}
             />
           </div>
+
+          <p className="num eyebrow mt-2 flex flex-wrap gap-x-3">
+            <span>ctx {ai.ctx}</span>
+            <span>
+              {ctxUsed.turns}/{MAX_CONTEXT_MESSAGES} turns replayed · ~{ctxUsed.used} tok
+            </span>
+            {ai.status.phase === "downloading" && (
+              <span>downloading {Math.round(ai.status.progress * 100)}%</span>
+            )}
+            {ai.speed && <span>{ai.speed.tps.toFixed(1)} tok/s</span>}
+            <span>encoder {encoderState()}</span>
+          </p>
         </div>
       </Panel>
+
     </div>
   );
 }

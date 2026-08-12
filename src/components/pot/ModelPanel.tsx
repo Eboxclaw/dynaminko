@@ -1,16 +1,13 @@
 // The model harness: what a llama.cpp front end is expected to expose and
-// nothing more — context window, download state, a RAM-aware recommendation,
-// and the generation basics.
-
-import { useEffect, useState } from "react";
+// nothing more — role, state, context window, a RAM-aware recommendation, and
+// the generation basics.
 
 import { useAi } from "@/hooks/useAi";
 import { useDoc } from "@/hooks/useDoc";
 import {
   CTX_CHOICES,
   MODEL_BY_ID,
-  cachedModels,
-  deviceProfile,
+  STATE_LABEL,
   memoryEstimateGb,
   recommendModel,
 } from "@/lib/ai";
@@ -19,19 +16,10 @@ import { cn } from "@/lib/utils";
 
 export function ModelPanel({ ai }: { ai: ReturnType<typeof useAi> }) {
   const doc = useDoc();
-  const [cached, setCached] = useState<Set<string>>(new Set());
-  const [profile] = useState(() => deviceProfile());
+  const profile = ai.profile;
   const rec = recommendModel(profile);
   const selected = doc.settings.assistant.modelId;
   const spec = MODEL_BY_ID[selected];
-
-  useEffect(() => {
-    let alive = true;
-    void cachedModels().then((s) => alive && setCached(s));
-    return () => {
-      alive = false;
-    };
-  }, [ai.status.phase]);
 
   const budget = profile.ramGb ?? (profile.mobile ? 2 : 4);
   const estimate = memoryEstimateGb(selected, ai.ctx);
@@ -57,7 +45,7 @@ export function ModelPanel({ ai }: { ai: ReturnType<typeof useAi> }) {
       <ul>
         {ai.models.map((m) => {
           const active = selected === m.id;
-          const tooBig = m.desktopOnly && profile.mobile;
+          const state = ai.states[m.id];
           return (
             <li key={m.id} className="border-b border-stroke px-4 py-3 last:border-0">
               <label className="flex items-start gap-3">
@@ -65,6 +53,7 @@ export function ModelPanel({ ai }: { ai: ReturnType<typeof useAi> }) {
                   type="radio"
                   name="model"
                   className="mt-1"
+                  disabled={!m.generative || state === "unavailable"}
                   checked={active}
                   onChange={() => {
                     patchAssistant({ modelId: m.id });
@@ -75,18 +64,24 @@ export function ModelPanel({ ai }: { ai: ReturnType<typeof useAi> }) {
                   <span className="flex flex-wrap items-baseline gap-2">
                     <span className="text-[13px] font-medium">{m.label}</span>
                     <span className="num text-[11px] text-ink-faint">{m.quant}</span>
-                    {cached.has(m.id) ? (
-                      <span className="eyebrow">on device</span>
-                    ) : (
-                      <span className="eyebrow text-ink-faint">download</span>
-                    )}
+                    <span
+                      className={cn(
+                        "eyebrow",
+                        state === "ready" && "text-gain",
+                        (state === "error" || state === "unavailable") && "text-loss",
+                        state === "required" && "text-ink-faint",
+                      )}
+                    >
+                      {STATE_LABEL[state]}
+                    </span>
                     {m.id === rec.id && <span className="eyebrow">recommended</span>}
-                    {tooBig && <span className="eyebrow text-loss">too big here</span>}
                   </span>
-                  <span className="mt-1 block text-[12px] text-ink-soft">{m.blurb}</span>
+                  <span className="mt-1 block text-[12px] text-ink-soft">{m.role}</span>
                   <span className="eyebrow mt-1 block">
-                    ~{m.weightsGb} GB weights · {m.vision ? "vision" : "text only"} ·{" "}
-                    {m.reasoning ? "reasoning" : "no reasoning"} · ctx ≤ {m.maxCtx}
+                    ~{m.weightsGb} GB · {m.capabilities.join(" · ")} · ctx ≤ {m.maxCtx}
+                  </span>
+                  <span className="num mt-1 block text-[10px] break-all text-ink-faint">
+                    {m.serve}
                   </span>
                 </span>
               </label>
@@ -156,9 +151,9 @@ export function ModelPanel({ ai }: { ai: ReturnType<typeof useAi> }) {
           onClick={() => void ai.load(selected)}
           className="doodle-pill bg-ink px-4 py-1.5 text-[12px] font-medium text-paper"
         >
-          {ai.status.phase === "ready" && ai.loadedCtx === ai.ctx
+          {ai.states[selected] === "ready" && ai.loadedCtx === ai.ctx
             ? "Loaded"
-            : cached.has(selected)
+            : ai.downloaded.has(selected)
               ? "Start"
               : "Download & start"}
         </button>
@@ -174,6 +169,11 @@ export function ModelPanel({ ai }: { ai: ReturnType<typeof useAi> }) {
         {ai.status.phase === "downloading" && (
           <span className="num text-[12px] text-ink-faint">
             {Math.round(ai.status.progress * 100)}%
+          </span>
+        )}
+        {ai.speed && (
+          <span className="num text-[11px] text-ink-faint">
+            {ai.speed.tps.toFixed(1)} tok/s
           </span>
         )}
         {ai.status.phase === "error" && (
