@@ -731,8 +731,9 @@ function ChatConsole({
               className="doodle-pill num ml-auto inline-flex items-center gap-1 px-2.5 py-1 text-[11px] hover:border-ink"
             >
               <SquareStack className="h-3 w-3" />
-              {ai.spec?.label ?? "no model"} · ctx {ai.ctx}
+              {ai.spec?.label ?? "no model"} · {STATE_LABEL[ai.states[ai.modelId]]}
             </button>
+
             <input
               ref={fileRef}
               type="file"
