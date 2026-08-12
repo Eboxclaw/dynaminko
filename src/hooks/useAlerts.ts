@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
 import { evaluate } from "@/lib/alerts/engine";
@@ -16,9 +16,9 @@ import { usePortfolio } from "./usePortfolio";
 export function useAlerts() {
   const doc = useDoc();
   const { quotes } = usePortfolio();
-  const tick = useRef(0);
+  const [tick, setTick] = useState(0);
 
-  const stamp = `${doc.alerts.length}:${quotes.map((q) => `${q.symbol}${q.usd}`).join(",")}:${doc.signals.length}`;
+  const stamp = `${doc.alerts.length}:${quotes.map((q) => `${q.symbol}${q.usd}`).join(",")}:${doc.signals.length}:${tick}`;
 
   useEffect(() => {
     if (doc.alerts.length === 0) return;
@@ -34,13 +34,11 @@ export function useAlerts() {
       if (doc.settings.notifications) void showNotification(f.title, f.body, f.alert.id);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [stamp, tick.current]);
+  }, [stamp]);
 
   // periodic re-check so time-based (thesis review) alerts still land
   useEffect(() => {
-    const id = setInterval(() => {
-      tick.current += 1;
-    }, 300_000);
+    const id = setInterval(() => setTick((t) => t + 1), 300_000);
     return () => clearInterval(id);
   }, []);
 }
