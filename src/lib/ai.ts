@@ -1,51 +1,55 @@
 // On-device assistant. wllama runs llama.cpp in WebAssembly (SIMD + threads
 // when the browser allows it) inside its own worker, so the UI thread never
-// blocks. Nothing leaves the device; the model is cached after first download.
+// blocks. The encoder is a separate, much cheaper runtime (Transformers.js).
+// Nothing leaves the device; weights are cached after the first download.
 
 import type { Wllama } from "@wllama/wllama/esm/index.js";
+
+/** What a model is allowed to be used for. Cheapest capable model wins. */
+export type Capability = "encode" | "extract" | "vision" | "assist" | "reason";
 
 export type ModelSpec = {
   id: string;
   label: string;
+  /** Hugging Face repository the weights actually come from */
   repo: string;
   quant: string;
-  /** null when the download size is not known ahead of time */
-  sizeMb: number | null;
+  /** how the weights are loaded in this app */
+  runtime: "gguf" | "transformers";
+  /** the equivalent command outside the browser, shown in the UI */
+  serve: string;
   blurb: string;
   role: string;
-  /** shipped on by default */
-  standard: boolean;
+  capabilities: Capability[];
   /** heavy enough that phones should not attempt it */
   desktopOnly?: boolean;
   /** rough weights size in GB, used for the RAM recommendation */
   weightsGb: number;
   /** device memory we want to see before recommending it */
   minRamGb: number;
-  /** accepts images */
   vision: boolean;
-  /** worth asking for a reasoning / thinking pass */
   reasoning: boolean;
   /** can generate prose at all (the encoder cannot) */
   generative: boolean;
-  /** largest context we allow for this model */
   maxCtx: number;
 };
 
 /** Strongest first — the recommendation walks down this list. */
 export const MODELS: ModelSpec[] = [
   {
-    id: "lfm2-2_6-vl",
-    label: "LFM 2.5 2.6B VL",
-    repo: "LiquidAI/LFM2.5-VL-2.6B-GGUF",
+    id: "lfm2-2_6",
+    label: "LFM 2.5 2.6B",
+    repo: "LiquidAI/LFM2.5-2.6B-GGUF",
     quant: "Q4_K_M",
-    sizeMb: null,
+    runtime: "gguf",
+    serve: "llama serve -hf LiquidAI/LFM2.5-2.6B-GGUF:Q4_K_M",
     blurb: "Strongest and slowest. Desktop with plenty of memory.",
-    role: "Assistant · deepest reasoning",
-    standard: false,
+    role: "Heavier reasoning and generation, when it is actually needed",
+    capabilities: ["assist", "reason", "extract"],
     desktopOnly: true,
     weightsGb: 1.8,
     minRamGb: 8,
-    vision: true,
+    vision: false,
     reasoning: true,
     generative: true,
     maxCtx: 8192,
@@ -55,10 +59,11 @@ export const MODELS: ModelSpec[] = [
     label: "LFM 2.5 1.2B instruct",
     repo: "LiquidAI/LFM2.5-1.2B-Instruct-GGUF",
     quant: "Q4_K_M",
-    sizeMb: null,
+    runtime: "gguf",
+    serve: "llama serve -hf LiquidAI/LFM2.5-1.2B-Instruct-GGUF:Q4_K_M",
     blurb: "Better reasoning about why a trade happened.",
-    role: "Assistant · reasoning over trades",
-    standard: false,
+    role: "Lightweight general assistant",
+    capabilities: ["assist", "reason", "extract"],
     weightsGb: 0.85,
     minRamGb: 4,
     vision: false,
@@ -71,10 +76,11 @@ export const MODELS: ModelSpec[] = [
     label: "LFM 2.5 450M VL",
     repo: "LiquidAI/LFM2.5-VL-450M-GGUF",
     quant: "Q4_K_M",
-    sizeMb: null,
+    runtime: "gguf",
+    serve: "llama serve -hf LiquidAI/LFM2.5-VL-450M-GGUF:Q4_K_M",
     blurb: "Fast extraction with vision. The default assistant on phones.",
-    role: "Assistant · fast extraction and vision",
-    standard: true,
+    role: "Lightweight vision and multimodal work",
+    capabilities: ["vision", "extract", "assist"],
     weightsGb: 0.35,
     minRamGb: 2,
     vision: true,
@@ -85,12 +91,13 @@ export const MODELS: ModelSpec[] = [
   {
     id: "lfm2-230-encoder",
     label: "LFM 2.5 230M encoder",
-    repo: "LiquidAI/LFM2.5-230M-Encoder-GGUF",
-    quant: "Q4_K_M",
-    sizeMb: null,
-    blurb: "Embeddings and tagging. Runs on anything, never writes prose.",
-    role: "Automation · embeddings, tagging, retrieval",
-    standard: true,
+    repo: "LiquidAI/LFM2.5-Encoder-230M",
+    quant: "fp32",
+    runtime: "transformers",
+    serve: 'AutoModelForMaskedLM.from_pretrained("LiquidAI/LFM2.5-Encoder-230M", trust_remote_code=True)',
+    blurb: "Semantic routing, retrieval and tagging. Never writes prose.",
+    role: "Routing, retrieval, tool and skill discovery, light classification",
+    capabilities: ["encode"],
     weightsGb: 0.18,
     minRamGb: 0,
     vision: false,
@@ -103,12 +110,30 @@ export const MODELS: ModelSpec[] = [
 export const MODEL_BY_ID = Object.fromEntries(MODELS.map((m) => [m.id, m]));
 
 export const DEFAULT_MODEL_ID = "lfm2-450-vl";
+export const ENCODER_ID = "lfm2-230-encoder";
+
+/** Which model each capability should prefer — cheapest first. */
+export const CAPABILITY_MODELS: Record<Capability, string[]> = {
+  encode: ["lfm2-230-encoder"],
+  extract: ["lfm2-450-vl", "lfm2-1_2-instruct", "lfm2-2_6"],
+  vision: ["lfm2-450-vl"],
+  assist: ["lfm2-450-vl", "lfm2-1_2-instruct", "lfm2-2_6"],
+  reason: ["lfm2-1_2-instruct", "lfm2-2_6"],
+};
+
+/** The cheapest model that can do this, preferring one already downloaded. */
+export function modelFor(cap: Capability, downloaded?: Set<string>): ModelSpec | undefined {
+  const ids = CAPABILITY_MODELS[cap] ?? [];
+  const have = ids.find((id) => downloaded?.has(id));
+  return MODEL_BY_ID[have ?? ids[0]];
+}
 
 export const CTX_CHOICES = [1024, 2048, 4096, 8192] as const;
 export const DEFAULT_CTX = 4096;
+/** Never send more than this many turns of the active session to a model. */
+export const MAX_CONTEXT_MESSAGES = 5;
 
 export type DeviceProfile = {
-  /** GB reported by the browser, null when it refuses to say */
   ramGb: number | null;
   cores: number | null;
   mobile: boolean;
@@ -127,20 +152,20 @@ export function deviceProfile(): DeviceProfile {
 }
 
 /**
- * Aim at the 2.6B VL and step down until the device can carry it.
+ * Aim at the largest generative model and step down until the device carries it.
  * When the browser hides deviceMemory we assume 4 GB on desktop, 2 on mobile.
  */
-export function recommendModel(profile = deviceProfile()): {
-  id: string;
-  reason: string;
-} {
+export function recommendModel(profile = deviceProfile()): { id: string; reason: string } {
   const assumed = profile.ramGb ?? (profile.mobile ? 2 : 4);
   const budget = profile.mobile ? assumed / 2 : assumed;
   const pick =
-    MODELS.find((m) => budget >= m.minRamGb && !(m.desktopOnly && profile.mobile)) ??
-    MODELS[MODELS.length - 1];
+    MODELS.find(
+      (m) => m.generative && budget >= m.minRamGb && !(m.desktopOnly && profile.mobile),
+    ) ?? MODEL_BY_ID[DEFAULT_MODEL_ID];
   const seen =
-    profile.ramGb != null ? `${profile.ramGb} GB reported` : "memory not reported by the browser";
+    profile.ramGb != null
+      ? `${profile.ramGb} GB reported`
+      : "memory not reported by the browser";
   return {
     id: pick.id,
     reason: `${seen}${profile.mobile ? " · touch device" : ""} — ${pick.label} fits.`,
@@ -151,12 +176,23 @@ export function recommendModel(profile = deviceProfile()): {
 export function memoryEstimateGb(modelId: string, nCtx: number): number {
   const spec = MODEL_BY_ID[modelId];
   if (!spec) return 0;
-  // ~0.5 MB of KV cache per 1k tokens per 100M params, generously rounded.
   const kv = (nCtx / 1024) * spec.weightsGb * 0.25;
   return Math.round((spec.weightsGb + kv) * 10) / 10;
 }
 
+// ── model state ────────────────────────────────────────────────────────────
 
+/**
+ * The six states the UI is expected to distinguish. `required` means the app
+ * wants it but the weights are not on the device yet.
+ */
+export type ModelState =
+  | "required"
+  | "downloading"
+  | "downloaded"
+  | "ready"
+  | "unavailable"
+  | "error";
 
 export type AiStatus =
   | { phase: "idle" }
@@ -184,16 +220,22 @@ export function isReady(modelId: string) {
   return instance != null && currentModel === modelId;
 }
 
+export function loadedModelId() {
+  return currentModel;
+}
+
 export function loadedContext() {
   return currentCtx;
 }
 
 /**
- * Which models already have their weights in the browser cache.
- * Reads the wllama cache index only — nothing is downloaded here.
+ * Which models already have their weights on this device. GGUF models are read
+ * from the wllama cache index, the encoder from the Transformers.js cache.
+ * Nothing is downloaded here.
  */
 export async function cachedModels(): Promise<Set<string>> {
   const out = new Set<string>();
+  const gguf = MODELS.filter((m) => m.runtime === "gguf");
   try {
     const runtime = instance ?? (await createRuntime());
     const mgr = (runtime as unknown as { cacheManager?: { list?: () => Promise<unknown[]> } })
@@ -205,15 +247,55 @@ export async function cachedModels(): Promise<Set<string>> {
         return (rec.url ?? rec.name ?? "").toLowerCase();
       })
       .join("\n");
-    for (const m of MODELS) {
+    for (const m of gguf) {
       const needle = m.repo.split("/")[1]?.toLowerCase() ?? m.repo.toLowerCase();
       if (names.includes(needle)) out.add(m.id);
     }
   } catch {
-    /* cache unavailable — treat everything as not downloaded */
+    /* cache unavailable — treat GGUF weights as not downloaded */
+  }
+  try {
+    if (typeof caches !== "undefined") {
+      const keys = await caches.keys();
+      for (const key of keys) {
+        if (!/transformers/i.test(key)) continue;
+        const cache = await caches.open(key);
+        const reqs = await cache.keys();
+        const encoder = MODEL_BY_ID[ENCODER_ID];
+        if (reqs.some((r) => r.url.includes(encoder.repo))) out.add(ENCODER_ID);
+      }
+    }
+  } catch {
+    /* ignore */
   }
   return out;
 }
+
+/** Resolve the six-state label for one model. */
+export function modelState(
+  modelId: string,
+  opts: { downloaded: Set<string>; status: AiStatus; activeId: string | null; mobile?: boolean },
+): ModelState {
+  const spec = MODEL_BY_ID[modelId];
+  if (!spec) return "unavailable";
+  if (spec.desktopOnly && opts.mobile) return "unavailable";
+  if (opts.activeId === modelId) {
+    if (opts.status.phase === "error") return "error";
+    if (opts.status.phase === "downloading") return "downloading";
+    if (opts.status.phase === "loading") return "downloading";
+    if (opts.status.phase === "ready") return "ready";
+  }
+  return opts.downloaded.has(modelId) ? "downloaded" : "required";
+}
+
+export const STATE_LABEL: Record<ModelState, string> = {
+  required: "needs download",
+  downloading: "downloading",
+  downloaded: "on device",
+  ready: "running",
+  unavailable: "unavailable here",
+  error: "error",
+};
 
 export type LoadOptions = { nCtx?: number };
 
@@ -222,9 +304,12 @@ export async function loadModel(
   onStatus: (s: AiStatus) => void,
   options: LoadOptions = {},
 ): Promise<void> {
-  const spec = MODELS.find((m) => m.id === modelId) ?? MODELS[0];
+  const spec = MODEL_BY_ID[modelId] ?? MODEL_BY_ID[DEFAULT_MODEL_ID];
+  if (spec.runtime !== "gguf") {
+    throw new Error(`${spec.label} is loaded through the encoder runtime, not the chat runtime.`);
+  }
   const nCtx = Math.min(options.nCtx ?? DEFAULT_CTX, spec.maxCtx);
-  if (isReady(modelId) && currentCtx === nCtx) {
+  if (isReady(spec.id) && currentCtx === nCtx) {
     onStatus({ phase: "ready" });
     return;
   }
@@ -280,6 +365,8 @@ export type ChatOptions = {
   thinking?: boolean;
   /** data URLs of images, only used by a VL model */
   images?: string[];
+  /** live generation speed, emitted while streaming */
+  onSpeed?: (tokensPerSecond: number, tokens: number) => void;
 };
 
 export async function chat(
@@ -306,6 +393,8 @@ export async function chat(
 
   abortRun = false;
   let out = "";
+  let tokens = 0;
+  const started = performance.now();
   await instance.createChatCompletion({
     messages: [
       { role: "system", content: sys },
@@ -316,7 +405,10 @@ export async function chat(
     sampling: { temp: options.temperature ?? 0.4, top_p: 0.9 },
     onNewToken: (_t: number, _p: unknown, piece: string, opt: { abortSignal: () => void }) => {
       out += piece;
+      tokens += 1;
       onToken?.(out);
+      const secs = (performance.now() - started) / 1000;
+      if (secs > 0) options.onSpeed?.(tokens / secs, tokens);
       if (abortRun) opt?.abortSignal?.();
     },
   } as never);
@@ -332,7 +424,6 @@ export function splitThinking(text: string): { thinking: string | null; answer: 
     answer: text.slice(m.index + m[0].length).trim(),
   };
 }
-
 
 // ── prompt recipes ─────────────────────────────────────────────────────────
 
