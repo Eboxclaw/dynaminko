@@ -1,16 +1,15 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { useState } from "react";
 
 import { Panel, Shell } from "@/components/pot/Shell";
 import { useAi } from "@/hooks/useAi";
 import { useDoc } from "@/hooks/useDoc";
 import { relativeTime } from "@/lib/format";
-import {
-  AGENTS,
-  SKILLS,
-  TOOLS,
-  automationOn,
-  type AgentDef,
-} from "@/lib/agents/registry";
+import { AGENTS, automationOn, type AgentDef } from "@/lib/agents/registry";
+import { SKILLS } from "@/lib/skills/registry";
+import { runSkill, type SkillResult } from "@/lib/skills/run";
+import { TOOLS, TOOL_GROUPS } from "@/lib/tools/registry";
+import { POLICY } from "@/lib/tools/types";
 import {
   clearLogs,
   patchAssistant,
@@ -22,6 +21,7 @@ import { cn } from "@/lib/utils";
 
 const TABS = [
   { id: "agents", label: "Agents" },
+  { id: "ask", label: "Ask" },
   { id: "models", label: "Models" },
   { id: "skills", label: "Skills" },
   { id: "tools", label: "Tools" },
@@ -29,6 +29,7 @@ const TABS = [
 ] as const;
 
 type Tab = (typeof TABS)[number]["id"];
+
 
 export const Route = createFileRoute("/agents")({
   validateSearch: (s: Record<string, unknown>) => ({
