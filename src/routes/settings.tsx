@@ -53,6 +53,7 @@ function SettingsPage() {
         </p>
         <Link
           to="/agents"
+          search={{ tab: "agents" as const }}
           className="doodle-pill mt-3 inline-flex px-4 py-1.5 text-[13px] hover:bg-accent-soft"
         >
           Open Agents
