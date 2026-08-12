@@ -135,7 +135,7 @@ function JournalHub() {
   );
 
   const selectedSignals = inbox.filter((s) => selected.includes(s.id));
-  const allSelected = inbox.length > 0 && selected.length === inbox.length;
+  const allSelected = visibleInbox.length > 0 && selected.length === visibleInbox.length;
   const toggle = (id: string) =>
     setSelected((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
 
@@ -217,7 +217,7 @@ function JournalHub() {
                 <input
                   type="checkbox"
                   checked={allSelected}
-                  onChange={() => setSelected(allSelected ? [] : inbox.map((s) => s.id))}
+                  onChange={() => setSelected(allSelected ? [] : visibleInbox.map((s) => s.id))}
                   className="h-4 w-4 accent-current"
                 />
                 Select all
@@ -234,7 +234,7 @@ function JournalHub() {
             </div>
           )}
 
-          {inbox.map((s, i) => {
+          {visibleInbox.map((s, i) => {
             const hint = suggestThesis(s, doc.theses);
             const checked = selected.includes(s.id);
             return (
