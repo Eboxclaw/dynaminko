@@ -20,14 +20,8 @@ export type Command = {
   suggest: (partial: string) => Suggestion[];
 };
 
-const MOTIVES: Sentiment[] = [
-  "conviction",
-  "fear",
-  "greed",
-  "boredom",
-  "hedge",
-  "rebalance",
-] as unknown as Sentiment[];
+const MOTIVES: Sentiment[] = ["conviction", "reactive", "hedge", "fomo", "rebalance"];
+
 
 function match(text: string, q: string) {
   return text.toLowerCase().includes(q.toLowerCase().trim());
