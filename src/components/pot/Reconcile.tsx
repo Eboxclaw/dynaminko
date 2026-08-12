@@ -19,7 +19,6 @@ import {
 import { cn } from "@/lib/utils";
 
 type Answers = {
-  kind: "trade" | "thesis";
   thesisId: string | null;
   newThesis: string;
   alignment: Alignment | null;
@@ -32,7 +31,6 @@ type Answers = {
 };
 
 const EMPTY: Answers = {
-  kind: "trade",
   thesisId: null,
   newThesis: "",
   alignment: null,
@@ -88,16 +86,19 @@ function Options<T extends string>({
 }
 
 export function Reconcile({
-  signal,
+  signals,
   theses,
   hidden,
   onClose,
 }: {
-  signal: Signal | null;
+  /** one or more executed trades; empty means a manual, trade-less entry */
+  signals: Signal[];
   theses: Thesis[];
   hidden: boolean;
   onClose: () => void;
 }) {
+  const signal = signals[0] ?? null;
+  const bulk = signals.length > 1;
   const suggested = useMemo(
     () => (signal ? suggestThesis(signal, theses) : null),
     [signal, theses],
@@ -111,21 +112,7 @@ export function Reconcile({
 
   const steps = [
     {
-      eyebrow: "01 // Nature",
-      title: "What is this?",
-      body: (
-        <Options
-          value={a.kind}
-          onChange={(kind) => set({ kind })}
-          options={[
-            { value: "trade", label: "A trade action", hint: "capital actually moved" },
-            { value: "thesis", label: "A thesis action", hint: "an idea, not yet executed" },
-          ]}
-        />
-      ),
-    },
-    {
-      eyebrow: "02 // Link",
+      eyebrow: "01 // Link",
       title: "Which thesis does it belong to?",
       body: (
         <div className="space-y-2">
@@ -164,7 +151,7 @@ export function Reconcile({
       ),
     },
     {
-      eyebrow: "03 // Alignment",
+      eyebrow: "02 // Alignment",
       title: "Did the action match the thesis?",
       body: (
         <Options
@@ -180,7 +167,7 @@ export function Reconcile({
       ),
     },
     {
-      eyebrow: "04 // Motive",
+      eyebrow: "03 // Motive",
       title: "Why did you do it?",
       body: (
         <Options
@@ -197,7 +184,7 @@ export function Reconcile({
       ),
     },
     {
-      eyebrow: "05 // Size",
+      eyebrow: "04 // Size",
       title: "How big, relative to the plan?",
       body: (
         <Options
@@ -213,7 +200,7 @@ export function Reconcile({
       ),
     },
     {
-      eyebrow: "06 // State",
+      eyebrow: "05 // State",
       title: "Where were you, honestly?",
       body: (
         <div className="space-y-4">
@@ -260,7 +247,7 @@ export function Reconcile({
       ),
     },
     {
-      eyebrow: "07 // Record",
+      eyebrow: "06 // Record",
       title: "In your own words.",
       body: (
         <textarea
@@ -281,16 +268,11 @@ export function Reconcile({
     if (!thesisId && a.newThesis.trim()) {
       thesisId = addThesis({
         title: a.newThesis.trim(),
-        symbols: signal ? [signal.symbol] : [],
+        symbols: Array.from(new Set(signals.map((s) => s.symbol))),
       }).id;
     }
-    const headline = signal
-      ? describeSignal(signal)
-      : a.note.trim().slice(0, 80) || "Journal entry";
-    addEntry({
-      tradeId: signal?.id ?? null,
+    const shared = {
       thesisId,
-      headline,
       body: a.note.trim(),
       alignment: a.alignment,
       sentiment: a.sentiment,
@@ -298,10 +280,27 @@ export function Reconcile({
       emotion: a.emotion,
       health: a.health,
       finances: a.finances,
-      ghost: a.kind === "thesis" || !signal,
-      createdAt: signal?.ts ?? Date.now(),
-    });
-    if (signal) setSignalState(signal.id, "linked");
+    };
+    if (signals.length === 0) {
+      addEntry({
+        ...shared,
+        tradeId: null,
+        headline: a.note.trim().slice(0, 80) || "Journal entry",
+        ghost: true,
+        createdAt: Date.now(),
+      });
+    } else {
+      for (const s of signals) {
+        addEntry({
+          ...shared,
+          tradeId: s.id,
+          headline: describeSignal(s),
+          ghost: false,
+          createdAt: s.ts,
+        });
+        setSignalState(s.id, "linked");
+      }
+    }
     onClose();
   }
 
@@ -314,9 +313,9 @@ export function Reconcile({
             <h2 className="mt-1 text-[16px] font-semibold leading-snug">{steps[step].title}</h2>
             {signal && (
               <p className="num mt-1 truncate text-[12px] text-ink-faint">
-                {describeSignal(signal)}
-                {signal.value != null && ` · ${usd(signal.value, hidden)}`} ·{" "}
-                {relativeTime(signal.ts)}
+                {bulk ? `${signals.length} trades selected` : describeSignal(signal)}
+                {!bulk && signal.value != null && ` · ${usd(signal.value, hidden)}`}
+                {!bulk && ` · ${relativeTime(signal.ts)}`}
               </p>
             )}
           </div>
@@ -357,7 +356,7 @@ export function Reconcile({
             onClick={() => (last ? commit() : setStep(step + 1))}
             className="inline-flex items-center gap-1.5 bg-ink px-4 py-2 text-[13px] font-medium text-paper transition hover:opacity-90"
           >
-            {last ? "Save entry" : "Next"}
+            {last ? (bulk ? `Save ${signals.length} entries` : "Save entry") : "Next"}
             {last ? <Check className="h-3.5 w-3.5" /> : <ArrowRight className="h-3.5 w-3.5" />}
           </button>
         </footer>
