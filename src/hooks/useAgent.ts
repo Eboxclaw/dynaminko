@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 
 import { extractSignals } from "@/lib/agent/extract";
-import { ingestSignals, walletKey } from "@/lib/store";
+import { ingestSignals, log, walletKey } from "@/lib/store";
 
 import { useDoc } from "./useDoc";
 import { usePortfolio } from "./usePortfolio";
@@ -25,7 +25,13 @@ export function useAgent() {
     if (!key || chainId == null || seen.has(stamp)) return;
     seen.add(stamp);
     const fresh = extractSignals({ trades, chainId });
-    if (fresh.length > 0) ingestSignals(fresh);
+    if (fresh.length > 0) {
+      ingestSignals(fresh);
+      log("extractor", "signals extracted", {
+        level: "call",
+        detail: `${fresh.length} from ${trades.length} transfers`,
+      });
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stamp]);
 
