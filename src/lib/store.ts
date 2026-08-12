@@ -83,6 +83,26 @@ export type WalletRef = {
   addedAt: number;
 };
 
+/** One line in the agent activity log. Local, append-only, capped. */
+export type LogLevel = "info" | "call" | "warn" | "error";
+export type LogLine = {
+  id: string;
+  ts: number;
+  agent: string;
+  level: LogLevel;
+  event: string;
+  detail: string;
+  ms: number | null;
+};
+
+/** The single agent the user is allowed to configure. */
+export type AssistantConfig = {
+  provider: "local" | "cloud";
+  modelId: string;
+  skills: string[];
+  tools: string[];
+};
+
 export type Settings = {
   hideBalances: boolean;
   theme: "light" | "dark";
@@ -91,6 +111,11 @@ export type Settings = {
   onboarded: boolean;
   /** tradeIds the user explicitly dismissed from the inbox */
   dismissedTrades: string[];
+  /** the user asked for browser notifications on this device */
+  notifications: boolean;
+  /** automation agents that are switched on */
+  automation: Record<string, boolean>;
+  assistant: AssistantConfig;
 };
 
 export type PotDoc = {
@@ -102,6 +127,7 @@ export type PotDoc = {
   alerts: Alert[];
   wallets: WalletRef[];
   activeWallet: string | null; // `${chainId}:${address}`
+  logs: LogLine[];
   settings: Settings;
 };
 
@@ -113,16 +139,25 @@ export const EMPTY_DOC: PotDoc = {
   alerts: [],
   wallets: [],
   activeWallet: null,
+  logs: [],
   settings: {
     hideBalances: false,
     theme: "light",
     aiEnabled: false,
-    aiModelId: "lfm2-450",
+    aiModelId: "lfm2-450-vl",
     onboarded: false,
     dismissedTrades: [],
+    notifications: false,
+    automation: {},
+    assistant: {
+      provider: "local",
+      modelId: "lfm2-450-vl",
+      skills: ["tidy", "reason", "review"],
+      tools: ["read-portfolio", "read-signals"],
+    },
   },
-
 };
+
 
 const KEY = "pot.doc.v1";
 
