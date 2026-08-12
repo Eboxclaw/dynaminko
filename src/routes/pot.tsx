@@ -180,7 +180,7 @@ function PotPage() {
         action={
           <Link
             to="/journal"
-            search={{ tab: "ghosts" }}
+            search={{ tab: "ghosts" as const, filter: "all" }}
             className="doodle-pill px-3 py-1 text-[12px] hover:border-ink"
           >
             View all
