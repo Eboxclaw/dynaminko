@@ -167,6 +167,8 @@ export type AiStatus =
 
 let instance: Wllama | null = null;
 let currentModel: string | null = null;
+let currentCtx = DEFAULT_CTX;
+let abortRun = false;
 
 async function createRuntime(): Promise<Wllama> {
   const [{ Wllama: Ctor }, wasmUrl] = await Promise.all([
@@ -183,15 +185,50 @@ export function isReady(modelId: string) {
   return instance != null && currentModel === modelId;
 }
 
+export function loadedContext() {
+  return currentCtx;
+}
+
+/**
+ * Which models already have their weights in the browser cache.
+ * Reads the wllama cache index only — nothing is downloaded here.
+ */
+export async function cachedModels(): Promise<Set<string>> {
+  const out = new Set<string>();
+  try {
+    const runtime = instance ?? (await createRuntime());
+    const mgr = (runtime as unknown as { cacheManager?: { list?: () => Promise<unknown[]> } })
+      .cacheManager;
+    const list = (await mgr?.list?.()) ?? [];
+    const names = list
+      .map((e) => {
+        const rec = e as { name?: string; url?: string };
+        return (rec.url ?? rec.name ?? "").toLowerCase();
+      })
+      .join("\n");
+    for (const m of MODELS) {
+      const needle = m.repo.split("/")[1]?.toLowerCase() ?? m.repo.toLowerCase();
+      if (names.includes(needle)) out.add(m.id);
+    }
+  } catch {
+    /* cache unavailable — treat everything as not downloaded */
+  }
+  return out;
+}
+
+export type LoadOptions = { nCtx?: number };
+
 export async function loadModel(
   modelId: string,
   onStatus: (s: AiStatus) => void,
+  options: LoadOptions = {},
 ): Promise<void> {
-  if (isReady(modelId)) {
+  const spec = MODELS.find((m) => m.id === modelId) ?? MODELS[0];
+  const nCtx = Math.min(options.nCtx ?? DEFAULT_CTX, spec.maxCtx);
+  if (isReady(modelId) && currentCtx === nCtx) {
     onStatus({ phase: "ready" });
     return;
   }
-  const spec = MODELS.find((m) => m.id === modelId) ?? MODELS[0];
   try {
     if (instance) {
       await instance.exit().catch(() => {});
@@ -203,7 +240,7 @@ export async function loadModel(
     await runtime.loadModelFromHF(
       { repo: spec.repo, quant: spec.quant },
       {
-        n_ctx: 2048,
+        n_ctx: nCtx,
         useCache: true,
         progressCallback: ({ loaded, total }: { loaded: number; total: number }) => {
           onStatus({ phase: "downloading", progress: total ? loaded / total : 0 });
@@ -212,6 +249,7 @@ export async function loadModel(
     );
     instance = runtime;
     currentModel = spec.id;
+    currentCtx = nCtx;
     onStatus({ phase: "ready" });
   } catch (err) {
     instance = null;
@@ -231,28 +269,71 @@ export async function unload() {
   currentModel = null;
 }
 
+/** Stops the generation currently streaming, if any. */
+export function stopGeneration() {
+  abortRun = true;
+}
+
+export type ChatOptions = {
+  temperature?: number;
+  maxTokens?: number;
+  /** ask the model to think first; the thinking is streamed and shown collapsed */
+  thinking?: boolean;
+  /** data URLs of images, only used by a VL model */
+  images?: string[];
+};
+
 export async function chat(
   system: string,
   user: string,
   onToken?: (text: string) => void,
+  options: ChatOptions = {},
 ): Promise<string> {
   if (!instance) throw new Error("assistant not loaded");
+  const spec = currentModel ? MODEL_BY_ID[currentModel] : undefined;
+  if (spec && !spec.generative) {
+    throw new Error(`${spec.label} makes embeddings, not prose. Load an instruct or VL model.`);
+  }
+  const sys = options.thinking
+    ? `${system}\n\nThink step by step inside <think>…</think>, then give the answer after it.`
+    : system;
+  const content =
+    options.images?.length && spec?.vision
+      ? [
+          { type: "text", text: user },
+          ...options.images.map((url) => ({ type: "image_url", image_url: { url } })),
+        ]
+      : user;
+
+  abortRun = false;
   let out = "";
   await instance.createChatCompletion({
     messages: [
-      { role: "system", content: system },
-      { role: "user", content: user },
+      { role: "system", content: sys },
+      { role: "user", content },
     ],
     stream: true,
-    nPredict: 220,
-    sampling: { temp: 0.4, top_p: 0.9 },
-    onNewToken: (_t: number, _p: unknown, piece: string) => {
+    nPredict: options.maxTokens ?? 320,
+    sampling: { temp: options.temperature ?? 0.4, top_p: 0.9 },
+    onNewToken: (_t: number, _p: unknown, piece: string, opt: { abortSignal: () => void }) => {
       out += piece;
       onToken?.(out);
+      if (abortRun) opt?.abortSignal?.();
     },
   } as never);
   return out.trim();
 }
+
+/** Splits a thinking model's reply into its hidden reasoning and the answer. */
+export function splitThinking(text: string): { thinking: string | null; answer: string } {
+  const m = /<think>([\s\S]*?)(?:<\/think>|$)/i.exec(text);
+  if (!m) return { thinking: null, answer: text };
+  return {
+    thinking: m[1].trim(),
+    answer: text.slice(m.index + m[0].length).trim(),
+  };
+}
+
 
 // ── prompt recipes ─────────────────────────────────────────────────────────
 
