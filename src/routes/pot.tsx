@@ -1,9 +1,12 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
+import { ChevronDown } from "lucide-react";
+import { useState } from "react";
 
 import { Panel, Shell } from "@/components/pot/Shell";
 import { useDoc } from "@/hooks/useDoc";
 import { relativeTime } from "@/lib/format";
-import { computeIndex } from "@/lib/pot-index";
+import { computeIndex, type Axis } from "@/lib/pot-index";
+import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/pot")({
   head: () => ({
@@ -23,6 +26,92 @@ export const Route = createFileRoute("/pot")({
   }),
   component: PotPage,
 });
+
+function pct(v: number | null) {
+  return v == null ? "—" : `${Math.round(v * 100)}%`;
+}
+
+function AxisRow({ axis }: { axis: Axis }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <li className="border-b border-stroke last:border-0">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className="w-full px-4 py-3 text-left transition hover:bg-sunken"
+      >
+        <div className="flex items-baseline gap-3">
+          <span className="flex-1 text-[13px] font-medium">{axis.label}</span>
+          {axis.delta != null && axis.delta !== 0 && (
+            <span
+              className={cn(
+                "num text-[11px]",
+                axis.delta > 0 ? "text-gain" : "text-loss",
+              )}
+            >
+              {axis.delta > 0 ? "+" : ""}
+              {Math.round(axis.delta * 100)} pts / 30d
+            </span>
+          )}
+          <span className="num text-[13px]">{pct(axis.score)}</span>
+          <ChevronDown
+            className={cn(
+              "h-3.5 w-3.5 text-ink-faint transition-transform",
+              open && "rotate-180",
+            )}
+          />
+        </div>
+        <div className="mt-2 h-[3px] w-full bg-sunken">
+          <div
+            className="h-full bg-ink transition-[width] duration-700"
+            style={{ width: `${(axis.score ?? 0) * 100}%` }}
+          />
+        </div>
+        <p className="eyebrow mt-1.5">
+          {axis.hint} · {axis.detail}
+        </p>
+      </button>
+
+      {open && (
+        <div className="border-t border-stroke bg-sunken/40 px-4 py-3">
+          <p className="eyebrow">Formula</p>
+          <p className="mt-1 text-[12px] text-ink-soft">{axis.formula}</p>
+          <p className="num mt-1 text-[12px]">
+            {Math.round(axis.numerator * 10) / 10} ÷ {axis.denominator}
+          </p>
+
+          {axis.parts.length > 0 && (
+            <>
+              <p className="eyebrow mt-3">Breakdown</p>
+              <ul className="mt-1 space-y-1">
+                {axis.parts.map((p) => (
+                  <li key={p.label} className="flex items-baseline gap-2 text-[12px]">
+                    <span className="flex-1">{p.label}</span>
+                    <span className="num text-ink-faint">
+                      {p.value} · {p.of ? Math.round((p.value / p.of) * 100) : 0}%
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
+
+          <p className="eyebrow mt-3">Last 30 days</p>
+          <p className="num mt-1 text-[12px]">
+            {pct(axis.recent)}
+            {axis.delta != null && (
+              <span className="text-ink-faint">
+                {" "}
+                ({axis.delta > 0 ? "+" : ""}
+                {Math.round(axis.delta * 100)} vs the 30 before)
+              </span>
+            )}
+          </p>
+        </div>
+      )}
+    </li>
+  );
+}
 
 function PotPage() {
   const doc = useDoc();
@@ -48,29 +137,37 @@ function PotPage() {
                 style={{ width: `${index.score ?? 0}%` }}
               />
             </div>
+            <dl className="mt-5 grid grid-cols-3 gap-2 text-left">
+              <div>
+                <dt className="eyebrow">Last 30d</dt>
+                <dd className="num text-[15px]">{index.recentScore ?? "—"}</dd>
+              </div>
+              <div>
+                <dt className="eyebrow">Trend</dt>
+                <dd
+                  className={cn(
+                    "num text-[15px]",
+                    index.delta != null && index.delta > 0 && "text-gain",
+                    index.delta != null && index.delta < 0 && "text-loss",
+                  )}
+                >
+                  {index.delta == null
+                    ? "—"
+                    : `${index.delta > 0 ? "+" : ""}${index.delta}`}
+                </dd>
+              </div>
+              <div>
+                <dt className="eyebrow">Axes measured</dt>
+                <dd className="num text-[15px]">{index.measured}/5</dd>
+              </div>
+            </dl>
           </div>
         </Panel>
 
-        <Panel eyebrow="Axes // Breakdown" delay={60}>
+        <Panel eyebrow="Axes // Tap one to see the maths" delay={60}>
           <ul>
             {index.axes.map((a) => (
-              <li key={a.id} className="border-b border-stroke px-4 py-3 last:border-0">
-                <div className="flex items-baseline gap-3">
-                  <span className="flex-1 text-[13px] font-medium">{a.label}</span>
-                  <span className="num text-[13px]">
-                    {a.score == null ? "—" : `${Math.round(a.score * 100)}%`}
-                  </span>
-                </div>
-                <div className="mt-2 h-[3px] w-full bg-sunken">
-                  <div
-                    className="h-full bg-ink transition-[width] duration-700"
-                    style={{ width: `${(a.score ?? 0) * 100}%` }}
-                  />
-                </div>
-                <p className="eyebrow mt-1.5">
-                  {a.hint} · {a.detail}
-                </p>
-              </li>
+              <AxisRow key={a.id} axis={a} />
             ))}
           </ul>
         </Panel>
@@ -83,7 +180,7 @@ function PotPage() {
         action={
           <Link
             to="/journal"
-            search={{ tab: "ghosts" }}
+            search={{ tab: "ghosts" as const, filter: "all" }}
             className="doodle-pill px-3 py-1 text-[12px] hover:border-ink"
           >
             View all
@@ -110,3 +207,4 @@ function PotPage() {
     </Shell>
   );
 }
+

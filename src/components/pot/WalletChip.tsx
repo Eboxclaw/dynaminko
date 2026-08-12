@@ -178,16 +178,7 @@ export function WalletPanel({
         </select>
       </div>
 
-      {injected.available && (
-        <button
-          type="button"
-          onClick={connect}
-          disabled={injected.connecting}
-          className="doodle-pill w-full px-3 py-2 text-[13px] font-medium text-ink transition hover:bg-accent-soft disabled:opacity-60"
-        >
-          {injected.connecting ? "Waiting for wallet…" : `Connect ${injected.name}`}
-        </button>
-      )}
+      {/* Connect is deliberately hidden: this phase is read-only. */}
     </div>
   );
 }

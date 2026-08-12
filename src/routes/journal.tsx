@@ -19,10 +19,47 @@ const TABS: { id: Tab; label: string; icon: typeof Inbox }[] = [
   { id: "ghosts", label: "Ghosts", icon: Ghost },
 ];
 
+/** Per-tab sub-filters. Each one narrows the same data, never invents rows. */
+const FILTERS: Record<Tab, { id: string; label: string }[]> = {
+  inbox: [
+    { id: "all", label: "All" },
+    { id: "in", label: "Bought / received" },
+    { id: "out", label: "Sold / sent" },
+    { id: "valued", label: "Priced" },
+    { id: "today", label: "Today" },
+  ],
+  entries: [
+    { id: "all", label: "All" },
+    { id: "aligned", label: "Aligned" },
+    { id: "partial", label: "Partial" },
+    { id: "deviated", label: "Deviated" },
+    { id: "reactive", label: "Reactive" },
+    { id: "executed", label: "Executed" },
+  ],
+  theses: [
+    { id: "all", label: "All" },
+    { id: "open", label: "Open" },
+    { id: "played-out", label: "Played out" },
+    { id: "invalidated", label: "Invalidated" },
+    { id: "stale", label: "Stale 30d+" },
+    { id: "unlinked", label: "No entry" },
+  ],
+  ghosts: [
+    { id: "all", label: "All" },
+    { id: "thesis", label: "Theses" },
+    { id: "entry", label: "Intents" },
+  ],
+};
+
 export const Route = createFileRoute("/journal")({
-  validateSearch: (s: Record<string, unknown>) => ({
-    tab: (TABS.some((t) => t.id === s.tab) ? s.tab : "inbox") as Tab,
-  }),
+  validateSearch: (s: Record<string, unknown>) => {
+    const tab = (TABS.some((t) => t.id === s.tab) ? s.tab : "inbox") as Tab;
+    const filter = typeof s.filter === "string" ? s.filter : "all";
+    return {
+      tab,
+      filter: FILTERS[tab].some((f) => f.id === filter) ? filter : "all",
+    };
+  },
   head: () => ({
     meta: [
       { title: "Theses & Journal — Proof of Thesis" },
@@ -42,7 +79,8 @@ export const Route = createFileRoute("/journal")({
 });
 
 function JournalHub() {
-  const { tab } = Route.useSearch();
+  const { tab, filter } = Route.useSearch();
+  const navigate = Route.useNavigate();
   const doc = useDoc();
   const { inbox } = useAgent();
   const hidden = doc.settings.hideBalances;
@@ -64,8 +102,40 @@ function JournalHub() {
   );
   const ghostTheses = doc.theses.filter((t) => !executedThesisIds.has(t.id));
 
+  const startOfDay = new Date().setHours(0, 0, 0, 0);
+  const visibleInbox = inbox.filter((s) =>
+    filter === "in"
+      ? s.side === "in"
+      : filter === "out"
+        ? s.side === "out"
+        : filter === "valued"
+          ? s.value != null
+          : filter === "today"
+            ? s.ts >= startOfDay
+            : true,
+  );
+  const visibleEntries = entries.filter((e) =>
+    filter === "reactive"
+      ? e.sentiment === "reactive" || e.sentiment === "fomo"
+      : filter === "executed"
+        ? Boolean(e.tradeId)
+        : filter === "all"
+          ? true
+          : e.alignment === filter,
+  );
+  const staleAfter = Date.now() - 30 * 86_400_000;
+  const visibleTheses = doc.theses.filter((t) =>
+    filter === "stale"
+      ? t.updatedAt < staleAfter
+      : filter === "unlinked"
+        ? !entries.some((e) => e.thesisId === t.id)
+        : filter === "all"
+          ? true
+          : t.status === filter,
+  );
+
   const selectedSignals = inbox.filter((s) => selected.includes(s.id));
-  const allSelected = inbox.length > 0 && selected.length === inbox.length;
+  const allSelected = visibleInbox.length > 0 && selected.length === visibleInbox.length;
   const toggle = (id: string) =>
     setSelected((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
 
@@ -98,7 +168,7 @@ function JournalHub() {
           <Link
             key={t.id}
             to="/journal"
-            search={{ tab: t.id }}
+            search={{ tab: t.id, filter: "all" }}
             className={cn(
               "-mb-px flex items-center gap-2 border-b-2 px-3 py-2 text-[13px] transition",
               tab === t.id
@@ -115,9 +185,25 @@ function JournalHub() {
         ))}
       </div>
 
+      <div className="-mt-2 mb-4 flex gap-1 overflow-x-auto pb-1">
+        {FILTERS[tab].map((f) => (
+          <button
+            key={f.id}
+            type="button"
+            onClick={() => void navigate({ search: { tab, filter: f.id } })}
+            className={cn(
+              "doodle-pill shrink-0 px-3 py-1 text-[11px] transition",
+              filter === f.id ? "bg-ink text-paper" : "text-ink-soft hover:border-ink",
+            )}
+          >
+            {f.label}
+          </button>
+        ))}
+      </div>
+
       {tab === "inbox" && (
         <div className="space-y-3">
-          {inbox.length === 0 && (
+          {visibleInbox.length === 0 && (
             <Panel eyebrow="Inbox // Empty">
               <p className="p-6 text-center text-[13px] text-ink-faint">
                 Nothing waiting. The agent files new on-chain moments here as they land.
@@ -131,7 +217,7 @@ function JournalHub() {
                 <input
                   type="checkbox"
                   checked={allSelected}
-                  onChange={() => setSelected(allSelected ? [] : inbox.map((s) => s.id))}
+                  onChange={() => setSelected(allSelected ? [] : visibleInbox.map((s) => s.id))}
                   className="h-4 w-4 accent-current"
                 />
                 Select all
@@ -148,7 +234,7 @@ function JournalHub() {
             </div>
           )}
 
-          {inbox.map((s, i) => {
+          {visibleInbox.map((s, i) => {
             const hint = suggestThesis(s, doc.theses);
             const checked = selected.includes(s.id);
             return (
@@ -212,14 +298,14 @@ function JournalHub() {
 
       {tab === "entries" && (
         <div className="space-y-3">
-          {entries.length === 0 && (
+          {visibleEntries.length === 0 && (
             <Panel eyebrow="Journal // Empty">
               <p className="p-6 text-center text-[13px] text-ink-faint">
                 No entries yet.
               </p>
             </Panel>
           )}
-          {entries.map((e, i) => {
+          {visibleEntries.map((e, i) => {
             const thesis = doc.theses.find((t) => t.id === e.thesisId);
             return (
               <Panel
@@ -271,7 +357,7 @@ function JournalHub() {
               </button>
             </form>
           </Panel>
-          {doc.theses.map((t, i) => {
+          {visibleTheses.map((t, i) => {
             const linked = entries.filter((e) => e.thesisId === t.id);
             return (
               <Panel key={t.id} eyebrow={`Thesis // ${t.status.toUpperCase()}`} delay={i * 30}>
@@ -286,7 +372,7 @@ function JournalHub() {
               </Panel>
             );
           })}
-          {doc.theses.length === 0 && (
+          {visibleTheses.length === 0 && (
             <p className="py-6 text-center text-[13px] text-ink-faint">No theses written yet.</p>
           )}
         </div>
@@ -300,7 +386,7 @@ function JournalHub() {
               a conviction you never acted on is a result too.
             </p>
           </Panel>
-          {ghostTheses.map((t, i) => (
+          {(filter === "entry" ? [] : ghostTheses).map((t, i) => (
             <Panel key={t.id} eyebrow="Ghost // Thesis" delay={i * 30}>
               <div className="p-4">
                 <p className="text-[14px]">{t.title}</p>
@@ -308,7 +394,7 @@ function JournalHub() {
               </div>
             </Panel>
           ))}
-          {ghostEntries.map((e, i) => (
+          {(filter === "thesis" ? [] : ghostEntries).map((e, i) => (
             <Panel key={e.id} eyebrow="Ghost // Entry" delay={i * 30}>
               <div className="p-4">
                 <p className="text-[14px]">{e.headline}</p>

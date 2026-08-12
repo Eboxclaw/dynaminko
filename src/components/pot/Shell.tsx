@@ -1,6 +1,7 @@
 import { Link, useRouterState } from "@tanstack/react-router";
 import {
   BellRing,
+  Bot,
   Gauge,
   LayoutGrid,
   Moon,
@@ -11,6 +12,7 @@ import {
 } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 
+import { useAlerts } from "@/hooks/useAlerts";
 import { useDoc } from "@/hooks/useDoc";
 import { patchSettings } from "@/lib/store";
 import { cn } from "@/lib/utils";
@@ -24,6 +26,7 @@ const NAV = [
   { to: "/journal", label: "Theses", icon: NotebookPen },
   { to: "/pot", label: "POT Index", icon: Gauge },
   { to: "/alerts", label: "Alerts", icon: BellRing },
+  { to: "/agents", label: "Agents", icon: Bot },
 ] as const;
 
 function ThemeToggle() {
@@ -67,6 +70,13 @@ export function Shell({
   const path = useRouterState({ select: (s) => s.location.pathname });
   const doc = useDoc();
   const inbox = doc.signals.filter((s) => s.state === "inbox").length;
+  useAlerts();
+
+  // register the service worker once: installability + background notifications
+  useEffect(() => {
+    if (typeof navigator === "undefined" || !("serviceWorker" in navigator)) return;
+    navigator.serviceWorker.register("/sw.js").catch(() => undefined);
+  }, []);
 
   return (
     <div className="min-h-dvh bg-paper text-ink">

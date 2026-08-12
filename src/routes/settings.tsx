@@ -1,8 +1,7 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 
 import { Shell } from "@/components/pot/Shell";
 import { WalletPanel } from "@/components/pot/WalletChip";
-import { useAi } from "@/hooks/useAi";
 import { useDoc } from "@/hooks/useDoc";
 import { useActiveWallet } from "@/hooks/usePortfolio";
 import { exportDoc, patchSettings, walletKey, wipe } from "@/lib/store";
@@ -25,7 +24,6 @@ export const Route = createFileRoute("/settings")({
 function SettingsPage() {
   const doc = useDoc();
   const { wallets, active } = useActiveWallet();
-  const ai = useAi();
 
   return (
     <Shell title="Settings">
@@ -49,46 +47,17 @@ function SettingsPage() {
       </section>
 
       <section className="doodle-card animate-rise mb-5 p-5">
-        <p className="text-[15px] font-semibold">Assistant</p>
+        <p className="text-[15px] font-semibold">Assistant &amp; agents</p>
         <p className="mt-1 text-[13px] text-ink-soft">
-          Runs entirely in this browser with WebAssembly. The model downloads once and is cached.
+          Models, skills, tools and the activity log now live in their own console.
         </p>
-        <div className="mt-3 space-y-2">
-          {ai.models.map((m) => (
-            <label key={m.id} className="doodle-inset flex items-start gap-3 p-3 text-[13px]">
-              <input
-                type="radio"
-                name="model"
-                className="mt-1"
-                checked={ai.modelId === m.id}
-                onChange={() => patchSettings({ aiModelId: m.id })}
-              />
-              <span>
-                <span className="block font-medium">
-                  {m.label} <span className="num text-ink-faint">{m.sizeMb} MB</span>
-                </span>
-                <span className="block text-ink-faint">{m.blurb}</span>
-              </span>
-            </label>
-          ))}
-        </div>
-        <div className="mt-3 flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => void ai.load()}
-            className="doodle-pill bg-ink px-4 py-1.5 text-[13px] font-medium text-paper"
-          >
-            {ai.status.phase === "ready" ? "Loaded" : "Download & start"}
-          </button>
-          {ai.status.phase === "downloading" && (
-            <span className="num text-[12px] text-ink-faint">
-              {Math.round(ai.status.progress * 100)}%
-            </span>
-          )}
-          {ai.status.phase === "error" && (
-            <span className="text-[12px] text-loss">{ai.status.message}</span>
-          )}
-        </div>
+        <Link
+          to="/agents"
+          search={{ tab: "agents" as const }}
+          className="doodle-pill mt-3 inline-flex px-4 py-1.5 text-[13px] hover:bg-accent-soft"
+        >
+          Open Agents
+        </Link>
       </section>
 
       <section className="doodle-card animate-rise p-5">

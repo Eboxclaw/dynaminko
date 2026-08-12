@@ -151,7 +151,7 @@ function Dashboard() {
           action={
             <Link
               to="/journal"
-              search={{ tab: "inbox" }}
+              search={{ tab: "inbox" as const, filter: "all" }}
               className="doodle-pill inline-flex items-center gap-1 px-3 py-1 text-[12px] hover:border-ink"
             >
               Open <ArrowUpRight className="h-3 w-3" />

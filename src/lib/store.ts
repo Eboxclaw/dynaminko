@@ -83,6 +83,26 @@ export type WalletRef = {
   addedAt: number;
 };
 
+/** One line in the agent activity log. Local, append-only, capped. */
+export type LogLevel = "info" | "call" | "warn" | "error";
+export type LogLine = {
+  id: string;
+  ts: number;
+  agent: string;
+  level: LogLevel;
+  event: string;
+  detail: string;
+  ms: number | null;
+};
+
+/** The single agent the user is allowed to configure. */
+export type AssistantConfig = {
+  provider: "local" | "cloud";
+  modelId: string;
+  skills: string[];
+  tools: string[];
+};
+
 export type Settings = {
   hideBalances: boolean;
   theme: "light" | "dark";
@@ -91,6 +111,11 @@ export type Settings = {
   onboarded: boolean;
   /** tradeIds the user explicitly dismissed from the inbox */
   dismissedTrades: string[];
+  /** the user asked for browser notifications on this device */
+  notifications: boolean;
+  /** automation agents that are switched on */
+  automation: Record<string, boolean>;
+  assistant: AssistantConfig;
 };
 
 export type PotDoc = {
@@ -102,6 +127,7 @@ export type PotDoc = {
   alerts: Alert[];
   wallets: WalletRef[];
   activeWallet: string | null; // `${chainId}:${address}`
+  logs: LogLine[];
   settings: Settings;
 };
 
@@ -113,16 +139,25 @@ export const EMPTY_DOC: PotDoc = {
   alerts: [],
   wallets: [],
   activeWallet: null,
+  logs: [],
   settings: {
     hideBalances: false,
     theme: "light",
     aiEnabled: false,
-    aiModelId: "lfm2-450",
+    aiModelId: "lfm2-450-vl",
     onboarded: false,
     dismissedTrades: [],
+    notifications: false,
+    automation: {},
+    assistant: {
+      provider: "local",
+      modelId: "lfm2-450-vl",
+      skills: ["tidy", "reason", "review"],
+      tools: ["read-portfolio", "read-signals"],
+    },
   },
-
 };
+
 
 const KEY = "pot.doc.v1";
 
@@ -374,4 +409,54 @@ export function importDoc(json: string) {
 
 export function wipe() {
   update(() => ({ ...EMPTY_DOC }));
+}
+
+// ── agent log ──────────────────────────────────────────────────────────────
+
+/** Append one line to the local agent log. Capped so localStorage stays small. */
+export function log(
+  agent: string,
+  event: string,
+  opts: { level?: LogLevel; detail?: string; ms?: number } = {},
+): void {
+  const line: LogLine = {
+    id: uid(),
+    ts: Date.now(),
+    agent,
+    level: opts.level ?? "info",
+    event,
+    detail: opts.detail ?? "",
+    ms: opts.ms ?? null,
+  };
+  update((d) => {
+    d.logs = [line, ...(d.logs ?? [])].slice(0, 400);
+  });
+}
+
+export function clearLogs() {
+  update((d) => {
+    d.logs = [];
+  });
+}
+
+export function patchAssistant(patch: Partial<AssistantConfig>) {
+  update((d) => {
+    d.settings.assistant = { ...d.settings.assistant, ...patch };
+  });
+}
+
+export function toggleAssistantItem(field: "skills" | "tools", id: string) {
+  update((d) => {
+    const list = d.settings.assistant[field] ?? [];
+    d.settings.assistant = {
+      ...d.settings.assistant,
+      [field]: list.includes(id) ? list.filter((x) => x !== id) : [...list, id],
+    };
+  });
+}
+
+export function setAutomation(id: string, on: boolean) {
+  update((d) => {
+    d.settings.automation = { ...d.settings.automation, [id]: on };
+  });
 }
