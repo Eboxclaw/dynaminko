@@ -1,6 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { Ghost, Inbox, Lightbulb, NotebookText, Plus, X } from "lucide-react";
-import { useState } from "react";
+import { Check, Copy, Ghost, Inbox, Lightbulb, NotebookText, Plus } from "lucide-react";
+import { useMemo, useState } from "react";
 
 import { Reconcile } from "@/components/pot/Reconcile";
 import { Panel, Shell } from "@/components/pot/Shell";
@@ -8,7 +8,7 @@ import { useAgent } from "@/hooks/useAgent";
 import { useDoc } from "@/hooks/useDoc";
 import { describeSignal, suggestThesis } from "@/lib/agent/extract";
 import { dayLabel, relativeTime, usd } from "@/lib/format";
-import { addThesis, setSignalState, type Signal } from "@/lib/store";
+import { addThesis, type Signal } from "@/lib/store";
 import { cn } from "@/lib/utils";
 
 type Tab = "inbox" | "entries" | "theses" | "ghosts";
@@ -46,16 +46,38 @@ function JournalHub() {
   const doc = useDoc();
   const { inbox } = useAgent();
   const hidden = doc.settings.hideBalances;
-  const [active, setActive] = useState<Signal | null>(null);
+  const [active, setActive] = useState<Signal[] | null>(null);
+  const [selected, setSelected] = useState<string[]>([]);
+  const [copied, setCopied] = useState<string | null>(null);
   const [composing, setComposing] = useState(false);
   const [newThesis, setNewThesis] = useState("");
 
   const entries = doc.entries;
-  const ghostEntries = entries.filter((e) => e.ghost);
-  const executedThesisIds = new Set(
-    entries.filter((e) => e.tradeId && e.thesisId).map((e) => e.thesisId),
+  // A thesis or an intent stops being a ghost the moment a real trade is
+  // attached to it — either directly, or through any entry that links both.
+  const executedThesisIds = useMemo(
+    () => new Set(entries.filter((e) => e.tradeId && e.thesisId).map((e) => e.thesisId)),
+    [entries],
+  );
+  const ghostEntries = entries.filter(
+    (e) => e.ghost && !e.tradeId && !(e.thesisId && executedThesisIds.has(e.thesisId)),
   );
   const ghostTheses = doc.theses.filter((t) => !executedThesisIds.has(t.id));
+
+  const selectedSignals = inbox.filter((s) => selected.includes(s.id));
+  const allSelected = inbox.length > 0 && selected.length === inbox.length;
+  const toggle = (id: string) =>
+    setSelected((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+
+  async function copyHash(hash: string) {
+    try {
+      await navigator.clipboard.writeText(hash);
+      setCopied(hash);
+      setTimeout(() => setCopied((c) => (c === hash ? null : c)), 1500);
+    } catch {
+      /* clipboard blocked — nothing to do */
+    }
+  }
 
   return (
     <Shell
@@ -102,42 +124,83 @@ function JournalHub() {
               </p>
             </Panel>
           )}
+
+          {inbox.length > 0 && (
+            <div className="sticky top-0 z-10 -mx-1 flex flex-wrap items-center gap-3 border border-stroke bg-surface px-3 py-2">
+              <label className="flex cursor-pointer items-center gap-2 text-[13px]">
+                <input
+                  type="checkbox"
+                  checked={allSelected}
+                  onChange={() => setSelected(allSelected ? [] : inbox.map((s) => s.id))}
+                  className="h-4 w-4 accent-current"
+                />
+                Select all
+              </label>
+              <span className="eyebrow flex-1">{selected.length} selected</span>
+              <button
+                type="button"
+                disabled={selected.length === 0}
+                onClick={() => setActive(selectedSignals)}
+                className="bg-ink px-3 py-1.5 text-[12px] font-medium text-paper disabled:opacity-30"
+              >
+                Resolve {selected.length || ""} together
+              </button>
+            </div>
+          )}
+
           {inbox.map((s, i) => {
             const hint = suggestThesis(s, doc.theses);
+            const checked = selected.includes(s.id);
             return (
               <Panel
                 key={s.id}
-                eyebrow={`Signal // ${s.side === "in" ? "INBOUND" : "OUTBOUND"}`}
+                eyebrow={`Trade // ${s.side === "in" ? "INBOUND" : "OUTBOUND"} · EXECUTED`}
                 delay={i * 40}
               >
                 <div className="p-4">
-                  <p className="text-[15px] font-medium">{describeSignal(s)}</p>
+                  <div className="flex items-start gap-3">
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      onChange={() => toggle(s.id)}
+                      aria-label="Select trade"
+                      className="mt-1 h-4 w-4 accent-current"
+                    />
+                    <p className="flex-1 text-[15px] font-medium">{describeSignal(s)}</p>
+                  </div>
                   <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2 sm:grid-cols-4">
                     <Field label="Value" value={s.value != null ? usd(s.value, hidden) : "—"} />
                     <Field label="When" value={relativeTime(s.ts)} />
-                    <Field
-                      label="Tx"
-                      value={`${s.txHash.slice(0, 6)}…${s.txHash.slice(-4)}`}
-                    />
+                    <div>
+                      <dt className="eyebrow">Tx</dt>
+                      <dd className="mt-1 flex items-center gap-1.5">
+                        <span className="num text-[13px]">
+                          {`${s.txHash.slice(0, 6)}…${s.txHash.slice(-4)}`}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => void copyHash(s.txHash)}
+                          aria-label="Copy transaction hash"
+                          className="grid h-6 w-6 place-items-center text-ink-faint transition hover:text-ink"
+                        >
+                          {copied === s.txHash ? (
+                            <Check className="h-3.5 w-3.5" />
+                          ) : (
+                            <Copy className="h-3.5 w-3.5" />
+                          )}
+                        </button>
+                      </dd>
+                    </div>
                     <Field label="Gas" value={s.gasUsd != null ? usd(s.gasUsd, hidden) : "—"} />
                   </dl>
-                  {hint && (
-                    <p className="eyebrow mt-3">Agent suggests: {hint.title}</p>
-                  )}
-                  <div className="mt-4 flex flex-wrap gap-2">
+                  {hint && <p className="eyebrow mt-3">Agent suggests: {hint.title}</p>}
+                  <div className="mt-4">
                     <button
                       type="button"
-                      onClick={() => setActive(s)}
+                      onClick={() => setActive([s])}
                       className="bg-ink px-4 py-2 text-[12px] font-medium text-paper"
                     >
                       Complete the cycle
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setSignalState(s.id, "dismissed")}
-                      className="doodle-pill inline-flex items-center gap-1 px-3 py-2 text-[12px] text-ink-faint hover:border-ink hover:text-ink"
-                    >
-                      <X className="h-3 w-3" /> Not journalable
                     </button>
                   </div>
                 </div>
@@ -263,10 +326,11 @@ function JournalHub() {
 
       {(active || composing) && (
         <Reconcile
-          signal={active}
+          signals={active ?? []}
           theses={doc.theses}
           hidden={hidden}
           onClose={() => {
+            setSelected([]);
             setActive(null);
             setComposing(false);
           }}
