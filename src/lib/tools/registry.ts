@@ -2,7 +2,7 @@
 // The Agents tab renders this; skills execute against it.
 
 import { addAlert, patchAlert, removeAlert, getDoc } from "@/lib/store";
-import { requestNotifications } from "@/lib/notify";
+import { request as requestNotifications } from "@/lib/notify";
 
 import * as ind from "./indicators";
 import * as journal from "./journal";
@@ -261,7 +261,7 @@ export const TOOLS: ToolDef[] = [
     purpose: "Request browser notification permission on this device.",
     access: "EXTERNAL",
     inputs: "none",
-    output: "boolean",
+    output: "PermissionState",
     live: true,
     run: () => requestNotifications(),
   }),
