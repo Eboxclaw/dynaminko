@@ -112,7 +112,13 @@ const MODEL_LIST: Omit<ModelSpec, "backend">[] = [
   },
 ];
 
-export const MODEL_BY_ID = Object.fromEntries(MODELS.map((m) => [m.id, m]));
+/** Strongest first — the recommendation walks down this list. */
+export const MODELS: ModelSpec[] = MODEL_LIST.map((m) => ({ ...m, backend: BROWSER_BACKEND }));
+
+export const MODEL_BY_ID: Record<string, ModelSpec> = Object.fromEntries(
+  MODELS.map((m) => [m.id, m]),
+);
+
 
 export const DEFAULT_MODEL_ID = "lfm2-450-vl";
 export const ENCODER_ID = "lfm2-230-encoder";
