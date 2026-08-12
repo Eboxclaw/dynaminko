@@ -9,36 +9,62 @@ export type ModelSpec = {
   label: string;
   repo: string;
   quant: string;
-  sizeMb: number;
+  /** null when the download size is not known ahead of time */
+  sizeMb: number | null;
   blurb: string;
+  role: string;
+  /** shipped on by default */
+  standard: boolean;
+  /** heavy enough that phones should not attempt it */
+  desktopOnly?: boolean;
 };
 
 export const MODELS: ModelSpec[] = [
   {
-    id: "smol-360",
-    label: "Smol 360M",
-    repo: "ggml-org/SmolLM2-360M-Instruct-GGUF",
-    quant: "Q8_0",
-    sizeMb: 386,
-    blurb: "Fastest. Good for tidying up a sentence and tagging a trade.",
-  },
-  {
-    id: "qwen-0.5",
-    label: "Qwen2.5 0.5B",
-    repo: "ggml-org/Qwen2.5-0.5B-Instruct-Q8_0-GGUF",
-    quant: "Q8_0",
-    sizeMb: 531,
-    blurb: "Balanced. Better reasoning about why a trade happened.",
-  },
-  {
-    id: "smol-1.7",
-    label: "Smol 1.7B",
-    repo: "ggml-org/SmolLM2-1.7B-Instruct-GGUF",
+    id: "lfm2-230-encoder",
+    label: "LFM 2.5 230M encoder",
+    repo: "LiquidAI/LFM2.5-230M-Encoder-GGUF",
     quant: "Q4_K_M",
-    sizeMb: 1060,
-    blurb: "Strongest, slowest. Desktop with plenty of memory.",
+    sizeMb: null,
+    blurb: "Embeddings and tagging. Runs on anything, never writes prose.",
+    role: "Automation · embeddings, tagging, retrieval",
+    standard: true,
+  },
+  {
+    id: "lfm2-450-vl",
+    label: "LFM 2.5 450M VL",
+    repo: "LiquidAI/LFM2.5-VL-450M-GGUF",
+    quant: "Q4_K_M",
+    sizeMb: null,
+    blurb: "Fast extraction with vision. The default assistant on phones.",
+    role: "Assistant · fast extraction and vision",
+    standard: true,
+  },
+  {
+    id: "lfm2-1_2-instruct",
+    label: "LFM 2.5 1.2B instruct",
+    repo: "LiquidAI/LFM2.5-1.2B-Instruct-GGUF",
+    quant: "Q4_K_M",
+    sizeMb: null,
+    blurb: "Better reasoning about why a trade happened.",
+    role: "Assistant · reasoning over trades",
+    standard: false,
+  },
+  {
+    id: "lfm2-2_6-vl",
+    label: "LFM 2.5 2.6B VL",
+    repo: "LiquidAI/LFM2.5-VL-2.6B-GGUF",
+    quant: "Q4_K_M",
+    sizeMb: null,
+    blurb: "Strongest and slowest. Desktop with plenty of memory.",
+    role: "Assistant · deepest reasoning",
+    standard: false,
+    desktopOnly: true,
   },
 ];
+
+export const DEFAULT_MODEL_ID = "lfm2-450-vl";
+
 
 export type AiStatus =
   | { phase: "idle" }
