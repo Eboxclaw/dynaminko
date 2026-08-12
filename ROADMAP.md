@@ -21,6 +21,7 @@ flowchart LR
 **Deliverables:** SQLite-WASM + `sqlite-vec` in OPFS behind a Storage Worker; IndexedDB for lightweight prefs; AES-256-GCM encryption with passphrase (+ optional WebAuthn PRF unlock); the canonical schema (§4.4) replacing fixtures; read-only wallet connect (`viem`/`wagmi`, `chains/ink.ts`); a daily fetch job pulling trade history via Nado's Gateway API or CLI (read-only, zero key material); token+time-window thesis-to-trade matching, with an explicitly decided acceptable error rate (§9 — this was flagged open in `[Vision §11]` and needs a real answer before this phase ships).
 **Exit criteria:** every trade on the connected wallet appears in the ledger with zero manual input; a standalone thesis survives a reload and reconciles correctly once a matching trade is fetched; the app works fully offline after first load.
 **Effort:** L–XL (this is the architectural foundation everything else sits on).
+Have in mind local storage for agent is diferent from local storage for our data and trades 
 
 ### Phase 2 — Assisted journal
 
@@ -29,35 +30,37 @@ flowchart LR
 **Exit criteria:** most new trades get a linked reflection without a form; AI unavailability never drops an event, it queues.
 **Effort:** L.
 
-### Phase 3 — Dynamic Performance v1 + read-only live data
+### Phase 3 — POT Performance v1 + read-only live data
 
 **Goal:** ship the first real insight, and make Markets/Vault show real numbers (still no execution).
 **Deliverables:** Performance + Thesis axes combined into one composite view, thesis-aligned vs. thesis-less win rate as the flagship stat; live Nado market data (price, orderbook, candles — read-only) replacing Markets fixtures; live Tydro APY data (read-only) replacing Vault fixtures; real balances behind the privacy toggle.
 **Exit criteria:** the composite view surfaces at least one insight a spreadsheet couldn't; still zero custody risk beyond read-only connect.
 **Effort:** M.
 
-### Phase 4 — Full Dynamic Performance + sentiment agent
+### Phase 4 — Full POT Performance + sentiment agent
 
 **Goal:** populate the remaining three axes.
 **Deliverables:** the sentiment agent as its own subsystem (§4.5) ingesting external community/market signal; financial-risk axis from real Nado account data (size %, leverage); one-tap psychological self-report tags (entry + exit); the composite five-axis graph.
 **Exit criteria:** all five axes populate for active users with enough sample size to matter.
 **Effort:** M–L.
 
-### Phase 5 — Live execution & monetization
+Have clear work flow, agent assistance and ability to read, resume and do some tool calls withing the app
+
+
+### Phase 5 — 
+Live execution & monetization
 
 **Goal:** move from tracking to executing, and turn the product into a funded one.
 **Deliverables:** Linked Signer onboarding (generate/link a scoped hot key, clear instant-revoke messaging, main wallet key never touched); live order placement (Buy Spot / Go Long / Swap) behind the same Approve/Edit/Discard gate used everywhere else; Nado Builder Code registration + fee-share integration (§4.6); live Tydro supply/borrow with auto-park for idle watchlist capital; optional INKO-branded launch as the initial distribution wedge, if §9's data supports it.
 **Exit criteria:** a user goes thesis → executed trade → journaled entry without leaving the app; Builder fee claims are verifiably nonzero.
 **Effort:** XL.
 
-### Phase 6 — Expansion (evaluate, don't assume)
-
 **Goal:** decide the next move from real Phase 0–5 data, not upfront guesses — this phase is deliberately not scoped further here.
 **Candidates to evaluate:** a native Tauri shell reusing the same local-first core (per `[Arch §11]`'s prior-project lineage note); chains beyond Ink; white-label/B2B; personalized local trading agents trained on a user's own history (`[Lovable]`'s "Advanced Vaults" idea, if it still holds up).
 
 ---
 
-## 7. Tech stack reference
+## . Tech stack reference
 
 ### Confirmed vs. to-be-added
 
@@ -90,7 +93,7 @@ flowchart LR
 | Nado OffchainExchange contract | `0x8373C3Aa04153aBc0cfD28901c3c971a946994ab` (Ink) |
 | Nado Builder application | `https://tally.so/r/0QO4oy` |
 | Tydro docs | `https://docs.tydro.com` |
-| Tydro supported assets (as of mid-2026) | wETH, kBTC, USDG, USDT0, GHO, USDC, USDe |
+| Tydro supported assets (as of mid-2026) | , wETH, kBTC, USDG, USDT0, GHO, USDC, USDe |
 
 Structure `chains/ink.ts` as a thin wrapper over viem's built-in `ink` export (`import { ink } from "viem/chains"`) rather than hand-defining it, per §4.6.
 
