@@ -83,11 +83,6 @@ function rawAxes(entries: Entry[], theses: Thesis[], signals: Signal[]): Record<
         value: signals.filter((s) => s.state === "inbox").length,
         of: signals.length,
       },
-      {
-        label: "dismissed",
-        value: signals.filter((s) => s.state === "dismissed").length,
-        of: signals.length,
-      },
     ]),
     alignment: ratio(aligned + partial * 0.5, withAlignment.length, [
       { label: "aligned", value: aligned, of: withAlignment.length },
