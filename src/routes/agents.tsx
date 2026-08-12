@@ -694,11 +694,11 @@ function ChatConsole({
             />
             <Toggle
               on={reasoning}
-              disabled={!modelReady}
               onClick={() => setReasoning((v) => !v)}
               icon={<Sparkles className="h-3 w-3" />}
               label="Reason"
             />
+
             <Toggle
               on={thinking}
               disabled={!canReason}
