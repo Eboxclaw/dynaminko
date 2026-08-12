@@ -7,19 +7,24 @@ import { Panel, Shell } from "@/components/pot/Shell";
 import { useAi } from "@/hooks/useAi";
 import { useDoc } from "@/hooks/useDoc";
 import { relativeTime } from "@/lib/format";
-import { splitThinking } from "@/lib/ai";
+import { MAX_CONTEXT_MESSAGES, MODELS, STATE_LABEL, splitThinking } from "@/lib/ai";
+import { encoderState } from "@/lib/ai/encoder";
 import { AGENTS, automationOn } from "@/lib/agents/registry";
 import { COMMANDS, parseCommand, suggestions, type Suggestion } from "@/lib/chat/commands";
 import { digestLine } from "@/lib/chat/context";
-import { routeMessage } from "@/lib/chat/route";
+import { routeMessage, routeSemantic } from "@/lib/chat/route";
+import { newMessage, type ChatMessage } from "@/lib/chat/session";
 import {
-  clearSession,
-  loadSession,
-  newMessage,
-  saveSession,
-  transcriptFor,
-  type ChatMessage,
-} from "@/lib/chat/session";
+  bootstrapSessions,
+  contextFor,
+  createSession,
+  deleteSession,
+  listSessions,
+  readSession,
+  writeSession,
+  type SessionMeta,
+} from "@/lib/chat/sessions";
+
 import { SKILLS } from "@/lib/skills/registry";
 import { runSkill } from "@/lib/skills/run";
 import { searchCards } from "@/lib/tools/journal";
