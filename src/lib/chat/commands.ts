@@ -1,7 +1,8 @@
-// Slash commands. Resolved against the real tool and skill registries so the
-// list can never drift from what the app can actually do.
+// Slash commands. Resolved against the real tool, skill and model registries so
+// the list can never drift from what the app can actually do.
 
 import { getDoc, type Sentiment } from "@/lib/store";
+import { CTX_CHOICES, MODELS } from "@/lib/ai";
 import { SKILLS } from "@/lib/skills/registry";
 import { TOOLS } from "@/lib/tools/registry";
 
@@ -21,7 +22,6 @@ export type Command = {
 };
 
 const MOTIVES: Sentiment[] = ["conviction", "reactive", "hedge", "fomo", "rebalance"];
-
 
 function match(text: string, q: string) {
   return text.toLowerCase().includes(q.toLowerCase().trim());
@@ -95,8 +95,56 @@ export const COMMANDS: Command[] = [
   },
   {
     name: "model",
+    args: "[id]",
+    blurb: "Switch model, or open the harness with no argument.",
+    suggest: (q) =>
+      MODELS.filter((m) => !q || match(`${m.id} ${m.label}`, q)).map((m) => ({
+        insert: `/model ${m.id} `,
+        label: m.label,
+        hint: m.role,
+        badge: m.generative ? `${m.weightsGb} GB` : "encoder",
+      })),
+  },
+  {
+    name: "models",
     args: "",
-    blurb: "Open the model harness.",
+    blurb: "List every model, its job, and whether it is on this device.",
+    suggest: () => [],
+  },
+  {
+    name: "context",
+    args: "[tokens]",
+    blurb: "Show or set the context window.",
+    suggest: (q) =>
+      CTX_CHOICES.filter((c) => !q || String(c).startsWith(q.trim())).map((c) => ({
+        insert: `/context ${c} `,
+        label: String(c),
+        hint: "context window in tokens",
+        badge: "ctx",
+      })),
+  },
+  {
+    name: "new",
+    args: "[title]",
+    blurb: "Start a fresh session.",
+    suggest: () => [],
+  },
+  {
+    name: "sessions",
+    args: "",
+    blurb: "List saved sessions on this device.",
+    suggest: () => [],
+  },
+  {
+    name: "tools",
+    args: "",
+    blurb: "List the deterministic tools.",
+    suggest: () => [],
+  },
+  {
+    name: "skills",
+    args: "",
+    blurb: "List the skills and what each one drives.",
     suggest: () => [],
   },
   {
