@@ -87,19 +87,19 @@ function AgentsPage() {
         <button
           type="button"
           onClick={() => setRailOpen((v) => !v)}
-          className="doodle-pill px-3 py-1 text-[11px] hover:border-ink lg:hidden"
+          className="doodle-pill px-3 py-1 text-[11px] hover:border-ink"
         >
           {railOpen ? "Close" : "Panels"}
         </button>
       }
     >
-      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_320px]">
+      <div className={cn("grid gap-4", railOpen && "lg:grid-cols-[minmax(0,1fr)_320px]")}>
         <ChatConsole ai={ai} onOpenRail={openRail} />
 
         <aside
           className={cn(
             "grid content-start gap-4",
-            !railOpen && "hidden lg:grid",
+            !railOpen && "hidden",
           )}
         >
           <nav className="flex gap-1 overflow-x-auto">
