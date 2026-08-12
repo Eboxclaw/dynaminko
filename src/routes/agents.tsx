@@ -489,10 +489,59 @@ function ChatConsole({
     inputRef.current?.focus();
   };
 
+  const active = sessions.find((s) => s.id === activeId);
+  const ctxUsed = contextFor(messages, Math.floor(ai.ctx * 0.4), MAX_CONTEXT_MESSAGES);
+
   return (
     <div className="grid content-start gap-3">
-      <Panel eyebrow={`Session // ${messages.length} turns · ctx ${ai.ctx}`}>
+      <Panel
+        eyebrow={`Session // ${active?.title ?? "new"} · ${messages.length} turns`}
+        action={
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              onClick={() => startSession()}
+              className="doodle-pill px-2.5 py-0.5 text-[11px] hover:border-ink"
+            >
+              New
+            </button>
+            {activeId && sessions.length > 1 && (
+              <button
+                type="button"
+                onClick={() => {
+                  deleteSession(activeId);
+                  const rest = listSessions();
+                  setSessions(rest);
+                  if (rest[0]) openSession(rest[0].id);
+                  else startSession();
+                }}
+                className="doodle-pill px-2.5 py-0.5 text-[11px] hover:border-ink"
+              >
+                Delete
+              </button>
+            )}
+          </div>
+        }
+      >
+        {sessions.length > 1 && (
+          <div className="flex gap-1 overflow-x-auto border-b border-stroke px-3 py-2">
+            {sessions.map((s) => (
+              <button
+                key={s.id}
+                type="button"
+                onClick={() => openSession(s.id)}
+                className={cn(
+                  "doodle-pill shrink-0 max-w-[160px] truncate px-2.5 py-0.5 text-[11px]",
+                  s.id === activeId ? "bg-ink text-paper" : "text-ink-soft hover:border-ink",
+                )}
+              >
+                {s.title}
+              </button>
+            ))}
+          </div>
+        )}
         <div ref={boxRef} className="max-h-[52vh] min-h-[240px] overflow-y-auto px-4 py-3">
+
           {messages.length === 0 && (
             <div className="py-6 text-[13px] text-ink-soft">
               <p>Ask in plain words, or press / for a command.</p>
