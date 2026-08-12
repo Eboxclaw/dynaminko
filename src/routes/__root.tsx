@@ -66,7 +66,7 @@ function ErrorComponent({ error, reset }: { error: Error; reset: () => void }) {
   );
 }
 
-const THEME_SCRIPT = `(function(){try{var t=localStorage.getItem("pot.theme");if(t==="dark"||(!t&&window.matchMedia("(prefers-color-scheme: dark)").matches)){document.documentElement.classList.add("dark")}}catch(e){}})();`;
+const THEME_SCRIPT = `(function(){try{var t=localStorage.getItem("pot.theme");if(t==="dark"){document.documentElement.classList.add("dark")}}catch(e){}})();`;
 
 export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()({
   head: () => ({
