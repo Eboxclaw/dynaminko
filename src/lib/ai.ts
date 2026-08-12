@@ -171,12 +171,11 @@ let currentCtx = DEFAULT_CTX;
 let abortRun = false;
 
 async function createRuntime(): Promise<Wllama> {
-  const [{ Wllama: Ctor }, wasmUrl] = await Promise.all([
-    import("@wllama/wllama/esm/index.js"),
-    import("@wllama/wllama/esm/wasm/wllama.wasm?url").then((m) => m.default),
-  ]);
+  // The binary lives in public/wasm and is fetched by URL after hydration, so it
+  // never enters the server bundle.
+  const { Wllama: Ctor } = await import("@wllama/wllama/esm/index.js");
   return new Ctor(
-    { default: wasmUrl },
+    { default: "/wasm/wllama.wasm" },
     { allowOffline: true, suppressNativeLog: true, parallelDownloads: 2 },
   );
 }
