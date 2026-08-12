@@ -2,7 +2,7 @@ Proof of Thesis, by INKO
 
 A local-first, assisted trading journal. It reads a wallet, builds a portfolio view from real on-chain data, and helps a trader write down why they traded, not just what they traded.
 
-This document reflects the codebase as of the August 5, 2026 rebuild (.lovable/plan/proof-of-thesis-rebuild-from-scratch-2026-08-05.md), verified directly against src/ on August 12, 2026. Earlier docs (the pre-rebuild README, PLAN, ROADMAP, REVIEW) describe a different product under the name "Dynaminko," with a dossier-card design language and a Markets/AI Terminal/Vault surface. That version was replaced, not iterated on. Those docs are archived under docs/archive/ for their still-useful Ink chain, Nado, and Tydro research, not as a current description of the app.
+This document reflects the codebase as of the August 5, 2026 rebuild (.lovable/plan/proof-of-thesis-rebuild-from-scratch-2026-08-05.md), verified directly against src/ on August 12, 2026. Earlier docs (the pre-rebuild README, PLAN, ROADMAP, REVIEW) describe a different product under the name "Dynaminko," with a dossier-card design language and a Markets/AI Terminal/Vault surface. That version was replaced, not iterated on. Those docs are archived under docs/archive/ (PLAN.md, ROADMAP.md, REVIEW.md) for their still-useful Ink chain, Nado, and Tydro research, not as a current description of the app.
 
 What this is
 
@@ -28,9 +28,9 @@ Prices	Real. CoinGecko public API, server-cached
 Trade detection	Real. Extracted from actual transfer logs, not synthesized
 Local storage	Real. Single versioned document in localStorage, subscription-based, with a fixed infinite-render-loop bug (see git log, "Fix the blank screen")
 Wallet connect	Real, read-only. Hand-rolled EIP-1193 listener, zero dependencies, no signing
-On-device AI	Real. @wllama/wllama (llama.cpp compiled to WASM) running in-browser, lazy-loaded behind explicit user action. Ships with SmolLM2-360M, Qwen2.5-0.5B, and SmolLM2-1.7B as selectable models
+On-device AI	Real. @wllama/wllama (llama.cpp compiled to WASM) running in-browser, lazy-loaded behind explicit user action. Ships with the LiquidAI LFM 2.5 family (230M / 450M / 1.2B / 2.6B, Q4_K_M) as selectable models, downloaded on explicit user action from /agents
 Portfolio 3D ring	Real. three.js, dynamically imported so it never blocks startup, falls back cleanly under prefers-reduced-motion
-PWA	Installable only. Manifest and icons are wired; there is no service worker, so the app does not work offline
+PWA	Installable, with a service worker (public/sw.js) backing notifications and asset caching
 Trading / execution	Not built. /trade is a single placeholder screen: "Journal first, execution second."
 Server-side AI (cloud LLM)	Not built. All AI in the current build runs on-device
 Nado, Tydro, inkySwap, Velodrome integration	Not built. No live DEX or lending calls anywhere in the codebase
@@ -83,3 +83,7 @@ Where the roadmap lives
 
 See ROADMAP.md for what's next, sequenced from this actual state rather than from the pre-rebuild plan.
 
+
+Agent architecture
+
+Tools are deterministic (src/lib/tools/), skills orchestrate them (src/lib/skills/), and a model is used only for the reasoning step — see the "Agent Architecture" section of AGENTS.md. Compact per-group and per-skill docs live in docs/tools/ and docs/skills/; node scripts/check-docs.mjs fails when a registered tool group or skill is undocumented.
