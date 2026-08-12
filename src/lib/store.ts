@@ -410,3 +410,53 @@ export function importDoc(json: string) {
 export function wipe() {
   update(() => ({ ...EMPTY_DOC }));
 }
+
+// ── agent log ──────────────────────────────────────────────────────────────
+
+/** Append one line to the local agent log. Capped so localStorage stays small. */
+export function log(
+  agent: string,
+  event: string,
+  opts: { level?: LogLevel; detail?: string; ms?: number } = {},
+): void {
+  const line: LogLine = {
+    id: uid(),
+    ts: Date.now(),
+    agent,
+    level: opts.level ?? "info",
+    event,
+    detail: opts.detail ?? "",
+    ms: opts.ms ?? null,
+  };
+  update((d) => {
+    d.logs = [line, ...(d.logs ?? [])].slice(0, 400);
+  });
+}
+
+export function clearLogs() {
+  update((d) => {
+    d.logs = [];
+  });
+}
+
+export function patchAssistant(patch: Partial<AssistantConfig>) {
+  update((d) => {
+    d.settings.assistant = { ...d.settings.assistant, ...patch };
+  });
+}
+
+export function toggleAssistantItem(field: "skills" | "tools", id: string) {
+  update((d) => {
+    const list = d.settings.assistant[field] ?? [];
+    d.settings.assistant = {
+      ...d.settings.assistant,
+      [field]: list.includes(id) ? list.filter((x) => x !== id) : [...list, id],
+    };
+  });
+}
+
+export function setAutomation(id: string, on: boolean) {
+  update((d) => {
+    d.settings.automation = { ...d.settings.automation, [id]: on };
+  });
+}
