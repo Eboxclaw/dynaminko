@@ -469,6 +469,15 @@ function ChatConsole({
         if (!reasoning) return;
       }
     }
+    if (routed.kind === "none") {
+      // Second pass: the 230M encoder, not a generative model.
+      const semantic = await routeSemantic(text);
+      if (semantic.kind === "skill") {
+        push({ role: "note", text: `Running ${semantic.skillId} — ${semantic.why}.` });
+        return void runSkillTurn(semantic.skillId);
+      }
+    }
+
     await speak(
       "You are the assistant inside a trading journal. Answer briefly. If a number is needed, say which tool would produce it instead of guessing.",
       text,
