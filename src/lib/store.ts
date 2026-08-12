@@ -462,7 +462,7 @@ export function patchCloudCredential(id: string, patch: Partial<CloudCredential>
   update((d) => {
     const cloud = { ...(d.settings.assistant.cloud ?? {}) };
     if (patch === null) delete cloud[id];
-    else cloud[id] = { apiKey: cloud[id]?.apiKey ?? "", ...(cloud[id] ?? {}), ...patch };
+    else cloud[id] = { ...(cloud[id] ?? { apiKey: "" }), ...patch };
     d.settings.assistant = { ...d.settings.assistant, cloud };
   });
 }
