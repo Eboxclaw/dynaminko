@@ -457,6 +457,17 @@ export function patchAssistant(patch: Partial<AssistantConfig>) {
   });
 }
 
+/** Store or clear one cloud credential. Local only, never leaves the device. */
+export function patchCloudCredential(id: string, patch: Partial<CloudCredential> | null) {
+  update((d) => {
+    const cloud = { ...(d.settings.assistant.cloud ?? {}) };
+    if (patch === null) delete cloud[id];
+    else cloud[id] = { apiKey: "", ...(cloud[id] ?? {}), ...patch };
+    d.settings.assistant = { ...d.settings.assistant, cloud };
+  });
+}
+
+
 export function toggleAssistantItem(field: "skills" | "tools", id: string) {
   update((d) => {
     const list = d.settings.assistant[field] ?? [];
