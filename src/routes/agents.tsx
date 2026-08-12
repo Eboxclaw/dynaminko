@@ -1,53 +1,63 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useState } from "react";
+import { Brain, Eye, ImagePlus, Send, Sparkles, SquareStack, X } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
+import { ModelPanel } from "@/components/pot/ModelPanel";
 import { Panel, Shell } from "@/components/pot/Shell";
 import { useAi } from "@/hooks/useAi";
 import { useDoc } from "@/hooks/useDoc";
 import { relativeTime } from "@/lib/format";
-import { AGENTS, automationOn, type AgentDef } from "@/lib/agents/registry";
-import { SKILLS } from "@/lib/skills/registry";
-import { runSkill, type SkillResult } from "@/lib/skills/run";
-import { TOOLS, TOOL_GROUPS } from "@/lib/tools/registry";
-import { POLICY } from "@/lib/tools/types";
+import { splitThinking } from "@/lib/ai";
+import { AGENTS, automationOn } from "@/lib/agents/registry";
+import { COMMANDS, parseCommand, suggestions, type Suggestion } from "@/lib/chat/commands";
+import { digestLine } from "@/lib/chat/context";
+import { routeMessage } from "@/lib/chat/route";
 import {
-  clearLogs,
-  patchAssistant,
-  patchSettings,
-  setAutomation,
-  toggleAssistantItem,
-} from "@/lib/store";
+  clearSession,
+  loadSession,
+  newMessage,
+  saveSession,
+  transcriptFor,
+  type ChatMessage,
+} from "@/lib/chat/session";
+import { SKILLS } from "@/lib/skills/registry";
+import { runSkill } from "@/lib/skills/run";
+import { searchCards } from "@/lib/tools/journal";
+import * as ind from "@/lib/tools/indicators";
+import { TOOLS, TOOL_BY_ID, TOOL_GROUPS } from "@/lib/tools/registry";
+import { POLICY, needsApproval, runTool } from "@/lib/tools/types";
+import { clearLogs, getDoc, setAutomation, toggleAssistantItem } from "@/lib/store";
 import { cn } from "@/lib/utils";
 
-const TABS = [
+const RAIL = [
+  { id: "model", label: "Model" },
   { id: "agents", label: "Agents" },
-  { id: "ask", label: "Ask" },
-  { id: "models", label: "Models" },
   { id: "skills", label: "Skills" },
   { id: "tools", label: "Tools" },
   { id: "logs", label: "Log" },
 ] as const;
 
-type Tab = (typeof TABS)[number]["id"];
-
+type RailTab = (typeof RAIL)[number]["id"];
 
 export const Route = createFileRoute("/agents")({
   validateSearch: (s: Record<string, unknown>) => ({
-    tab: (TABS.some((t) => t.id === s.tab) ? s.tab : "agents") as Tab,
+    tab: (RAIL.some((t) => t.id === s.tab) ? s.tab : "model") as RailTab,
   }),
   head: () => ({
     meta: [
-      { title: "Agents — Proof of Thesis" },
+      { title: "Assistant — Proof of Thesis" },
       {
         name: "description",
         content:
-          "Automation agents that read your wallet and one assistant you configure: models, skills, tools and a live log of everything they do.",
+          "An inline console over your journal: slash commands run deterministic tools first, and the on-device model only speaks when reasoning is actually needed.",
       },
-      { property: "og:title", content: "Agents — Proof of Thesis" },
+      { property: "og:title", content: "Assistant — Proof of Thesis" },
       {
         property: "og:description",
-        content: "Automation that extracts your trades, and one assistant you control.",
+        content: "Slash commands, real tools, and a local model you control.",
       },
+      { property: "og:type", content: "website" },
+      { name: "twitter:card", content: "summary" },
     ],
   }),
   component: AgentsPage,
@@ -56,120 +66,527 @@ export const Route = createFileRoute("/agents")({
 function AgentsPage() {
   const { tab } = Route.useSearch();
   const navigate = Route.useNavigate();
-  const doc = useDoc();
+  const [railOpen, setRailOpen] = useState(false);
+  const ai = useAi();
+
+  const openRail = (next: RailTab) => {
+    void navigate({ search: { tab: next } });
+    setRailOpen(true);
+  };
 
   return (
     <Shell
-      title="Agents"
-      subtitle="Automation runs on its own · the assistant only when you ask"
+      title="Assistant"
+      subtitle="tools answer first · the model only when reasoning is needed"
+      action={
+        <button
+          type="button"
+          onClick={() => setRailOpen((v) => !v)}
+          className="doodle-pill px-3 py-1 text-[11px] hover:border-ink lg:hidden"
+        >
+          {railOpen ? "Close" : "Panels"}
+        </button>
+      }
     >
-      <nav className="mb-4 flex gap-1 overflow-x-auto">
-        {TABS.map((t) => (
-          <button
-            key={t.id}
-            type="button"
-            onClick={() => void navigate({ search: { tab: t.id } })}
-            className={cn(
-              "doodle-pill shrink-0 px-3.5 py-1.5 text-[12px] transition",
-              tab === t.id ? "bg-ink text-paper" : "text-ink-soft hover:border-ink",
-            )}
-          >
-            {t.label}
-          </button>
-        ))}
-      </nav>
+      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_320px]">
+        <ChatConsole ai={ai} onOpenRail={openRail} />
 
-      {tab === "agents" && <AgentsTab automation={doc.settings.automation} />}
-      {tab === "ask" && <AskTab />}
-      {tab === "models" && <ModelsTab />}
-      {tab === "skills" && <SkillsTab selected={doc.settings.assistant.skills} />}
-      {tab === "tools" && <ToolsTab selected={doc.settings.assistant.tools} />}
-      {tab === "logs" && <LogsTab />}
+        <aside
+          className={cn(
+            "grid content-start gap-4",
+            !railOpen && "hidden lg:grid",
+          )}
+        >
+          <nav className="flex gap-1 overflow-x-auto">
+            {RAIL.map((t) => (
+              <button
+                key={t.id}
+                type="button"
+                onClick={() => void navigate({ search: { tab: t.id } })}
+                className={cn(
+                  "doodle-pill shrink-0 px-3 py-1 text-[11px] transition",
+                  tab === t.id ? "bg-ink text-paper" : "text-ink-soft hover:border-ink",
+                )}
+              >
+                {t.label}
+              </button>
+            ))}
+          </nav>
+
+          {tab === "model" && (
+            <Panel eyebrow="Model // On this device">
+              <ModelPanel ai={ai} />
+            </Panel>
+          )}
+          {tab === "agents" && <AgentsRail />}
+          {tab === "skills" && <SkillsRail />}
+          {tab === "tools" && <ToolsRail />}
+          {tab === "logs" && <LogsRail />}
+        </aside>
+      </div>
     </Shell>
   );
 }
 
-function AgentCard({
-  agent,
-  on,
-  onToggle,
+// ── the console ────────────────────────────────────────────────────────────
+
+function ChatConsole({
+  ai,
+  onOpenRail,
 }: {
-  agent: AgentDef;
-  on: boolean;
-  onToggle?: () => void;
+  ai: ReturnType<typeof useAi>;
+  onOpenRail: (tab: RailTab) => void;
 }) {
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [input, setInput] = useState("");
+  const [image, setImage] = useState<string | null>(null);
+  const [vision, setVision] = useState(false);
+  const [reasoning, setReasoning] = useState(false);
+  const [thinking, setThinking] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const boxRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    setMessages(loadSession());
+  }, []);
+  useEffect(() => {
+    saveSession(messages);
+    boxRef.current?.scrollTo({ top: boxRef.current.scrollHeight });
+  }, [messages]);
+  useEffect(() => {
+    inputRef.current?.focus();
+  }, [busy]);
+
+  const picks = useMemo(() => suggestions(input), [input]);
+  const modelReady = ai.status.phase === "ready";
+  const canSee = Boolean(ai.spec?.vision);
+  const canReason = Boolean(ai.spec?.reasoning);
+
+  const push = (m: Omit<ChatMessage, "id" | "ts">) => {
+    const msg = newMessage(m);
+    setMessages((prev) => [...prev, msg]);
+    return msg;
+  };
+
+  const speak = async (system: string, user: string) => {
+    if (!modelReady) {
+      push({
+        role: "note",
+        text: "No model loaded — the numbers above are computed locally. Load one in the Model panel for an interpretation.",
+      });
+      return;
+    }
+    setBusy(true);
+    try {
+      const history = transcriptFor(messages, Math.floor(ai.ctx * 0.4));
+      const raw = await ai.ask(
+        { system: `${system}\n\nContext: ${digestLine()}`, user: `${history}\n\n${user}` },
+        {
+          thinking,
+          images: vision && image ? [image] : undefined,
+        },
+      );
+      const { thinking: think, answer } = splitThinking(raw);
+      push({ role: "assistant", text: answer || raw, thinking: think });
+      setImage(null);
+    } catch (err) {
+      push({
+        role: "note",
+        text: err instanceof Error ? err.message : "the assistant failed",
+      });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const runSkillTurn = async (
+    skillId: string,
+    args: { motive?: never; thesisId?: string } = {},
+  ) => {
+    const result = runSkill(skillId, args);
+    push({
+      role: "tool",
+      text: result.skill.label,
+      card: {
+        source: result.skill.tools.join(" → ") || result.skill.id,
+        facts: result.facts,
+        data: result.data,
+      },
+    });
+    if (result.aiRequired || reasoning) {
+      await speak(
+        "You are a trading-journal analyst. Use only the structured result. Be concrete and brief.",
+        result.prompt,
+      );
+    }
+  };
+
+  const runToolTurn = async (toolId: string, rest: string) => {
+    const tool = TOOL_BY_ID[toolId];
+    if (!tool) return push({ role: "note", text: `No tool called ${toolId}.` });
+    if (!tool.live) return push({ role: "note", text: `${tool.id} is not built yet.` });
+    let parsed: unknown = {};
+    if (rest) {
+      try {
+        parsed = JSON.parse(rest);
+      } catch {
+        parsed = { query: rest };
+      }
+    }
+    if (needsApproval(tool.access)) {
+      return push({
+        role: "tool",
+        text: `${tool.label} needs your approval`,
+        approval: {
+          toolId: tool.id,
+          access: tool.access,
+          target: rest || "—",
+          input: parsed,
+          state: "pending",
+        },
+      });
+    }
+    const out = await runTool(tool, parsed);
+    push({
+      role: "tool",
+      text: tool.label,
+      card: {
+        source: tool.id,
+        facts: [summarise(out)],
+        data: { result: out } as Record<string, unknown>,
+      },
+    });
+  };
+
+  const approve = async (id: string, ok: boolean) => {
+    const msg = messages.find((m) => m.id === id);
+    if (!msg?.approval) return;
+    setMessages((prev) =>
+      prev.map((m) =>
+        m.id === id && m.approval
+          ? { ...m, approval: { ...m.approval, state: ok ? "approved" : "rejected" } }
+          : m,
+      ),
+    );
+    if (!ok) return;
+    const tool = TOOL_BY_ID[msg.approval.toolId];
+    if (!tool) return;
+    try {
+      const out = await runTool(tool, msg.approval.input);
+      push({
+        role: "tool",
+        text: `${tool.label} ran`,
+        card: { source: tool.id, facts: [summarise(out)], data: { result: out } },
+      });
+    } catch (err) {
+      push({ role: "note", text: err instanceof Error ? err.message : "the tool failed" });
+    }
+  };
+
+  const submit = async () => {
+    const text = input.trim();
+    if (!text || busy) return;
+    setInput("");
+    push({ role: "user", text });
+
+    const cmd = parseCommand(text);
+    if (cmd) {
+      const { name, rest } = cmd;
+      if (name === "clear") {
+        clearSession();
+        setMessages([]);
+        return;
+      }
+      if (name === "help") {
+        push({
+          role: "note",
+          text: COMMANDS.map((c) => `/${c.name} ${c.args} — ${c.blurb}`).join("\n"),
+        });
+        return;
+      }
+      if (name === "model") {
+        onOpenRail("model");
+        push({ role: "note", text: "Model harness opened in the panel." });
+        return;
+      }
+      if (name === "pot") return void runSkillTurn("journal.review");
+      if (name === "skill") return void runSkillTurn(rest.split(/\s+/)[0]);
+      if (name === "tool") {
+        const [id, ...tail] = rest.split(/\s+/);
+        return void runToolTurn(id, tail.join(" "));
+      }
+      if (name === "journal") {
+        const cards = searchCards(rest, 12);
+        push({
+          role: "tool",
+          text: `journal.search "${rest}"`,
+          card: {
+            source: "journal.search",
+            facts: cards.length
+              ? cards
+                  .slice(0, 8)
+                  .map(
+                    (c) =>
+                      `${new Date(c.date).toISOString().slice(0, 10)} · ${c.ticker ?? "—"} · ${c.motive ?? "no motive"} · ${c.record.slice(0, 70)}`,
+                  )
+              : ["Nothing in the journal matches that."],
+            data: { matches: cards.length, cards: cards.slice(0, 8) },
+          },
+        });
+        return;
+      }
+      if (name === "thesis") {
+        const t = getDoc().theses.find((x) =>
+          x.title.toLowerCase().includes(rest.toLowerCase()),
+        );
+        if (!t) return push({ role: "note", text: `No thesis matching "${rest}".` });
+        return void runSkillTurn("thesis.review", { thesisId: t.id });
+      }
+      push({ role: "note", text: `Unknown command /${name}. Try /help.` });
+      return;
+    }
+
+    const routed = routeMessage(text);
+    if (routed.kind === "skill") {
+      push({ role: "note", text: `Running ${routed.skillId} — ${routed.why}.` });
+      return void runSkillTurn(routed.skillId, { thesisId: routed.thesisId });
+    }
+    if (routed.kind === "search") {
+      const cards = searchCards(routed.query, 8);
+      if (cards.length) {
+        push({
+          role: "tool",
+          text: `journal.search "${routed.query}"`,
+          card: {
+            source: "journal.search",
+            facts: cards.map((c) => `${c.ticker ?? "—"} · ${c.record.slice(0, 70)}`),
+            data: { matches: cards.length },
+          },
+        });
+        if (!reasoning) return;
+      }
+    }
+    await speak(
+      "You are the assistant inside a trading journal. Answer briefly. If a number is needed, say which tool would produce it instead of guessing.",
+      text,
+    );
+  };
+
+  const apply = (s: Suggestion) => {
+    setInput(s.insert);
+    inputRef.current?.focus();
+  };
+
   return (
-    <li className="border-b border-stroke px-4 py-3 last:border-0">
-      <div className="flex items-baseline gap-3">
-        <span className="flex-1 text-[13px] font-medium">{agent.name}</span>
-        <span className="eyebrow">{agent.live ? "wired" : "not wired yet"}</span>
-        {onToggle && (
-          <button
-            type="button"
-            onClick={onToggle}
-            className={cn(
-              "doodle-pill px-3 py-1 text-[11px]",
-              on ? "bg-ink text-paper" : "text-ink-faint",
+    <div className="grid content-start gap-3">
+      <Panel eyebrow={`Session // ${messages.length} turns · ctx ${ai.ctx}`}>
+        <div ref={boxRef} className="max-h-[52vh] min-h-[240px] overflow-y-auto px-4 py-3">
+          {messages.length === 0 && (
+            <div className="py-6 text-[13px] text-ink-soft">
+              <p>Ask in plain words, or press / for a command.</p>
+              <p className="eyebrow mt-3">
+                {digestLine()}
+              </p>
+            </div>
+          )}
+          <ul className="grid gap-3">
+            {messages.map((m) => (
+              <li key={m.id}>
+                {m.role === "user" && (
+                  <p className="ml-auto max-w-[85%] rounded-xl bg-ink px-3 py-2 text-[13px] text-paper">
+                    {m.text}
+                  </p>
+                )}
+                {m.role === "note" && (
+                  <p className="eyebrow whitespace-pre-wrap leading-relaxed">{m.text}</p>
+                )}
+                {m.role === "assistant" && (
+                  <div className="max-w-[92%]">
+                    {m.thinking && (
+                      <details className="doodle-inset mb-2 px-3 py-2">
+                        <summary className="eyebrow cursor-pointer">thinking</summary>
+                        <p className="mt-1 whitespace-pre-wrap text-[12px] text-ink-soft">
+                          {m.thinking}
+                        </p>
+                      </details>
+                    )}
+                    <p className="whitespace-pre-wrap text-[13px] leading-relaxed">{m.text}</p>
+                  </div>
+                )}
+                {m.role === "tool" && (
+                  <div className="doodle-inset px-3 py-2">
+                    <p className="num eyebrow">{m.card?.source ?? m.approval?.toolId}</p>
+                    {m.card && (
+                      <ul className="mt-1 grid gap-1">
+                        {m.card.facts.map((f, i) => (
+                          <li key={i} className="text-[13px] leading-relaxed">
+                            {f}
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                    {m.approval && (
+                      <div className="mt-1">
+                        <p className="text-[13px]">
+                          {m.text} · target {m.approval.target}
+                        </p>
+                        <p className="eyebrow mt-1">
+                          access {m.approval.access} · approval required: YES
+                        </p>
+                        {m.approval.state === "pending" ? (
+                          <div className="mt-2 flex gap-2">
+                            <button
+                              type="button"
+                              onClick={() => void approve(m.id, true)}
+                              className="doodle-pill bg-ink px-3 py-1 text-[11px] text-paper"
+                            >
+                              Approve
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => void approve(m.id, false)}
+                              className="doodle-pill px-3 py-1 text-[11px]"
+                            >
+                              Reject
+                            </button>
+                          </div>
+                        ) : (
+                          <p className="eyebrow mt-1">{m.approval.state}</p>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </li>
+            ))}
+            {busy && (
+              <li className="eyebrow">
+                {ai.output ? ai.output.slice(-160) : "thinking…"}
+              </li>
             )}
-          >
-            {on ? "On" : "Off"}
-          </button>
+          </ul>
+        </div>
+
+        {picks.length > 0 && (
+          <ul className="max-h-[190px] overflow-y-auto border-t border-stroke">
+            {picks.map((s) => (
+              <li key={s.insert}>
+                <button
+                  type="button"
+                  onClick={() => apply(s)}
+                  className="flex w-full items-baseline gap-2 px-4 py-2 text-left hover:bg-sunken"
+                >
+                  <span className="num text-[12px] font-medium">{s.label}</span>
+                  <span className="min-w-0 flex-1 truncate text-[12px] text-ink-soft">
+                    {s.hint}
+                  </span>
+                  {s.badge && <span className="eyebrow">{s.badge}</span>}
+                </button>
+              </li>
+            ))}
+          </ul>
         )}
-      </div>
-      <p className="mt-1 text-[12px] text-ink-soft">{agent.job}</p>
-      <p className="eyebrow mt-1.5">
-        runs {agent.trigger} · {agent.tools.length} tools · {agent.skills.length} skills
-      </p>
-    </li>
-  );
-}
 
-function AgentsTab({ automation }: { automation: Record<string, boolean> }) {
-  const doc = useDoc();
-  const assistant = AGENTS.find((a) => a.kind === "assistant")!;
-  const jobs = AGENTS.filter((a) => a.kind === "automation");
-  const cfg = doc.settings.assistant;
-
-  return (
-    <div className="grid gap-4">
-      <Panel eyebrow="Automation // Fixed jobs, no conversation">
-        <ul>
-          {jobs.map((a) => (
-            <AgentCard
-              key={a.id}
-              agent={a}
-              on={automationOn(automation, a.id)}
-              onToggle={() => setAutomation(a.id, !automationOn(automation, a.id))}
+        <div className="border-t border-stroke px-4 py-3">
+          <div className="flex items-end gap-2">
+            <textarea
+              ref={inputRef}
+              rows={1}
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  void submit();
+                }
+              }}
+              placeholder="Ask, or / for commands"
+              className="min-h-[38px] flex-1 resize-none bg-transparent text-[13px] outline-none"
             />
-          ))}
-        </ul>
-      </Panel>
+            {busy ? (
+              <button
+                type="button"
+                onClick={ai.abort}
+                className="doodle-pill px-3 py-1.5 text-[11px]"
+              >
+                Stop
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => void submit()}
+                aria-label="Send"
+                className="doodle-pill grid h-8 w-8 place-items-center bg-ink text-paper"
+              >
+                <Send className="h-3.5 w-3.5" />
+              </button>
+            )}
+          </div>
 
-      <Panel eyebrow="Assistant // The one you configure" delay={60}>
-        <ul>
-          <AgentCard agent={assistant} on />
-        </ul>
-        <div className="grid gap-3 border-t border-stroke px-4 py-3 sm:grid-cols-2">
-          <label className="text-[12px]">
-            <span className="eyebrow block">Provider</span>
-            <select
-              value={cfg.provider}
-              onChange={(e) =>
-                patchAssistant({ provider: e.target.value as "local" | "cloud" })
-              }
-              className="doodle-inset mt-1.5 w-full bg-transparent px-3 py-2 text-[13px] outline-none"
+          <div className="mt-2 flex flex-wrap items-center gap-1.5">
+            <Toggle
+              on={vision}
+              disabled={!canSee}
+              onClick={() => setVision((v) => !v)}
+              icon={<Eye className="h-3 w-3" />}
+              label="Vision"
+            />
+            <Toggle
+              on={reasoning}
+              disabled={!modelReady}
+              onClick={() => setReasoning((v) => !v)}
+              icon={<Sparkles className="h-3 w-3" />}
+              label="Reason"
+            />
+            <Toggle
+              on={thinking}
+              disabled={!canReason}
+              onClick={() => setThinking((v) => !v)}
+              icon={<Brain className="h-3 w-3" />}
+              label="Thinking"
+            />
+            {vision && canSee && (
+              <button
+                type="button"
+                onClick={() => fileRef.current?.click()}
+                className="doodle-pill inline-flex items-center gap-1 px-2.5 py-1 text-[11px] hover:border-ink"
+              >
+                <ImagePlus className="h-3 w-3" /> {image ? "Image attached" : "Attach"}
+              </button>
+            )}
+            {image && (
+              <button
+                type="button"
+                onClick={() => setImage(null)}
+                aria-label="Remove image"
+                className="doodle-pill grid h-6 w-6 place-items-center"
+              >
+                <X className="h-3 w-3" />
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => onOpenRail("model")}
+              className="doodle-pill num ml-auto inline-flex items-center gap-1 px-2.5 py-1 text-[11px] hover:border-ink"
             >
-              <option value="local">On this device (WebAssembly)</option>
-              <option value="cloud" disabled>
-                Cloud — not connected
-              </option>
-            </select>
-          </label>
-          <div className="text-[12px]">
-            <span className="eyebrow block">Enabled skills</span>
-            <p className="mt-1.5 text-[13px]">
-              {cfg.skills.length} skills · {cfg.tools.length} tools
-            </p>
+              <SquareStack className="h-3 w-3" />
+              {ai.spec?.label ?? "no model"} · ctx {ai.ctx}
+            </button>
+            <input
+              ref={fileRef}
+              type="file"
+              accept="image/*"
+              hidden
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (!file) return;
+                const reader = new FileReader();
+                reader.onload = () => setImage(String(reader.result));
+                reader.readAsDataURL(file);
+              }}
+            />
           </div>
         </div>
       </Panel>
@@ -177,95 +594,105 @@ function AgentsTab({ automation }: { automation: Record<string, boolean> }) {
   );
 }
 
-function ModelsTab() {
-  const ai = useAi();
-  const doc = useDoc();
-
+function Toggle({
+  on,
+  disabled,
+  onClick,
+  icon,
+  label,
+}: {
+  on: boolean;
+  disabled?: boolean;
+  onClick: () => void;
+  icon: React.ReactNode;
+  label: string;
+}) {
   return (
-    <Panel eyebrow="Models // Local, downloaded once and cached">
+    <button
+      type="button"
+      disabled={disabled}
+      onClick={onClick}
+      title={disabled ? `${label} needs a model that supports it` : label}
+      className={cn(
+        "doodle-pill inline-flex items-center gap-1 px-2.5 py-1 text-[11px]",
+        on ? "bg-ink text-paper" : "text-ink-faint hover:border-ink",
+        disabled && "opacity-40",
+      )}
+    >
+      {icon}
+      {label}
+    </button>
+  );
+}
+
+function summarise(out: unknown): string {
+  if (out == null) return "no result";
+  if (Array.isArray(out)) return `${out.length} rows`;
+  if (typeof out === "object") {
+    const json = JSON.stringify(out);
+    return json.length > 220 ? `${json.slice(0, 220)}…` : json;
+  }
+  return String(out);
+}
+
+// ── rail panels ────────────────────────────────────────────────────────────
+
+function AgentsRail() {
+  const doc = useDoc();
+  return (
+    <Panel eyebrow="Automation // Fixed jobs">
       <ul>
-        {ai.models.map((m) => {
-          const active = doc.settings.assistant.modelId === m.id;
+        {AGENTS.filter((a) => a.kind === "automation").map((a) => {
+          const on = automationOn(doc.settings.automation, a.id);
           return (
-            <li key={m.id} className="border-b border-stroke px-4 py-3 last:border-0">
-              <label className="flex items-start gap-3">
-                <input
-                  type="radio"
-                  name="model"
-                  className="mt-1"
-                  checked={active}
-                  onChange={() => {
-                    patchAssistant({ modelId: m.id });
-                    patchSettings({ aiModelId: m.id });
-                  }}
-                />
-                <span className="min-w-0 flex-1">
-                  <span className="flex flex-wrap items-baseline gap-2">
-                    <span className="text-[13px] font-medium">{m.label}</span>
-                    <span className="num text-[11px] text-ink-faint">{m.quant}</span>
-                    {m.standard && <span className="eyebrow">standard</span>}
-                    {m.desktopOnly && <span className="eyebrow">desktop</span>}
-                  </span>
-                  <span className="mt-1 block text-[12px] text-ink-soft">{m.blurb}</span>
-                  <span className="eyebrow mt-1 block">{m.role}</span>
-                </span>
-              </label>
+            <li key={a.id} className="border-b border-stroke px-4 py-3 last:border-0">
+              <div className="flex items-baseline gap-2">
+                <span className="flex-1 text-[13px] font-medium">{a.name}</span>
+                <button
+                  type="button"
+                  onClick={() => setAutomation(a.id, !on)}
+                  className={cn(
+                    "doodle-pill px-2.5 py-0.5 text-[11px]",
+                    on ? "bg-ink text-paper" : "text-ink-faint",
+                  )}
+                >
+                  {on ? "On" : "Off"}
+                </button>
+              </div>
+              <p className="mt-1 text-[12px] text-ink-soft">{a.job}</p>
+              <p className="eyebrow mt-1">runs {a.trigger}</p>
             </li>
           );
         })}
       </ul>
-      <div className="flex flex-wrap items-center gap-2 border-t border-stroke px-4 py-3">
-        <button
-          type="button"
-          onClick={() => void ai.load(doc.settings.assistant.modelId)}
-          className="doodle-pill bg-ink px-4 py-1.5 text-[12px] font-medium text-paper"
-        >
-          {ai.status.phase === "ready" ? "Loaded" : "Download & start"}
-        </button>
-        {ai.status.phase === "ready" && (
-          <button
-            type="button"
-            onClick={() => void ai.stop()}
-            className="doodle-pill px-4 py-1.5 text-[12px]"
-          >
-            Unload
-          </button>
-        )}
-        {ai.status.phase === "downloading" && (
-          <span className="num text-[12px] text-ink-faint">
-            {Math.round(ai.status.progress * 100)}%
-          </span>
-        )}
-        {ai.status.phase === "error" && (
-          <span className="text-[12px] text-loss">{ai.status.message}</span>
-        )}
-      </div>
     </Panel>
   );
 }
 
-function SkillsTab({ selected }: { selected: string[] }) {
+function SkillsRail() {
+  const doc = useDoc();
+  const selected = doc.settings.assistant.skills;
   return (
-    <Panel eyebrow="Skills // Orchestrate tools · AI only for the last step">
+    <Panel eyebrow="Skills // Tool chains">
       <ul>
         {SKILLS.map((s) => (
           <li key={s.id} className="border-b border-stroke px-4 py-3 last:border-0">
-            <div className="flex items-baseline gap-3">
+            <div className="flex items-baseline gap-2">
               <span className="flex-1 text-[13px] font-medium">{s.label}</span>
-              <span className="eyebrow">{s.aiRequired ? "needs a model" : "no model"}</span>
               <button
                 type="button"
                 onClick={() => toggleAssistantItem("skills", s.id)}
                 className={cn(
-                  "doodle-pill px-3 py-1 text-[11px]",
+                  "doodle-pill px-2.5 py-0.5 text-[11px]",
                   selected.includes(s.id) ? "bg-ink text-paper" : "text-ink-faint",
                 )}
               >
                 {selected.includes(s.id) ? "On" : "Off"}
               </button>
             </div>
+            <p className="num eyebrow mt-1">/skill {s.id}</p>
             <p className="mt-1 text-[12px] text-ink-soft">{s.purpose}</p>
-            <p className="num eyebrow mt-1.5">{s.tools.join(" → ") || "no tools"}</p>
+            <p className="eyebrow mt-1">{s.aiRequired ? "needs a model" : "no model"}</p>
           </li>
         ))}
       </ul>
@@ -273,45 +700,26 @@ function SkillsTab({ selected }: { selected: string[] }) {
   );
 }
 
-function ToolsTab({ selected }: { selected: string[] }) {
+function ToolsRail() {
   return (
     <div className="grid gap-4">
       {TOOL_GROUPS.map((group, i) => (
-        <Panel key={group} eyebrow={`${group} // deterministic, no model`} delay={i * 20}>
+        <Panel key={group} eyebrow={`${group} // deterministic`} delay={i * 15}>
           <ul>
-            {TOOLS.filter((t) => t.group === group).map((t) => {
-              const policy = POLICY[t.access];
-              return (
-                <li key={t.id} className="border-b border-stroke px-4 py-3 last:border-0">
-                  <div className="flex flex-wrap items-baseline gap-2">
-                    <span className="num flex-1 text-[13px] font-medium">{t.id}</span>
-                    <span className="eyebrow">{t.access}</span>
-                    <button
-                      type="button"
-                      disabled={!t.live}
-                      onClick={() => toggleAssistantItem("tools", t.id)}
-                      className={cn(
-                        "doodle-pill px-3 py-1 text-[11px]",
-                        !t.live
-                          ? "text-ink-faint opacity-50"
-                          : selected.includes(t.id)
-                            ? "bg-ink text-paper"
-                            : "text-ink-faint",
-                      )}
-                    >
-                      {!t.live ? "Not built" : selected.includes(t.id) ? "Granted" : "Denied"}
-                    </button>
-                  </div>
-                  <p className="mt-1 text-[12px] text-ink-soft">{t.purpose}</p>
-                  <p className="num eyebrow mt-1.5">
-                    in {t.inputs} · out {t.output}
-                  </p>
-                  <p className="eyebrow mt-1">
-                    approval {policy.approval} · {policy.logged ? "always logged" : "log optional"}
-                  </p>
-                </li>
-              );
-            })}
+            {TOOLS.filter((t) => t.group === group).map((t) => (
+              <li key={t.id} className="border-b border-stroke px-4 py-2.5 last:border-0">
+                <div className="flex items-baseline gap-2">
+                  <span className="num flex-1 text-[12px] font-medium">{t.id}</span>
+                  <span className="eyebrow">{t.access}</span>
+                  <span className="eyebrow">{t.live ? "live" : "not built"}</span>
+                </div>
+                <p className="mt-0.5 text-[12px] text-ink-soft">{t.purpose}</p>
+                <p className="eyebrow mt-0.5">
+                  approval {POLICY[t.access].approval} ·{" "}
+                  {POLICY[t.access].logged ? "always logged" : "log optional"}
+                </p>
+              </li>
+            ))}
           </ul>
         </Panel>
       ))}
@@ -319,96 +727,18 @@ function ToolsTab({ selected }: { selected: string[] }) {
   );
 }
 
-function AskTab() {
-  const ai = useAi();
-  const [result, setResult] = useState<SkillResult | null>(null);
-  const [answer, setAnswer] = useState("");
-  const askable = SKILLS.filter((s) => s.askable);
-
-  const run = (id: string) => {
-    setAnswer("");
-    setResult(runSkill(id));
-  };
-
-  const reason = async () => {
-    if (!result) return;
-    const text = await ai.ask({
-      system: "You are a trading-journal analyst. Be concise and concrete.",
-      user: result.prompt,
-    });
-    setAnswer(text);
-  };
-
-  return (
-    <div className="grid gap-4">
-      <Panel eyebrow="Ask // Tools run first, the model only if needed">
-        <div className="flex flex-wrap gap-2 px-4 py-3">
-          {askable.map((s) => (
-            <button
-              key={s.id}
-              type="button"
-              onClick={() => run(s.id)}
-              className="doodle-pill px-3.5 py-1.5 text-[12px] hover:border-ink"
-            >
-              {s.label}
-            </button>
-          ))}
-        </div>
-      </Panel>
-
-      {result && (
-        <Panel eyebrow={`Result // ${result.skill.tools.join(" → ") || "no tools"}`} delay={40}>
-          <ul className="px-4 py-3">
-            {result.facts.map((f) => (
-              <li key={f} className="text-[13px] leading-relaxed">
-                {f}
-              </li>
-            ))}
-          </ul>
-          <div className="border-t border-stroke px-4 py-3">
-            {ai.status.phase !== "ready" ? (
-              <p className="text-[12px] text-ink-soft">
-                {result.aiRequired
-                  ? "This one needs a model to go further. "
-                  : "Numbers above are computed locally, no model involved. For an interpretation, "}
-                download one in the Models tab.
-              </p>
-            ) : (
-              <button
-                type="button"
-                onClick={() => void reason()}
-                disabled={ai.running}
-                className="doodle-pill bg-ink px-4 py-1.5 text-[12px] font-medium text-paper"
-              >
-                {ai.running ? "Reasoning…" : "Interpret with the model"}
-              </button>
-            )}
-            {(answer || ai.output) && (
-              <p className="mt-3 whitespace-pre-wrap text-[13px] leading-relaxed">
-                {answer || ai.output}
-              </p>
-            )}
-          </div>
-        </Panel>
-      )}
-    </div>
-  );
-}
-
-
-function LogsTab() {
+function LogsRail() {
   const doc = useDoc();
   const logs = doc.logs ?? [];
-
   return (
     <Panel
-      eyebrow={`Log // ${logs.length} lines on this device`}
+      eyebrow={`Log // ${logs.length} lines`}
       action={
         logs.length > 0 && (
           <button
             type="button"
             onClick={clearLogs}
-            className="doodle-pill px-3 py-1 text-[11px] hover:border-ink"
+            className="doodle-pill px-2.5 py-0.5 text-[11px] hover:border-ink"
           >
             Clear
           </button>
@@ -417,15 +747,9 @@ function LogsTab() {
     >
       <ul className="max-h-[60vh] overflow-y-auto">
         {logs.map((l) => (
-          <li key={l.id} className="border-b border-stroke px-4 py-2.5 last:border-0">
+          <li key={l.id} className="border-b border-stroke px-4 py-2 last:border-0">
             <div className="flex items-baseline gap-2">
-              <span
-                className={cn(
-                  "eyebrow",
-                  l.level === "error" && "text-loss",
-                  l.level === "warn" && "text-ink",
-                )}
-              >
+              <span className={cn("eyebrow", l.level === "error" && "text-loss")}>
                 {l.level}
               </span>
               <span className="num flex-1 truncate text-[12px]">
@@ -433,13 +757,10 @@ function LogsTab() {
               </span>
               <span className="eyebrow">{relativeTime(l.ts)}</span>
             </div>
-            {l.detail && <p className="num mt-1 text-[11px] text-ink-faint">{l.detail}</p>}
           </li>
         ))}
         {logs.length === 0 && (
-          <li className="px-4 py-8 text-center text-[13px] text-ink-faint">
-            Nothing yet. Watch a wallet and the extractor will start writing here.
-          </li>
+          <li className="px-4 py-6 text-center text-[12px] text-ink-faint">Nothing yet.</li>
         )}
       </ul>
     </Panel>
