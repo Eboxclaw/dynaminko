@@ -748,8 +748,21 @@ function ChatConsole({
               }}
             />
           </div>
+
+          <p className="num eyebrow mt-2 flex flex-wrap gap-x-3">
+            <span>ctx {ai.ctx}</span>
+            <span>
+              {ctxUsed.turns}/{MAX_CONTEXT_MESSAGES} turns replayed · ~{ctxUsed.used} tok
+            </span>
+            {ai.status.phase === "downloading" && (
+              <span>downloading {Math.round(ai.status.progress * 100)}%</span>
+            )}
+            {ai.speed && <span>{ai.speed.tps.toFixed(1)} tok/s</span>}
+            <span>encoder {encoderState()}</span>
+          </p>
         </div>
       </Panel>
+
     </div>
   );
 }
