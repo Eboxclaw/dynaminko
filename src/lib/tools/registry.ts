@@ -1,0 +1,351 @@
+// The single source of truth for what the app can do deterministically.
+// The Agents tab renders this; skills execute against it.
+
+import { addAlert, patchAlert, removeAlert, getDoc } from "@/lib/store";
+import { requestNotifications } from "@/lib/notify";
+
+import * as ind from "./indicators";
+import * as journal from "./journal";
+import type { ToolDef } from "./types";
+
+function def<I, O>(t: ToolDef<I, O>): ToolDef {
+  return t as unknown as ToolDef;
+}
+
+export const TOOLS: ToolDef[] = [
+  // ── journal ───────────────────────────────────────────────────────────
+  def({
+    id: "journal.index",
+    group: "journal",
+    action: "index",
+    label: "Index journal",
+    purpose: "Flatten entries and signals into one searchable card set.",
+    access: "COMPUTE",
+    inputs: "none",
+    output: "{ cards[], tickers[], motives[], theses[], builtAt }",
+    live: true,
+    run: () => journal.buildIndex(),
+  }),
+  def({
+    id: "journal.search",
+    group: "journal",
+    action: "search",
+    label: "Search journal",
+    purpose: "Free-text match over records and tickers.",
+    access: "READ",
+    inputs: "{ query: string, limit?: number }",
+    output: "JournalCard[]",
+    live: true,
+    run: (i: { query: string; limit?: number }) => journal.searchCards(i.query, i.limit),
+  }),
+  def({
+    id: "journal.filter",
+    group: "journal",
+    action: "filter",
+    label: "Filter journal",
+    purpose: "Narrow cards by motive, ticker, alignment, state, thesis or date.",
+    access: "READ",
+    inputs: "JournalFilter",
+    output: "JournalCard[]",
+    live: true,
+    run: (i: journal.JournalFilter) => journal.filterCards(i),
+  }),
+  def({
+    id: "journal.read",
+    group: "journal",
+    action: "read",
+    label: "Read card",
+    purpose: "Full record for one card id.",
+    access: "READ",
+    inputs: "{ id: string }",
+    output: "JournalCard | null",
+    live: true,
+    run: (i: { id: string }) => journal.readCard(i.id),
+  }),
+  def({
+    id: "journal.compare",
+    group: "journal",
+    action: "compare",
+    label: "Compare sets",
+    purpose: "Two filtered card sets side by side.",
+    access: "COMPUTE",
+    inputs: "{ a: JournalFilter, b: JournalFilter }",
+    output: "{ a: JournalCard[], b: JournalCard[] }",
+    live: true,
+    run: (i: { a: journal.JournalFilter; b: journal.JournalFilter }) =>
+      journal.compareSets(i.a, i.b),
+  }),
+  def({
+    id: "journal.write",
+    group: "journal",
+    action: "write",
+    label: "Write entry",
+    purpose: "Append a journal entry. Never runs without approval.",
+    access: "WRITE",
+    inputs: "Partial<Entry>",
+    output: "Entry",
+    live: true,
+    run: journal.writeEntry,
+  }),
+  def({
+    id: "journal.delete",
+    group: "journal",
+    action: "delete",
+    label: "Delete entry",
+    purpose: "Remove a journal entry. Explicit approval only.",
+    access: "DELETE",
+    inputs: "{ id: string }",
+    output: "void",
+    live: true,
+    run: (i: { id: string }) => journal.deleteEntry(i.id),
+  }),
+
+  // ── thesis ────────────────────────────────────────────────────────────
+  def({
+    id: "thesis.read",
+    group: "thesis",
+    action: "read",
+    label: "Read theses",
+    purpose: "All theses with status and symbols.",
+    access: "READ",
+    inputs: "none",
+    output: "Thesis[]",
+    live: true,
+    run: () => getDoc().theses,
+  }),
+  def({
+    id: "thesis.stats",
+    group: "thesis",
+    action: "stats",
+    label: "Thesis stats",
+    purpose: "Entries, trades, alignment rate and staleness for one thesis.",
+    access: "COMPUTE",
+    inputs: "{ thesisId: string }",
+    output: "{ entries, trades, aligned, alignmentRate, staleDays }",
+    live: true,
+    run: (i: { thesisId: string }) => ind.thesisStats(i.thesisId),
+  }),
+  def({
+    id: "thesis.edit",
+    group: "thesis",
+    action: "edit",
+    label: "Edit thesis",
+    purpose: "Patch a thesis. Approval required.",
+    access: "EDIT",
+    inputs: "{ id: string, patch: Partial<Thesis> }",
+    output: "void",
+    live: true,
+    run: (i: { id: string; patch: Parameters<typeof journal.editThesis>[1] }) =>
+      journal.editThesis(i.id, i.patch),
+  }),
+
+  // ── signals ───────────────────────────────────────────────────────────
+  def({
+    id: "signal.read",
+    group: "signal",
+    action: "read",
+    label: "Read signals",
+    purpose: "Extracted on-chain moments, inbox and linked.",
+    access: "READ",
+    inputs: "none",
+    output: "Signal[]",
+    live: true,
+    run: () => getDoc().signals,
+  }),
+  def({
+    id: "signal.coverage",
+    group: "signal",
+    action: "coverage",
+    label: "Inbox coverage",
+    purpose: "How many extracted trades have been answered.",
+    access: "COMPUTE",
+    inputs: "none",
+    output: "{ signals, linked, inbox, ratio }",
+    live: true,
+    run: () => ind.coverageStats(),
+  }),
+
+  // ── indicators ────────────────────────────────────────────────────────
+  def({
+    id: "indicators.motiveStats",
+    group: "indicators",
+    action: "motiveStats",
+    label: "Motive statistics",
+    purpose: "Counts, alignment mix, discipline score and tickers for one motive.",
+    access: "COMPUTE",
+    inputs: "{ motive: Sentiment }",
+    output: "MotiveStats",
+    live: true,
+    run: (i: { motive: Parameters<typeof ind.motiveStats>[0] }) => ind.motiveStats(i.motive),
+  }),
+  def({
+    id: "indicators.alignmentStats",
+    group: "indicators",
+    action: "alignmentStats",
+    label: "Alignment mix",
+    purpose: "Alignment buckets across the whole journal.",
+    access: "COMPUTE",
+    inputs: "none",
+    output: "{ total, buckets }",
+    live: true,
+    run: () => ind.alignmentStats(),
+  }),
+  def({
+    id: "indicators.potIndex",
+    group: "indicators",
+    action: "potIndex",
+    label: "POT index",
+    purpose: "The five-axis score with trends.",
+    access: "COMPUTE",
+    inputs: "none",
+    output: "PotIndex",
+    live: true,
+    run: () => ind.potIndex(),
+  }),
+
+  // ── alerts & notifications ────────────────────────────────────────────
+  def({
+    id: "alerts.read",
+    group: "alerts",
+    action: "read",
+    label: "Read alerts",
+    purpose: "All configured triggers.",
+    access: "READ",
+    inputs: "none",
+    output: "Alert[]",
+    live: true,
+    run: () => getDoc().alerts,
+  }),
+  def({
+    id: "alerts.create",
+    group: "alerts",
+    action: "create",
+    label: "Create alert",
+    purpose: "Add a price, on-chain or thesis-review trigger. Approval required.",
+    access: "WRITE",
+    inputs: "Partial<Alert>",
+    output: "Alert",
+    live: true,
+    run: (i: Parameters<typeof addAlert>[0]) => addAlert(i),
+  }),
+  def({
+    id: "alerts.edit",
+    group: "alerts",
+    action: "edit",
+    label: "Edit alert",
+    purpose: "Patch an existing trigger. Approval required.",
+    access: "EDIT",
+    inputs: "{ id: string, patch: Partial<Alert> }",
+    output: "void",
+    live: true,
+    run: (i: { id: string; patch: Parameters<typeof patchAlert>[1] }) =>
+      patchAlert(i.id, i.patch),
+  }),
+  def({
+    id: "alerts.delete",
+    group: "alerts",
+    action: "delete",
+    label: "Delete alert",
+    purpose: "Remove a trigger. Explicit approval only.",
+    access: "DELETE",
+    inputs: "{ id: string }",
+    output: "void",
+    live: true,
+    run: (i: { id: string }) => removeAlert(i.id),
+  }),
+  def({
+    id: "notify.permission",
+    group: "notify",
+    action: "permission",
+    label: "Ask for notifications",
+    purpose: "Request browser notification permission on this device.",
+    access: "EXTERNAL",
+    inputs: "none",
+    output: "boolean",
+    live: true,
+    run: () => requestNotifications(),
+  }),
+
+  // ── portfolio & chain (read paths already wired elsewhere) ────────────
+  def({
+    id: "portfolio.read",
+    group: "portfolio",
+    action: "read",
+    label: "Read portfolio",
+    purpose: "Holdings, baskets and quotes for the active wallet.",
+    access: "READ",
+    inputs: "none",
+    output: "Portfolio",
+    live: true,
+  }),
+  def({
+    id: "chain.transfers",
+    group: "chain",
+    action: "transfers",
+    label: "Read transfers",
+    purpose: "Ink Blockscout transfer history for the active wallet.",
+    access: "EXTERNAL",
+    inputs: "{ address: string, chainId: number }",
+    output: "ChainTransfer[]",
+    live: true,
+  }),
+  def({
+    id: "market.quote",
+    group: "market",
+    action: "quote",
+    label: "Quote",
+    purpose: "Spot price and 24h change for a symbol.",
+    access: "EXTERNAL",
+    inputs: "{ symbols: string[] }",
+    output: "Quote[]",
+    live: true,
+  }),
+  def({
+    id: "log.read",
+    group: "log",
+    action: "read",
+    label: "Read log",
+    purpose: "The local agent activity log.",
+    access: "READ",
+    inputs: "none",
+    output: "LogLine[]",
+    live: true,
+    run: () => getDoc().logs ?? [],
+  }),
+];
+
+/** Venue groups: read/parse only for now, execution deliberately out of scope. */
+const VENUES = ["velodrome", "inkyswap", "hyperliquid", "nado", "tydro"] as const;
+
+for (const venue of VENUES) {
+  TOOLS.push(
+    def({
+      id: `${venue}.read`,
+      group: venue,
+      action: "read",
+      label: `Read ${venue}`,
+      purpose: `Positions and pool state on ${venue}.`,
+      access: "EXTERNAL",
+      inputs: "{ address: string }",
+      output: "VenuePosition[]",
+      live: venue === "hyperliquid",
+    }),
+    def({
+      id: `${venue}.execute`,
+      group: venue,
+      action: "execute",
+      label: `Execute on ${venue}`,
+      purpose: "Out of scope. Journaling first, execution later.",
+      access: "EXECUTE",
+      inputs: "—",
+      output: "—",
+      live: false,
+    }),
+  );
+}
+
+export const TOOL_BY_ID: Record<string, ToolDef> = Object.fromEntries(
+  TOOLS.map((t) => [t.id, t]),
+);
+
+export const TOOL_GROUPS = [...new Set(TOOLS.map((t) => t.group))];
