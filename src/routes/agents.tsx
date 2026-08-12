@@ -142,6 +142,8 @@ function ChatConsole({
   ai: ReturnType<typeof useAi>;
   onOpenRail: (tab: RailTab) => void;
 }) {
+  const [sessions, setSessions] = useState<SessionMeta[]>([]);
+  const [activeId, setActiveId] = useState<string | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [image, setImage] = useState<string | null>(null);
@@ -153,19 +155,26 @@ function ChatConsole({
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
+  // One idempotent bootstrap: read the index, create a session only when empty.
   useEffect(() => {
-    setMessages(loadSession());
+    const boot = bootstrapSessions();
+    setSessions(boot.sessions);
+    setActiveId(boot.activeId);
+    setMessages(readSession(boot.activeId));
   }, []);
+
   useEffect(() => {
-    saveSession(messages);
+    if (!activeId) return;
+    writeSession(activeId, messages);
+    setSessions(listSessions());
     boxRef.current?.scrollTo({ top: boxRef.current.scrollHeight });
-  }, [messages]);
+  }, [messages, activeId]);
+
   useEffect(() => {
     inputRef.current?.focus();
-  }, [busy]);
+  }, [busy, activeId]);
 
   const picks = useMemo(() => suggestions(input), [input]);
-  const modelReady = ai.status.phase === "ready";
   const canSee = Boolean(ai.spec?.vision);
   const canReason = Boolean(ai.spec?.reasoning);
 
@@ -175,19 +184,39 @@ function ChatConsole({
     return msg;
   };
 
+  const openSession = (id: string) => {
+    setActiveId(id);
+    setMessages(readSession(id));
+  };
+
+  const startSession = (title?: string) => {
+    const meta = createSession(title || "New session");
+    setSessions(listSessions());
+    setActiveId(meta.id);
+    setMessages([]);
+  };
+
   const speak = async (system: string, user: string) => {
-    if (!modelReady) {
+    // Chatting is itself the request to download: the model loads on demand.
+    if (ai.status.phase !== "ready") {
       push({
         role: "note",
-        text: "No model loaded — the numbers above are computed locally. Load one in the Model panel for an interpretation.",
+        text: `${ai.spec?.label ?? "The model"} is not running yet — starting it now. First run downloads ~${ai.spec?.weightsGb ?? "?"} GB, then it stays on this device.`,
       });
-      return;
+      const ok = await ai.ensure();
+      if (!ok) {
+        push({
+          role: "note",
+          text: "The model could not start. The numbers above are still computed locally.",
+        });
+        return;
+      }
     }
     setBusy(true);
     try {
-      const history = transcriptFor(messages, Math.floor(ai.ctx * 0.4));
+      const history = contextFor(messages, Math.floor(ai.ctx * 0.4), MAX_CONTEXT_MESSAGES);
       const raw = await ai.ask(
-        { system: `${system}\n\nContext: ${digestLine()}`, user: `${history}\n\n${user}` },
+        { system: `${system}\n\nContext: ${digestLine()}`, user: `${history.text}\n\n${user}` },
         {
           thinking,
           images: vision && image ? [image] : undefined,
@@ -205,6 +234,7 @@ function ChatConsole({
       setBusy(false);
     }
   };
+
 
   const runSkillTurn = async (
     skillId: string,
