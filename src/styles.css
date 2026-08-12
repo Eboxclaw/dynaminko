@@ -18,6 +18,8 @@
   --color-stroke-strong: var(--stroke-strong);
   --color-accent: var(--ink);
   --color-accent-soft: var(--sunken);
+  --color-gain: var(--gain);
+  --color-loss: var(--loss);
 }
 
 :root {
@@ -29,6 +31,8 @@
   --ink-faint: #8d8d93;
   --stroke: #dedcd7;
   --stroke-strong: #b9b7b1;
+  --gain: #1f7a52;
+  --loss: #a13b4b;
   --grain: 0.025;
 }
 
@@ -41,6 +45,8 @@
   --ink-faint: #6d6d73;
   --stroke: #26262a;
   --stroke-strong: #3a3a40;
+  --gain: #64d3a1;
+  --loss: #e0798a;
   --grain: 0.04;
 }
 
