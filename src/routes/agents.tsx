@@ -80,6 +80,7 @@ function AgentsPage() {
       </nav>
 
       {tab === "agents" && <AgentsTab automation={doc.settings.automation} />}
+      {tab === "ask" && <AskTab />}
       {tab === "models" && <ModelsTab />}
       {tab === "skills" && <SkillsTab selected={doc.settings.assistant.skills} />}
       {tab === "tools" && <ToolsTab selected={doc.settings.assistant.tools} />}
