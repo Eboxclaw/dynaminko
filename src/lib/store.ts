@@ -95,13 +95,25 @@ export type LogLine = {
   ms: number | null;
 };
 
+/** One optional cloud endpoint, OpenAI-compatible. Keys stay on this device. */
+export type CloudCredential = {
+  apiKey: string;
+  baseUrl?: string;
+  model?: string;
+};
+
 /** The single agent the user is allowed to configure. */
 export type AssistantConfig = {
   provider: "local" | "cloud";
   modelId: string;
   skills: string[];
   tools: string[];
+  /** which cloud provider is active when provider === "cloud" */
+  cloudId?: string;
+  /** provider id → credential, local to this browser */
+  cloud?: Record<string, CloudCredential>;
 };
+
 
 export type Settings = {
   hideBalances: boolean;
