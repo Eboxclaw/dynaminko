@@ -1,78 +1,85 @@
-# Dynaminko
+Proof of Thesis, by INKO
 
-A trigger first, thesis driven trading journal for Ink Chain. It watches a wallet and reconciles thesis against trades automatically in a Status tab, where sentiment, trading performance, and accountability merge into one number we call Dynamic Performance, and routes execution through dexes like inkySwap, Velodrome, and Nado, and through Tydro, once that phase is reached.
+A local-first, assisted trading journal. It reads a wallet, builds a portfolio view from real on-chain data, and helps a trader write down why they traded, not just what they traded.
 
-## What this is
+This document reflects the codebase as of the August 5, 2026 rebuild (.lovable/plan/proof-of-thesis-rebuild-from-scratch-2026-08-05.md), verified directly against src/ on August 12, 2026. Earlier docs (the pre-rebuild README, PLAN, ROADMAP, REVIEW) describe a different product under the name "Dynaminko," with a dossier-card design language and a Markets/AI Terminal/Vault surface. That version was replaced, not iterated on. Those docs are archived under docs/archive/ for their still-useful Ink chain, Nado, and Tydro research, not as a current description of the app.
 
-Most trading journals are built analytics first and habit second, so they get abandoned. Dynaminko inverts that: the retention loop comes first, the metrics engine comes second. Three input layers feed one journal: a manual thesis written any time, an automatic trade ledger (accountability) pulled straight from the chain with zero re-typing, and an AI concierge that reconciles the loop across thesis, journal, and trade accounting, asking for a one tap confirmation instead of a form.
+What this is
 
-Once confirmed, entries feed a five axis Dynamic Performance engine (Performance, Thesis, Sentiment, Financial, Psychological), surfaced on the Status tab. Performance and Thesis pull their signal automatically from the ledger. The other three axes get theirs from a short tap flow after a trade reconciles: one question per axis, four selectable answers each, never a free text field. Psychological already has its four: calm, FOMO, revenge, boredom. Sentiment and Financial each need their own four option question in the same spirit before this ships. The flagship number is thesis-aligned win rate versus thesis-less win rate, since that tells a trader exactly which behavior to change instead of just that they need to do better.
+Most trading journals fail because logging a trade is a chore. Proof of Thesis removes the chore: connect or paste a wallet address, and every swap, send, and receive the wallet made becomes an inbox item automatically. The only manual work left is answering a short, tap-first reconciliation: what you believed, whether the trade matched it, how it felt. One sentence is a complete entry. A form is never required.
 
-INKO is the existing meme brand and community on Ink Chain, used as the initial low stakes distribution wedge before the product expands to serious traders. Dynaminko is the working product name.
+Three input layers feed one local document:
 
-## Ecosystem
+Thesis — written any time, before or independent of a trade. Lives in a watchlist until a matching trade appears, or forever as a "ghost" if none ever does.
+Signal — an on-chain event (swap, send, receive) extracted from the connected wallet's transaction history. Lives in the inbox until answered or dismissed.
+Entry — the result of reconciling a signal against a thesis (or logging one standalone). Carries alignment, sizing, sentiment, emotion, and optional health/finance context, each answered by tapping one of four options, never free text unless the person chooses to add notes.
 
-- **Ink Chain** (chain id 57073), Kraken's OP Stack Layer 2, part of the Optimism Superchain.
-- **Nado**, the unified spot, perpetuals, and margin DEX native to Ink Chain. Trading routes through its CLOB, and a Nado Builder Code lets the app earn a fee share on volume it routes.
-- **Tydro**, a white label Aave V3 deployment on Ink Chain, the Vault tab's home for idle capital. Note: on chain explorers like DeBank this shows up labeled "Aave V3", that's Tydro under its base protocol name, not a separate integration.
-- **inkySwap** and **Velodrome V3**, the simple swap and LP/farming venues on Ink Chain, starting with a whitelisted asset list, new tokens added later through a form/PR process.
+The POT Index (src/lib/pot-index.ts, route /pot) is the score this produces: five axes — coverage, alignment, discipline, execution, steadiness — computed only from what the person actually wrote or the agent actually read. An empty journal shows every axis as null, not zero.
 
-## Stack
+What's real right now
 
-Aiming to be a PWA powered by WebGPU, TypeScript, WebAssembly, and Rust.
+Verified by cloning the repository, installing dependencies, and running tsc, eslint, and vite build directly, not by reading documentation.
 
-Template starts with:
-- TanStack Start, TanStack Router (file based, currently a single `/` route with client side view switching), TanStack Query
-- React 19, TypeScript, Vite
-- Tailwind CSS v4, shadcn/ui on Radix primitives
-- Recharts for charts, React Hook Form plus Zod for forms
-- IBM Plex Sans and IBM Plex Mono
-- Bun as the package manager (`bun.lock`, `bunfig.toml`)
-- No wallet library, no chain SDK, and no backend wired in yet, this is a frontend-first pass on staged data throughout
+Area	State
+TypeScript	Compiles clean, zero errors
+Production build	Succeeds (SSR + client)
+Wallet reads	Real. Ink Blockscout public API + JSON-RPC, no API key, runs inside a dedicated Web Worker so parsing never blocks the UI
+Prices	Real. CoinGecko public API, server-cached
+Trade detection	Real. Extracted from actual transfer logs, not synthesized
+Local storage	Real. Single versioned document in localStorage, subscription-based, with a fixed infinite-render-loop bug (see git log, "Fix the blank screen")
+Wallet connect	Real, read-only. Hand-rolled EIP-1193 listener, zero dependencies, no signing
+On-device AI	Real. @wllama/wllama (llama.cpp compiled to WASM) running in-browser, lazy-loaded behind explicit user action. Ships with SmolLM2-360M, Qwen2.5-0.5B, and SmolLM2-1.7B as selectable models
+Portfolio 3D ring	Real. three.js, dynamically imported so it never blocks startup, falls back cleanly under prefers-reduced-motion
+PWA	Installable only. Manifest and icons are wired; there is no service worker, so the app does not work offline
+Trading / execution	Not built. /trade is a single placeholder screen: "Journal first, execution second."
+Server-side AI (cloud LLM)	Not built. All AI in the current build runs on-device
+Nado, Tydro, inkySwap, Velodrome integration	Not built. No live DEX or lending calls anywhere in the codebase
+Known issue: broken favicon reference
 
-## Design language
+src/routes/__root.tsx links /pot-mark.svg as the site icon. That file was never created; the actual logo files on disk are dynaminko.svg and dynaminko-logo.png, artwork unchanged since the rebuild. This 404s on every page load. The fix is a one-line revert in __root.tsx back to /dynaminko.svg, not a file rename.
 
-Onyx and obsidian surfaces, hairline borders, a single lavender accent reserved for primary actions and focus states, mint for gains, a muted rose for losses. The signature surface is the dossier card, a hairline bordered panel with a small monospace case file header, used for reconciliation items, theses, trade tickets, and terminal proposals, and nowhere else, so the restraint stays legible. The brand mark is a faceted "dynamite candle" diamond, doubling as the boot sequence centerpiece and the portfolio breakdown visualization.
+Screens
 
-## Progress
+Five real routes plus one placeholder, per the Aug 5 rebuild:
 
-| Part | Status | Notes |
-|---|---|---|
-| Design system | Done | Color tokens, type pairing, dossier card, diamond mark all in place. Logo is now green-free and sourced from `public/dynaminko.svg` end to end (boot centerpiece included) |
-| Boot sequence | Done | Terminal handshake, faceted centerpiece rendered from the uploaded SVG, scan line, skippable, session gated |
-| Dashboard | Done, mock data | Portfolio Breakdown, Category Exposure grouped by top-level category with sub-basket bars, Concierge feed, plus a paste-address Wallet selector and a DeBank-style Positions panel that reflects the tracked wallet (deterministic staged positions per address, no chain calls yet) |
-| Basket taxonomy | Done | Two-tier, open-set: top level `Crypto` / `xStocks`, sub-baskets `privacy · cash · metals · ai · memes · rwa · defense · chips · health · goods · etfs`. New sub-baskets added at token-listing time no longer require a schema change |
-| Markets | Done, mock data | Progressive flow — category tab → sub-basket chip → asset list, then a dedicated CLOB ticket + order book on the next step (back via button or Esc). Ends the old all-in-one wall of controls |
-| AI Terminal | Done, mock data | Slash commands with autocomplete, JSON/table toggle, natural language parsing, approve/edit/discard proposal cards. Responses are canned, not live |
-| Theses | Done, mock data | List and detail view, manual and AI guided composer, aligned/drifted/pending status |
-| Status tab | Not started | Home for the Dynamic Performance composite score, still queued |
-| Vault | Done, mock data | Tydro style supply/borrow cards with APY and position |
-| Settings | Done, mock data | Wallet tracking now embeds the paste-address selector, notification preferences, permissionless alert setup |
-| Quick Capture | Needs a fix | Still routes to other screens instead of capturing inline |
-| PWA layer | Installable | Manifest + SVG icons + head tags shipped, installs to home screen on Android/desktop. Offline service worker deliberately deferred (kept out of Lovable preview) |
-| Real chain and wallet | Not started | No wallet library, no live Nado, Tydro, inkySwap, or Velodrome calls, everything above runs on staged data |
+Home (/) — greeting, portfolio snapshot, what changed since last visit
+Journal (/journal) — the core surface: inbox of unanswered signals, entries timeline, and the theses watchlist, sharing one search/filter set
+Portfolio (/portfolio) — holdings from the connected wallet, grouped by sector
+POT Index (/pot) — the five-axis score described above
+Alerts (/alerts) — price, on-chain, and thesis-staleness triggers
+Settings (/settings) — wallet management, theme, AI model manager, data export/delete
+Trade (/trade) — placeholder only, describes what's coming next phase
 
-## Roadmap
+theses as a standalone route now redirects into /journal?tab=theses; the surfaces were merged in the rebuild.
 
-| Phase | Goal | Exit criteria |
-|---|---|---|
-| 0. Foundation | Prove capture friction is solved before building anything else | A thesis captured in under 10 seconds from any screen, measured |
-| 1. Automatic ledger | Remove manual trade entry | Every trade on the connected wallet appears in the ledger with zero manual input |
-| 2. Assisted journal | Turn the ledger into narrative | Most new trades get a linked reflection without opening a form |
-| 3. Dynamic Performance v1 | Ship the insight layer and the Status tab that houses it | Thesis-aligned versus thesis-less win rate surfaces an insight a spreadsheet couldn't |
-| 4. Full Dynamic Performance | Add Sentiment and Financial as four answer tap questions, alongside the existing Psychological one | All five axes populate for active users with enough sample size |
-| 5. Ecosystem integration | Move from tracking to executing | A user goes from thesis to executed trade to journaled entry without leaving the app |
-| 6. Expansion | Scale beyond the INKO wedge | Evaluate a native Tauri shell, other chains, and white label, decided from real usage data |
+Design language
 
-This build is UI first across several of these phases at once (Markets and Vault already have their full visual chrome, on staged data, well ahead of when they go live), which is deliberate: get the aesthetic and interaction model right before wiring anything real.
+Monochrome. Pearl paper / obsidian ink depending on theme, one accent, no color otherwise — hierarchy comes from value, weight, hairlines, and space (src/styles.css, @theme block). Hand-drawn doodle chrome (doodle-card, doodle-pill utility classes, Caveat display font for accents) rather than the sharp-edged "dossier card" language of the pre-rebuild version. IBM Plex Mono for all numbers; Outfit for UI text.
 
-## Getting started
+Stack
 
-```sh
-bun install
-bun run dev
-```
+Confirmed from package.json and direct build verification, not aspirational:
 
-Other scripts: `bun run build`, `bun run lint`, `bun run format`.
+TanStack Start, TanStack Router (file-based), TanStack Query
+React 19, TypeScript, Vite 8, Nitro (Cloudflare Workers as the default deploy target)
+Tailwind CSS v4, shadcn/ui on Radix primitives
+@wllama/wllama for on-device inference, three for the portfolio ring
+Recharts for charts, React Hook Form + Zod for forms
+No viem, no wagmi, no chain SDK — chain reads are hand-rolled against Blockscout + JSON-RPC directly
+No backend, no database, no auth — everything lives in the browser (localStorage, Cache API for model weights, IndexedDB for chain-read caching)
+Package manager: npm works (verified); bun.lock/bunfig.toml are present in the repo, but bun was not available to verify in this environment. If the team runs bun, treat both lockfiles as needing reconciliation.
+Engineering principles
 
+This project follows a browser-first, local-first architecture. See AGENTS.md for the full engineering charter (worker architecture, WASM usage rules, data movement priorities, async model). The current codebase already matches this charter closely: worker-isolated chain reads, lazy-loaded heavy dependencies (AI model, three.js), zero-copy patterns in the local store, and no synchronous work on the main thread for anything expensive.
+
+Getting started
+sh
+npm install
+npm run dev
+
+Other scripts: npm run build, npm run lint, npm run format. (bun install / bun run dev should also work per the committed lockfile, but confirm bun availability in your environment first.)
+
+Where the roadmap lives
+
+See ROADMAP.md for what's next, sequenced from this actual state rather than from the pre-rebuild plan.
 
