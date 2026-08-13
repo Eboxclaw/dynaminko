@@ -327,6 +327,8 @@ function ChatConsole({
         "You are a trading-journal analyst. Use only the structured result. Be concrete and brief.",
         result.prompt,
       );
+    } else {
+      turn.complete();
     }
   };
 
