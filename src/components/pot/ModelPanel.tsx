@@ -14,6 +14,7 @@ import {
   memoryEstimateGb,
   recommendModel,
 } from "@/lib/ai";
+import { ACTION_LABEL, semanticLabel } from "@/lib/ai/capability";
 import { CLOUD_PROVIDERS, cloudState, type CloudProviderId } from "@/lib/ai/cloud";
 import { diagnosticsRows } from "@/lib/ai/runtime";
 import { patchAssistant, patchCloudCredential, patchSettings } from "@/lib/store";
@@ -65,6 +66,7 @@ function LocalModels({ ai }: { ai: ReturnType<typeof useAi> }) {
   const budget = profile.ramGb ?? (profile.mobile ? 2 : 4);
   const estimate = memoryEstimateGb(selected, ai.ctx);
   const enc = ai.encoder;
+  const action = ai.actionFor(selected);
 
   return (
     <div>
@@ -223,26 +225,15 @@ function LocalModels({ ai }: { ai: ReturnType<typeof useAi> }) {
       </div>
 
       <div className="flex flex-wrap items-center gap-2 border-b border-stroke px-4 py-3">
+        {/* Derived from the cache, never from which model is the default. */}
         <button
           type="button"
-          onClick={() => void ai.load(selected)}
-          className="doodle-pill bg-ink px-4 py-1.5 text-[12px] font-medium text-paper"
+          disabled={action === "unavailable"}
+          onClick={() => (action === "unload" ? void ai.stop() : void ai.activate(selected))}
+          className="doodle-pill bg-ink px-4 py-1.5 text-[12px] font-medium text-paper disabled:opacity-40"
         >
-          {ai.states[selected] === "ready" && ai.loadedCtx === ai.ctx
-            ? "Loaded"
-            : ai.downloaded.has(selected)
-              ? "Start"
-              : "Download & start"}
+          {action === "unload" && ai.loadedCtx !== ai.ctx ? "Reload" : ACTION_LABEL[action]}
         </button>
-        {ai.status.phase === "ready" && (
-          <button
-            type="button"
-            onClick={() => void ai.stop()}
-            className="doodle-pill px-4 py-1.5 text-[12px]"
-          >
-            Unload
-          </button>
-        )}
         {ai.status.phase === "downloading" && (
           <span className="num text-[12px] text-ink-faint">
             {Math.round(ai.status.progress * 100)}%
