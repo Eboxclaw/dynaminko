@@ -24,9 +24,12 @@ const BACKEND_LABEL: Record<string, string> = {
 export function ModelSwitch({
   ai,
   onOpenPanel,
+  onBusyChange,
 }: {
   ai: ReturnType<typeof useAi>;
   onOpenPanel: () => void;
+  /** true while a model is being verified and loaded */
+  onBusyChange?: (busy: boolean) => void;
 }) {
   const doc = useDoc();
   const [open, setOpen] = useState(false);
@@ -64,8 +67,10 @@ export function ModelSwitch({
     setOpen(false);
     setError(null);
     setSwitching(modelId);
+    onBusyChange?.(true);
     const res = await ai.activate(modelId);
     setSwitching(null);
+    onBusyChange?.(false);
     if (!res.ok) setError({ id: modelId, message: res.error ?? "the model failed to load" });
   };
 
