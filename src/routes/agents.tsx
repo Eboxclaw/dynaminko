@@ -869,6 +869,78 @@ function ChatConsole({
   );
 }
 
+/**
+ * Searchable reference for everything the console can do: commands, skills and
+ * live tools. Plain substring matching — discovery must work with no model and
+ * no encoder on the device.
+ */
+function HelpPanel({
+  query,
+  onQuery,
+  onPick,
+}: {
+  query: string;
+  onQuery: (v: string) => void;
+  onPick: (insert: string) => void;
+}) {
+  const q = query.trim().toLowerCase();
+  const hit = (...parts: string[]) => !q || parts.join(" ").toLowerCase().includes(q);
+
+  const rows = [
+    ...COMMANDS.filter((c) => hit(c.name, c.args, c.blurb)).map((c) => ({
+      key: `cmd:${c.name}`,
+      group: "command",
+      label: `/${c.name} ${c.args}`.trim(),
+      hint: c.blurb,
+      insert: `/${c.name} `,
+    })),
+    ...SKILLS.filter((s) => hit(s.id, s.label, s.purpose)).map((s) => ({
+      key: `skill:${s.id}`,
+      group: s.aiRequired ? "skill · uses a model" : "skill · deterministic",
+      label: `/skill ${s.id}`,
+      hint: s.purpose,
+      insert: `/skill ${s.id}`,
+    })),
+    ...TOOLS.filter((t) => t.live && hit(t.id, t.label, t.purpose)).map((t) => ({
+      key: `tool:${t.id}`,
+      group: `tool · ${t.access}`,
+      label: `/tool ${t.id}`,
+      hint: t.purpose,
+      insert: `/tool ${t.id} `,
+    })),
+  ];
+
+  return (
+    <div className="border-t border-stroke">
+      <input
+        value={query}
+        onChange={(e) => onQuery(e.target.value)}
+        placeholder="Search commands, skills and tools"
+        className="w-full border-b border-stroke bg-transparent px-4 py-2 text-[12px] outline-none"
+      />
+      <ul className="max-h-[240px] overflow-y-auto">
+        {rows.length === 0 && (
+          <li className="px-4 py-3 text-[12px] text-ink-soft">Nothing matches that.</li>
+        )}
+        {rows.map((r) => (
+          <li key={r.key}>
+            <button
+              type="button"
+              onClick={() => onPick(r.insert)}
+              className="flex w-full items-baseline gap-2 px-4 py-2 text-left hover:bg-sunken"
+            >
+              <span className="num text-[12px] font-medium">{r.label}</span>
+              <span className="min-w-0 flex-1 truncate text-[12px] text-ink-soft">{r.hint}</span>
+              <span className="eyebrow">{r.group}</span>
+            </button>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+
 function Toggle({
   on,
   disabled,
