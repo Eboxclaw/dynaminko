@@ -536,6 +536,17 @@ function ChatConsole({
         return;
       }
 
+      if (name === "run") {
+        const [id, ...tail] = rest.split(/\s+/);
+        return void runCommandTurn(id, tail.join(" "));
+      }
+      if (name === "goal") {
+        push({
+          role: "note",
+          text: `Goal mode runs the same commands in up to ${LIMITS.maxCyclesLocal} cycles (${LIMITS.maxTotalSteps} steps, ${Math.round(LIMITS.goalDeadlineMs / 1000)}s deadline) and is cancellable. Use /run <command> for a single step meanwhile.`,
+        });
+        return;
+      }
       if (name === "pot") return void runSkillTurn("journal.review");
       if (name === "skill") return void runSkillTurn(rest.split(/\s+/)[0]);
       if (name === "tool") {
