@@ -102,3 +102,18 @@ through its own reader keyed off `chainId`, never through Blockscout logic.
 3. InkySwap has no indexer shortcut and the smallest likely share — deprioritize.
 4. LP PnL (Velodrome, InkySwap) is materially harder than Nado/Hyperliquid, which report
    it directly. Its own follow-up spec once position reads land.
+
+## Implementation status
+
+| Venue | Reader | State |
+| --- | --- | --- |
+| Nado | `src/lib/venues/nado.ts` | Live. Archive v1 subaccount discovery + Gateway state; perps, spot, equity/health. |
+| Hyperliquid | `src/lib/venues/hyperliquid.ts` | Live. Perps, spot, subaccounts and vault equity. |
+| Velodrome | `src/lib/venues/velodrome.ts` | Live. Slipstream NFT enumeration → `positions` → factory pool → `slot0`; token amounts + in/out of range. USD not priced. |
+| InkySwap | — | Pending. Uniswap V4 position read not wired. |
+
+Shared model in `src/lib/venues/types.ts`: `Position` (perp / spot / lp-*) and
+`AccountSummary` (equity, margin, health). Net worth = wallet balances +
+account equity only; perp notional is exposure, never added to net worth.
+LP amounts are reported without USD because no price source is trusted for
+those pairs yet.
