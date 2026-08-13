@@ -15,13 +15,13 @@ import type { AccountSummary, Position, VenueReport } from "@/lib/venues/types";
 export const Route = createFileRoute("/portfolio")({
   head: () => ({
     meta: [
-      { title: "Portfolio — Proof of Thesis" },
+      { title: "Portfolio · Proof of Thesis" },
       {
         name: "description",
         content:
           "Wallet balances, liquidity positions and trading accounts, grouped into conviction baskets.",
       },
-      { property: "og:title", content: "Portfolio — Proof of Thesis" },
+      { property: "og:title", content: "Portfolio · Proof of Thesis" },
       {
         property: "og:description",
         content: "Wallet, LPs and trading accounts grouped into conviction baskets.",
@@ -321,7 +321,7 @@ function VenueCard({
             );
           })}
 
-          {unpriced && <p className="eyebrow">— means this venue reported no price.</p>}
+          {unpriced && <p className="eyebrow">A dash means this venue reported no price.</p>}
           {report?.note && <p className="eyebrow">{report.note}</p>}
         </div>
       )}

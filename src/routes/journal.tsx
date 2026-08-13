@@ -62,13 +62,13 @@ export const Route = createFileRoute("/journal")({
   },
   head: () => ({
     meta: [
-      { title: "Theses & Journal — Proof of Thesis" },
+      { title: "Theses & Journal · Proof of Thesis" },
       {
         name: "description",
         content:
           "The inbox of extracted trades, the entries you wrote, the theses behind them and the ideas that never executed.",
       },
-      { property: "og:title", content: "Theses & Journal — Proof of Thesis" },
+      { property: "og:title", content: "Theses & Journal · Proof of Thesis" },
       {
         property: "og:description",
         content: "Reconcile extracted trades with the thesis that caused them.",
@@ -382,7 +382,7 @@ function JournalHub() {
         <div className="space-y-3">
           <Panel eyebrow="Ghosts // Never executed">
             <p className="p-4 text-[13px] text-ink-soft">
-              Theses and intents with no trade behind them. They still count against the index —
+              Theses and intents with no trade behind them. They still count against the index,
               a conviction you never acted on is a result too.
             </p>
           </Panel>

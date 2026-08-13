@@ -276,7 +276,7 @@ function CloudModels({ ai }: { ai: ReturnType<typeof useAi> }) {
   return (
     <div>
       <p className="border-b border-stroke px-4 py-2.5 text-[12px] text-ink-soft">
-        Optional. Keys are stored in this browser only and sent to the provider you configure —
+        Optional. Keys are stored in this browser only and sent to the provider you configure,
         nowhere else. Every endpoint uses the OpenAI chat shape.
       </p>
       <ul>

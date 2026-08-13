@@ -17,13 +17,13 @@ import { cn } from "@/lib/utils";
 export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
-      { title: "Dashboard — Proof of Thesis" },
+      { title: "Dashboard · Proof of Thesis" },
       {
         name: "description",
         content:
           "Your wallet split into conviction baskets, with every on-chain move the agent has extracted and queued for you to explain.",
       },
-      { property: "og:title", content: "Dashboard — Proof of Thesis" },
+      { property: "og:title", content: "Dashboard · Proof of Thesis" },
       {
         property: "og:description",
         content: "Wallet baskets, extracted trades, and the theses behind them.",
@@ -48,7 +48,7 @@ function Dashboard() {
           <div className="p-4">
             <p className="max-w-lg text-[14px] text-ink-soft">
               Watch any address read-only, or connect one you control. From that moment the
-              agent extracts every swap, send and receive into your inbox — you only answer
+              agent extracts every swap, send and receive into your inbox, you only answer
               why.
             </p>
             <div className="mt-4">

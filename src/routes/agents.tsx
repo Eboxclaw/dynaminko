@@ -64,13 +64,13 @@ export const Route = createFileRoute("/agents")({
   }),
   head: () => ({
     meta: [
-      { title: "Assistant — Proof of Thesis" },
+      { title: "Assistant · Proof of Thesis" },
       {
         name: "description",
         content:
           "An inline console over your journal: slash commands run deterministic tools first, and the on-device model only speaks when reasoning is actually needed.",
       },
-      { property: "og:title", content: "Assistant — Proof of Thesis" },
+      { property: "og:title", content: "Assistant · Proof of Thesis" },
       {
         property: "og:description",
         content: "Slash commands, real tools, and a local model you control.",
@@ -230,7 +230,7 @@ function ChatConsole({
     if (ai.target.kind === "local" && ai.status.phase !== "ready") {
       push({
         role: "note",
-        text: `${ai.spec?.label ?? "The model"} is not running yet — starting it now. First run downloads ~${ai.spec?.weightsGb ?? "?"} GB, then it stays on this device.`,
+        text: `${ai.spec?.label ?? "The model"} is not running yet, starting it now. First run downloads ~${ai.spec?.weightsGb ?? "?"} GB, then it stays on this device.`,
       });
       const ok = await ai.ensure();
       if (!ok) {
@@ -477,7 +477,7 @@ function ChatConsole({
       if (name === "help") {
         push({
           role: "note",
-          text: COMMANDS.map((c) => `/${c.name} ${c.args} — ${c.blurb}`).join("\n"),
+          text: COMMANDS.map((c) => `/${c.name} ${c.args} · ${c.blurb}`).join("\n"),
         });
         return;
       }
@@ -485,7 +485,7 @@ function ChatConsole({
         push({
           role: "note",
           text: MODELS.map(
-            (m) => `${m.label} — ${m.role} · ${STATE_LABEL[ai.states[m.id]]}\n  ${m.serve}`,
+            (m) => `${m.label} · ${m.role} · ${STATE_LABEL[ai.states[m.id]]}\n  ${m.serve}`,
           ).join("\n"),
         });
         return;
@@ -494,7 +494,7 @@ function ChatConsole({
         push({
           role: "note",
           text: TOOLS.filter((t) => t.live)
-            .map((t) => `${t.id} [${t.access}] — ${t.purpose}`)
+            .map((t) => `${t.id} [${t.access}] · ${t.purpose}`)
             .join("\n"),
         });
         return;
@@ -504,7 +504,7 @@ function ChatConsole({
           role: "note",
           text: SKILLS.map(
             (s) =>
-              `${s.id} — ${s.purpose} (${s.aiRequired ? "needs a model" : "no model"})`,
+              `${s.id} · ${s.purpose} (${s.aiRequired ? "needs a model" : "no model"})`,
           ).join("\n"),
         });
         return;
@@ -527,7 +527,7 @@ function ChatConsole({
         const wanted = MODELS.find((m) => m.id === rest || m.label.toLowerCase() === rest.toLowerCase());
         if (wanted) {
           ai.select(wanted.id);
-          push({ role: "note", text: `${wanted.label} selected — ${STATE_LABEL[ai.states[wanted.id]]}.` });
+          push({ role: "note", text: `${wanted.label} selected, ${STATE_LABEL[ai.states[wanted.id]]}.` });
           return;
         }
         onOpenRail("model");
@@ -585,7 +585,7 @@ function ChatConsole({
 
     const routed = routeMessage(text);
     if (routed.kind === "skill") {
-      push({ role: "note", text: `Running ${routed.skillId} — ${routed.why}.` });
+      push({ role: "note", text: `Running ${routed.skillId}: ${routed.why}.` });
       return void runSkillTurn(routed.skillId, { thesisId: routed.thesisId });
     }
     if (routed.kind === "search") {
@@ -607,7 +607,7 @@ function ChatConsole({
       // Second pass: the 230M encoder, not a generative model.
       const semantic = await routeSemantic(text);
       if (semantic.kind === "skill") {
-        push({ role: "note", text: `Running ${semantic.skillId} — ${semantic.why}.` });
+        push({ role: "note", text: `Running ${semantic.skillId}: ${semantic.why}.` });
         return void runSkillTurn(semantic.skillId);
       }
     }

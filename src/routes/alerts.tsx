@@ -17,13 +17,13 @@ import { cn } from "@/lib/utils";
 export const Route = createFileRoute("/alerts")({
   head: () => ({
     meta: [
-      { title: "Alerts — Proof of Thesis" },
+      { title: "Alerts · Proof of Thesis" },
       {
         name: "description",
         content:
           "Price levels, on-chain triggers and thesis reviews that nudge you before you react.",
       },
-      { property: "og:title", content: "Alerts — Proof of Thesis" },
+      { property: "og:title", content: "Alerts · Proof of Thesis" },
       { property: "og:description", content: "Price levels and thesis reviews that nudge you." },
     ],
   }),
@@ -76,7 +76,7 @@ function Permission() {
             value={
               installed
                 ? backgroundCapable()
-                  ? "installed — delivered in the background"
+                  ? "installed, delivered in the background"
                   : "no service worker"
                 : "install to home screen first"
             }
@@ -96,7 +96,7 @@ function Permission() {
               }}
               className="doodle-pill bg-ink px-4 py-1.5 text-[12px] font-medium text-paper disabled:opacity-40"
             >
-              {state === "denied" ? "Blocked — unblock in browser" : "Allow notifications"}
+              {state === "denied" ? "Blocked, unblock in browser" : "Allow notifications"}
             </button>
           )}
           {state === "granted" && (
