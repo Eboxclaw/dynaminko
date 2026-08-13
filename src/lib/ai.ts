@@ -240,14 +240,23 @@ let instance: Wllama | null = null;
 let currentModel: string | null = null;
 let currentCtx = DEFAULT_CTX;
 let abortRun = false;
+let activeBackendValue: Backend = "unavailable";
+
+/** The backend the loaded model is actually running on, never a guess. */
+export function activeBackend(): Backend {
+  return activeBackendValue;
+}
 
 async function createRuntime(): Promise<Wllama> {
   // The binary lives in public/wasm and is fetched by URL after hydration, so it
-  // never enters the server bundle.
+  // never enters the server bundle. One binary covers both single and
+  // multi-threaded execution; wllama enables pthreads only when the page is
+  // cross-origin isolated, so nothing here has to be guessed.
   const { Wllama: Ctor } = await import("@wllama/wllama/esm/index.js");
   return new Ctor(
     { default: "/wasm/wllama.wasm" },
     { allowOffline: true, suppressNativeLog: true, parallelDownloads: 2 },
+
   );
 }
 
