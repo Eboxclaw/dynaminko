@@ -172,10 +172,7 @@ export function resolveSector(
   symbol: string,
   overrides?: Record<string, string> | null,
 ): SectorId {
-  const upper = symbol.trim().toUpperCase();
-  const chosen = overrides?.[upper];
-  if (chosen && SECTOR_BY_ID[chosen as SectorId]) return chosen as SectorId;
-  return sectorFor(upper);
+  return classifyAsset(symbol, overrides).basket;
 }
 
 /** Canonical, auditable classification for one asset. */

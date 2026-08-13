@@ -2,7 +2,7 @@
 // signals and the basket taxonomy — no model, no network.
 
 import { addAlert, getDoc, patchSettings } from "@/lib/store";
-import { SECTOR_BY_ID, resolveSector, type SectorId } from "@/lib/sectors";
+import { SECTOR_BY_ID, classifyAsset, type SectorId } from "@/lib/sectors";
 
 import { failed, ok, type CommandContext, type CommandResult } from "./types";
 
@@ -13,12 +13,10 @@ function str(v: unknown): string | null {
 }
 
 /** classification: user override wins, then the deterministic registry. */
-export function classify(symbol: string): { basket: SectorId; source: "user" | "registry"; confidence: number } {
-  const sym = symbol.toUpperCase();
-  const overrides = getDoc().settings.basketOverrides;
-  if (overrides?.[sym])
-    return { basket: overrides[sym] as SectorId, source: "user", confidence: 1 };
-  return { basket: resolveSector(sym), source: "registry", confidence: 0.8 };
+export function classify(symbol: string): { basket: SectorId; source: string; confidence: number } {
+  const overrides = getDoc().settings.basketOverrides ?? {};
+  const rec = classifyAsset(symbol, overrides);
+  return { basket: rec.basket, source: rec.source, confidence: rec.confidence };
 }
 
 function lines(ctx: CommandContext): Line[] {
