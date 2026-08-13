@@ -265,7 +265,7 @@ function LocalModels({ ai }: { ai: ReturnType<typeof useAi> }) {
         {diagnosticsRows(ai.caps).map((row) => (
           <div key={row.label} className="contents">
             <dt className="eyebrow">{row.label}</dt>
-            <dd className="num text-[11px] text-ink-soft">{row.value}</dd>
+            <dd className="num text-[11px] text-ink-soft">{row.detail}</dd>
           </div>
         ))}
       </dl>
