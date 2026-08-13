@@ -1,3 +1,5 @@
+import { readDelta } from "@/lib/ai/stream";
+
 // Optional cloud models. Everything here is off by default and opt-in: the
 // local runtime stays the product. Each provider speaks the OpenAI
 // chat-completions shape, so one client covers all of them.
@@ -150,10 +152,7 @@ export async function cloudChat(
       const payload = trimmed.slice(5).trim();
       if (!payload || payload === "[DONE]") continue;
       try {
-        const json = JSON.parse(payload) as {
-          choices?: { delta?: { content?: string } }[];
-        };
-        const piece = json.choices?.[0]?.delta?.content;
+        const piece = readDelta(JSON.parse(payload));
         if (piece) {
           out += piece;
           options.onToken?.(out);
