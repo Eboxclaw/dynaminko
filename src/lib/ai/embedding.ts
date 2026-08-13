@@ -150,9 +150,10 @@ export async function ensureProvider(
       const created = (await pipeline("feature-extraction", spec.repo, {
         dtype: spec.dtype,
         device,
-        progress_callback: (p: { progress?: number }) => {
-          if (typeof p.progress === "number") {
-            s.progress = Math.max(0, Math.min(1, p.progress / 100));
+        progress_callback: (info: unknown) => {
+          const p = (info as { progress?: number }).progress;
+          if (typeof p === "number") {
+            s.progress = Math.max(0, Math.min(1, p / 100));
             onProgress?.(s.progress);
             emit();
           }
