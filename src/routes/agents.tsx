@@ -537,6 +537,13 @@ function ChatConsole({
     inputRef.current?.focus();
   };
 
+  /** Replaces the trailing `@query` with the picked record's title. */
+  const applyMention = (r: Reference) => {
+    setInput((prev) => prev.replace(/(?:^|\s)@([\w .-]*)$/, (m) => `${m.startsWith(" ") ? " " : ""}@${r.title} `));
+    inputRef.current?.focus();
+  };
+
+
   const active = sessions.find((s) => s.id === activeId);
   const ctxUsed = contextFor(messages, Math.floor(ai.ctx * 0.4), MAX_CONTEXT_MESSAGES);
 
