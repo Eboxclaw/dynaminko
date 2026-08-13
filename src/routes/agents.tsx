@@ -863,8 +863,6 @@ function ChatConsole({
             }}
           />
         )}
-
-        </div>
       </Panel>
 
     </div>
