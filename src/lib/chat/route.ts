@@ -80,7 +80,7 @@ export async function routeSemantic(text: string): Promise<Routed> {
       text: `${t.label}. ${t.purpose}`,
     })),
   ];
-  const ranked = await rank(text, targets);
+  const ranked = await rank(text, targets, { opportunistic: true });
   const best = ranked?.[0];
   if (!best || best.score < THRESHOLD) return { kind: "none" };
   const [kind, id] = best.id.split(":");
@@ -101,6 +101,6 @@ export async function discover(text: string, limit = 5) {
       text: `${t.label}. ${t.purpose}`,
     })),
   ];
-  const ranked = await rank(text, targets);
+  const ranked = await rank(text, targets, { opportunistic: true });
   return ranked?.slice(0, limit) ?? [];
 }
