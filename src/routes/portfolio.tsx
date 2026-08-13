@@ -1,5 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
+
 
 import { HelpDot } from "@/components/pot/HelpDot";
 import { Panel, Shell } from "@/components/pot/Shell";
