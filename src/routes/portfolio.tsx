@@ -268,6 +268,19 @@ function VenueCard({
   const state = loading && !report ? "reading" : stateLabel(report?.status);
   const unpriced = positions.some((p) => p.notionalValue == null);
 
+  // Terminal-density summary: what kind of risk sits in this venue.
+  const count = (kinds: Position["kind"][]) =>
+    positions.filter((p) => kinds.includes(p.kind)).length;
+  const chips = [
+    { label: "perp", value: count(["perp"]) },
+    { label: "spot", value: count(["spot"]) },
+    { label: "lp", value: count(["lp-concentrated", "lp-constant-product"]) },
+  ]
+    .filter((c) => c.value > 0)
+    .map((c) => ({ label: c.label, value: String(c.value) }));
+  if (equity > 0) chips.push({ label: "equity", value: usd(equity, hidden) });
+  if (notional > 0) chips.push({ label: "notional", value: usd(notional, hidden) });
+
   return (
     <section className="doodle-inset px-3 py-2.5">
       <header className="flex items-center gap-3">
@@ -285,6 +298,17 @@ function VenueCard({
           {headline > 0 ? usd(headline, hidden) : <span className="text-ink-faint">{state}</span>}
         </span>
       </header>
+
+      {chips.length > 0 && (
+        <ul className="mt-2 flex flex-wrap gap-1">
+          {chips.map((c) => (
+            <li key={c.label} className="doodle-pill num px-2 py-0.5 text-[10px] uppercase tracking-[0.14em] text-ink-soft">
+              {c.label}
+              <span className="ml-1 text-ink">{c.value}</span>
+            </li>
+          ))}
+        </ul>
+      )}
 
       {!quiet && (
         <div className="mt-2.5 grid gap-2.5">
@@ -318,21 +342,7 @@ function VenueCard({
                 <p className="eyebrow border-b border-stroke pb-1">{group.label}</p>
                 <ul className="mt-1 grid gap-1">
                   {rows.map((p) => (
-                    <li key={p.id} className="flex items-baseline gap-3 text-[13px]">
-                      <span className="min-w-0 flex-1 truncate">
-                        {pairLabel(p)}
-                        {p.side && <span className="eyebrow ml-2">{p.side}</span>}
-                        {rangeChip(p) && <span className="eyebrow ml-2">{rangeChip(p)}</span>}
-                      </span>
-                      {p.detail && (
-                        <span className="num hidden text-[11px] text-ink-faint sm:inline">
-                          {p.detail}
-                        </span>
-                      )}
-                      <span className="num">
-                        {p.notionalValue != null ? usd(p.notionalValue, hidden) : "—"}
-                      </span>
-                    </li>
+                    <PositionRow key={p.id} p={p} hidden={hidden} />
                   ))}
                 </ul>
               </div>
@@ -344,6 +354,46 @@ function VenueCard({
         </div>
       )}
     </section>
+  );
+}
+
+/** One position, with the raw venue payload one tap away. */
+function PositionRow({ p, hidden }: { p: Position; hidden: boolean }) {
+  const [open, setOpen] = useState(false);
+  const meta = Object.entries(p.metadata ?? {}).filter(
+    ([, v]) => v != null && typeof v !== "object",
+  );
+  return (
+    <li>
+      <button
+        type="button"
+        onClick={() => meta.length > 0 && setOpen((v) => !v)}
+        aria-expanded={open}
+        className="flex w-full items-baseline gap-3 text-left text-[13px]"
+      >
+        <span className="min-w-0 flex-1 truncate">
+          {pairLabel(p)}
+          {p.side && <span className="eyebrow ml-2">{p.side}</span>}
+          {rangeChip(p) && <span className="eyebrow ml-2">{rangeChip(p)}</span>}
+        </span>
+        {p.detail && (
+          <span className="num hidden text-[11px] text-ink-faint sm:inline">{p.detail}</span>
+        )}
+        <span className="num">
+          {p.notionalValue != null ? usd(p.notionalValue, hidden) : "—"}
+        </span>
+      </button>
+      {open && meta.length > 0 && (
+        <dl className="mt-1 grid grid-cols-2 gap-x-3 gap-y-0.5 border-l border-stroke pl-2">
+          {meta.map(([k, v]) => (
+            <div key={k} className="contents">
+              <dt className="eyebrow truncate">{k}</dt>
+              <dd className="num truncate text-right text-[11px]">{String(v)}</dd>
+            </div>
+          ))}
+        </dl>
+      )}
+    </li>
   );
 }
 
