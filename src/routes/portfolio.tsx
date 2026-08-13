@@ -1,8 +1,10 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
 
+import { HelpDot } from "@/components/pot/HelpDot";
 import { Panel, Shell } from "@/components/pot/Shell";
 import { VenueIcon } from "@/components/pot/VenueIcon";
+
 import { useDoc } from "@/hooks/useDoc";
 import { usePortfolio } from "@/hooks/usePortfolio";
 import { useVenues } from "@/hooks/useVenues";
