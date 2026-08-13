@@ -4,6 +4,8 @@
 // Nothing leaves the device; weights are cached after the first download.
 
 import type { Wllama } from "@wllama/wllama/esm/index.js";
+import { detectRuntime, type Backend } from "@/lib/ai/runtime";
+
 
 /** What a model is allowed to be used for. Cheapest capable model wins. */
 export type Capability = "encode" | "extract" | "vision" | "assist" | "reason";
