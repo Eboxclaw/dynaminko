@@ -247,7 +247,12 @@ function ChatConsole({
           push({
             role: "tool",
             text: `retrieval · ${found.count} records`,
-            card: { source: `journal.retrieve (${found.how})`, facts: found.lines.slice(0, 5) },
+            card: {
+              source: `journal.retrieve (${found.how})`,
+              facts: found.lines.slice(0, 5),
+              data: { count: found.count, how: found.how },
+            },
+
           });
         }
       }
