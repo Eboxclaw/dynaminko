@@ -5,6 +5,7 @@
 
 import type { Wllama } from "@wllama/wllama/esm/index.js";
 import { detectRuntime, type Backend } from "@/lib/ai/runtime";
+import { readDelta } from "@/lib/ai/stream";
 
 
 /** What a model is allowed to be used for. Cheapest capable model wins. */
@@ -30,6 +31,8 @@ export type ModelSpec = {
   /** device memory we want to see before recommending it */
   minRamGb: number;
   vision: boolean;
+  /** optional vision projector quant for multimodal GGUF models */
+  mmprojQuant?: string;
   reasoning: boolean;
   /** can generate prose at all (the encoder cannot) */
   generative: boolean;
@@ -91,6 +94,7 @@ const MODEL_LIST: Omit<ModelSpec, "backend">[] = [
     weightsGb: 0.35,
     minRamGb: 2,
     vision: true,
+    mmprojQuant: "F16",
     reasoning: false,
     generative: true,
     maxCtx: 4096,
@@ -375,7 +379,11 @@ export async function loadModel(
     const gpuOk = caps.webgpu && runtime.isSupportWebGPU?.() !== false;
     const load = async (useGpu: boolean) =>
       runtime.loadModelFromHF(
-        { repo: spec.repo, quant: spec.quant },
+        {
+          repo: spec.repo,
+          quant: spec.quant,
+          ...(spec.mmprojQuant ? { mmprojQuant: spec.mmprojQuant } : {}),
+        },
         {
           n_ctx: nCtx,
           useCache: true,
@@ -436,6 +444,12 @@ export type ChatOptions = {
   onSpeed?: (tokensPerSecond: number, tokens: number) => void;
 };
 
+
+async function dataUrlToArrayBuffer(dataUrl: string): Promise<ArrayBuffer> {
+  const res = await fetch(dataUrl);
+  return res.arrayBuffer();
+}
+
 export async function chat(
   system: string,
   user: string,
@@ -453,32 +467,43 @@ export async function chat(
   const content =
     options.images?.length && spec?.vision
       ? [
-          { type: "text", text: user },
-          ...options.images.map((url) => ({ type: "image_url", image_url: { url } })),
+          { type: "text" as const, text: user },
+          ...(await Promise.all(
+            options.images.map(async (url) => ({
+              type: "image" as const,
+              data: await dataUrlToArrayBuffer(url),
+            })),
+          )),
         ]
       : user;
 
   abortRun = false;
+  const abortController = new AbortController();
   let out = "";
   let tokens = 0;
   const started = performance.now();
+
   await instance.createChatCompletion({
     messages: [
       { role: "system", content: sys },
       { role: "user", content },
     ],
     stream: true,
-    nPredict: options.maxTokens ?? 320,
-    sampling: { temp: options.temperature ?? 0.4, top_p: 0.9 },
-    onNewToken: (_t: number, _p: unknown, piece: string, opt: { abortSignal: () => void }) => {
+    max_tokens: options.maxTokens ?? 320,
+    temperature: options.temperature ?? 0.4,
+    top_p: 0.9,
+    abortSignal: abortController.signal,
+    onData: (chunk) => {
+      const piece = readDelta(chunk);
+      if (!piece) return;
       out += piece;
       tokens += 1;
       onToken?.(out);
       const secs = (performance.now() - started) / 1000;
       if (secs > 0) options.onSpeed?.(tokens / secs, tokens);
-      if (abortRun) opt?.abortSignal?.();
+      if (abortRun) abortController.abort();
     },
-  } as never);
+  });
   return out.trim();
 }
 
