@@ -189,7 +189,7 @@ function LocalModels({ ai }: { ai: ReturnType<typeof useAi> }) {
         ) : (
           <button
             type="button"
-            onClick={() => void enc.load()}
+            onClick={() => void (enc.cached ? enc.load() : enc.download())}
             className="doodle-pill px-3 py-1 text-[11px] hover:border-ink"
           >
             {enc.cached ? "Load" : "Download"}
@@ -255,7 +255,11 @@ function LocalModels({ ai }: { ai: ReturnType<typeof useAi> }) {
         <button
           type="button"
           disabled={action === "unavailable"}
-          onClick={() => (action === "unload" ? void ai.stop() : void ai.activate(selected))}
+          onClick={() => {
+            if (action === "unload") return void ai.stop();
+            if (action === "download" || action === "resume") return void ai.download(selected);
+            return void ai.activate(selected);
+          }}
           className="doodle-pill bg-ink px-4 py-1.5 text-[12px] font-medium text-paper disabled:opacity-40"
         >
           {action === "unload" && ai.loadedCtx !== ai.ctx ? "Reload" : ACTION_LABEL[action]}

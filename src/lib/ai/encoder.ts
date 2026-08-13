@@ -11,8 +11,8 @@ import {
   DEFAULT_EMBEDDING_ID,
   cosine as cosineOf,
   embed as embedWith,
-  ensureProvider,
-  ensureProviderIfCached,
+  downloadProvider,
+  loadCachedProvider,
   onEmbeddingChange,
   providerBackend,
   providerCached,
@@ -25,7 +25,13 @@ import {
   type EmbeddingProviderId,
 } from "@/lib/ai/embedding";
 
-export type EncoderState = "required" | "downloading" | "ready" | "unavailable" | "error";
+export type EncoderState =
+  | "required"
+  | "downloading"
+  | "loading"
+  | "ready"
+  | "unavailable"
+  | "error";
 
 /** Which provider the legacy encoder API drives. */
 function active(): EmbeddingProviderId {
@@ -56,12 +62,15 @@ export async function encoderCached(): Promise<boolean> {
   );
 }
 
-export async function ensureEncoder(onProgress?: (fraction: number) => void) {
-  return ensureProvider(active(), onProgress);
+export async function downloadEncoder(onProgress?: (fraction: number) => void) {
+  return downloadProvider(active(), onProgress);
 }
 
-export async function ensureEncoderIfCached() {
-  return ensureProviderIfCached(active());
+export async function loadEncoder(onProgress?: (fraction: number) => void) {
+  const id = (await providerCached("lfm-encoder-230m"))
+    ? "lfm-encoder-230m"
+    : DEFAULT_EMBEDDING_ID;
+  return loadCachedProvider(id, onProgress);
 }
 
 export function unloadEncoder() {

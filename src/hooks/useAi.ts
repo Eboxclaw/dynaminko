@@ -6,7 +6,8 @@ import {
   chat,
   deviceProfile,
   isReady,
-  loadModel,
+  downloadModel,
+  loadDownloadedModel,
   loadedContext,
   modelState,
   MODELS,
@@ -31,7 +32,8 @@ import {
   encoderError,
   encoderProgress,
   encoderState,
-  ensureEncoder,
+  downloadEncoder,
+  loadEncoder,
   onEncoderChange,
   unloadEncoder,
   type EncoderState,
@@ -67,7 +69,8 @@ function useEncoder() {
     progress: Number(pct) / 100,
     error: encoderError(),
     backend: encoderBackend(),
-    load: ensureEncoder,
+    download: downloadEncoder,
+    load: loadEncoder,
     unload: unloadEncoder,
   };
 }
@@ -127,7 +130,9 @@ export function useAi() {
   const load = useCallback(
     async (modelId = settings.aiModelId) => {
       try {
-        await loadModel(modelId, (s) => mounted.current && setStatus(s), { nCtx: ctx });
+        await loadDownloadedModel(modelId, (s) => mounted.current && setStatus(s), {
+          nCtx: ctx,
+        });
         setLoadedCtx(loadedContext());
         setBackend(activeBackend());
         setSettings({ aiEnabled: true, aiModelId: modelId });
@@ -146,13 +151,11 @@ export function useAi() {
     setSettings({ aiEnabled: false });
   }, [setSettings]);
 
-  /** Loads the selected model if it is not running yet. Downloads on demand. */
+  /** Readiness check only. Chat never downloads or implicitly loads a model. */
   const ensure = useCallback(async () => {
     if (cloudCfg) return true;
-    if (isReady(settings.aiModelId) && loadedContext() === ctx) return true;
-    await load();
-    return isReady(settings.aiModelId);
-  }, [cloudCfg, ctx, load, settings.aiModelId]);
+    return isReady(settings.aiModelId) && loadedContext() === ctx;
+  }, [cloudCfg, ctx, settings.aiModelId]);
 
   /**
    * The explicit activation boundary: select, verify, load, wait for ready,
@@ -163,13 +166,17 @@ export function useAi() {
       patchAssistant({ modelId, provider: "local" });
       setSettings({ aiModelId: modelId });
       try {
-        await loadModel(modelId, (s) => mounted.current && setStatus(s), { nCtx: ctx });
+        await loadDownloadedModel(modelId, (s) => mounted.current && setStatus(s), {
+          nCtx: ctx,
+        });
       } catch (err) {
         const message = err instanceof Error ? err.message : "the model failed to load";
         if (mounted.current) setStatus({ phase: "error", message });
         return { ok: false, error: message };
       }
-      if (!isReady(modelId)) return { ok: false, error: "the model did not reach a ready state" };
+      if (!isReady(modelId)) {
+        return { ok: false, error: "the model did not reach a ready state" };
+      }
       setLoadedCtx(loadedContext());
       setBackend(activeBackend());
       setSettings({ aiEnabled: true, aiModelId: modelId });
@@ -203,7 +210,11 @@ export function useAi() {
           });
           return text;
         }
-        if (!isReady(settings.aiModelId)) await load();
+        if (!isReady(settings.aiModelId)) {
+          throw new Error(
+            "install_required: explicitly download and load a local model before chatting",
+          );
+        }
         const text = await chat(
           prompt.system,
           prompt.user,
@@ -223,7 +234,7 @@ export function useAi() {
         if (mounted.current) setRunning(false);
       }
     },
-    [cloudCfg, load, maxTokens, settings.aiModelId, temperature],
+    [cloudCfg, maxTokens, settings.aiModelId, temperature],
   );
 
   const abort = useCallback(() => {
@@ -325,6 +336,10 @@ export function useAi() {
     maxTokens,
     setMaxTokens,
     load,
+    download: async (modelId = settings.aiModelId) => {
+      await downloadModel(modelId, (s) => mounted.current && setStatus(s), { nCtx: ctx });
+      await refreshDownloaded();
+    },
     ensure,
     select,
     stop,

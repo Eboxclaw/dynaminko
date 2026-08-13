@@ -232,20 +232,22 @@ function ChatConsole({
   };
 
   const speak = async (system: string, user: string, ground = false) => {
-    // Chatting is itself the request to download: the model loads on demand.
-    // Cloud targets skip this entirely.
+    // Chatting never downloads or implicitly loads. The user must explicitly
+    // download and load local models from the Model panel first.
     turn.stage("model", ai.target.label);
     if (ai.target.kind === "local" && ai.status.phase !== "ready") {
       turn.move("selecting");
       push({
         role: "note",
-        text: `${ai.spec?.label ?? "The model"} is not running yet, starting it now. First run downloads ~${ai.spec?.weightsGb ?? "?"} GB, then it stays on this device.`,
+        text: `${ai.spec?.label ?? "The model"} is not loaded. Open the Model panel to explicitly download or load it; deterministic cards above still work locally.`,
       });
       turn.move("loading");
       const ok = await ai.ensure();
       if (!ok) {
         turn.settle("model", "error");
-        turn.fail("The model could not start. The numbers above are still computed locally.");
+        turn.fail(
+          "No loaded model is available. The deterministic results above are still computed locally.",
+        );
         return;
       }
     }
@@ -553,7 +555,7 @@ function ChatConsole({
       if (name === "model") {
         const wanted = MODELS.find((m) => m.id === rest || m.label.toLowerCase() === rest.toLowerCase());
         if (wanted) {
-          push({ role: "note", text: `Activating ${wanted.label}…` });
+          push({ role: "note", text: `Loading ${wanted.label} from local assets…` });
           setSwitchBusy(true);
           const res = await ai.activate(wanted.id);
           setSwitchBusy(false);
@@ -561,7 +563,7 @@ function ChatConsole({
             role: "note",
             text: res.ok
               ? `${wanted.label} is loaded and answering.`
-              : `${wanted.label} failed to load: ${res.error}`,
+              : `${wanted.label} is not loaded: ${res.error}`,
           });
           return;
         }

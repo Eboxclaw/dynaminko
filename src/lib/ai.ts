@@ -349,7 +349,47 @@ export const STATE_LABEL: Record<ModelState, string> = {
 
 export type LoadOptions = { nCtx?: number };
 
-export async function loadModel(
+async function hasCachedModel(modelId: string): Promise<boolean> {
+  return (await cachedModels()).has(modelId);
+}
+
+export async function downloadModel(
+  modelId: string,
+  onStatus: (s: AiStatus) => void,
+  options: LoadOptions = {},
+): Promise<void> {
+  // Wllama exposes HF installation through its model loader. Keep this as an
+  // explicit user path and immediately release the generation runtime so
+  // "downloaded" never implies "loaded".
+  await loadModel(modelId, onStatus, options);
+  await unload();
+  onStatus({ phase: "idle" });
+}
+
+export async function loadDownloadedModel(
+  modelId: string,
+  onStatus: (s: AiStatus) => void,
+  options: LoadOptions = {},
+): Promise<void> {
+  if (!(await hasCachedModel(modelId))) {
+    throw new Error("install_required: download this model before loading it");
+  }
+  await loadModel(modelId, onStatus, options);
+}
+
+export async function rotateToDownloadedModel(
+  modelId: string,
+  onStatus: (s: AiStatus) => void,
+  options: LoadOptions = {},
+): Promise<void> {
+  if (!(await hasCachedModel(modelId))) {
+    throw new Error("install_required: download this model before rotation");
+  }
+  await unload();
+  await loadModel(modelId, onStatus, options);
+}
+
+async function loadModel(
   modelId: string,
   onStatus: (s: AiStatus) => void,
   options: LoadOptions = {},

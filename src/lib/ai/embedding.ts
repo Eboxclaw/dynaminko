@@ -55,7 +55,13 @@ export const DEFAULT_EMBEDDING_ID: EmbeddingProviderId = "minilm";
 /** Below this the cheap tier is not trusted and the upgrade tier is consulted. */
 export const CONFIDENT = 0.55;
 
-export type ProviderState = "required" | "downloading" | "ready" | "unavailable" | "error";
+export type ProviderState =
+  | "required"
+  | "downloading"
+  | "loading"
+  | "ready"
+  | "unavailable"
+  | "error";
 
 type Extractor = (
   input: string | string[],
@@ -127,16 +133,39 @@ export async function providerCached(id: EmbeddingProviderId): Promise<boolean> 
   return false;
 }
 
+export async function downloadProvider(
+  id: EmbeddingProviderId = DEFAULT_EMBEDDING_ID,
+  onProgress?: (fraction: number) => void,
+): Promise<void> {
+  await ensureProvider(id, onProgress, true);
+  unloadProvider(id);
+}
+
+export async function loadCachedProvider(
+  id: EmbeddingProviderId = DEFAULT_EMBEDDING_ID,
+  onProgress?: (fraction: number) => void,
+): Promise<Extractor | null> {
+  if (!(await providerCached(id))) {
+    const s = slot(id);
+    s.state = "error";
+    s.error = "install_required: download this encoder before loading it";
+    emit();
+    return null;
+  }
+  return ensureProvider(id, onProgress, false);
+}
+
 export async function ensureProvider(
   id: EmbeddingProviderId = DEFAULT_EMBEDDING_ID,
   onProgress?: (fraction: number) => void,
+  allowDownload = true,
 ): Promise<Extractor | null> {
   const s = slot(id);
   if (s.pipe) return s.pipe;
   if (s.loading) return s.loading;
   if (typeof window === "undefined") return null;
 
-  s.state = "downloading";
+  s.state = allowDownload ? "downloading" : "loading";
   s.progress = 0;
   s.error = null;
   emit();
@@ -146,6 +175,9 @@ export async function ensureProvider(
       const spec = PROVIDER_BY_ID[id];
       const { encoderDevice } = await import("@/lib/ai/runtime");
       const device = await encoderDevice();
+      if (!allowDownload && !(await providerCached(id))) {
+        throw new Error("install_required: download this encoder before loading it");
+      }
       const { pipeline } = await import("@huggingface/transformers");
       const created = (await pipeline("feature-extraction", spec.repo, {
         dtype: spec.dtype,
@@ -182,7 +214,7 @@ export async function ensureProviderIfCached(
 ): Promise<Extractor | null> {
   if (slot(id).pipe) return slot(id).pipe;
   if (!(await providerCached(id))) return null;
-  return ensureProvider(id);
+  return loadCachedProvider(id);
 }
 
 export function unloadProvider(id: EmbeddingProviderId) {
@@ -210,12 +242,10 @@ export function cosine(a: number[], b: number[]): number {
 /** The provider actually usable right now: upgrade tier first when resident. */
 export async function activeProvider(opportunistic: boolean): Promise<EmbeddingProviderId | null> {
   const upgrade: EmbeddingProviderId = "lfm-encoder-230m";
-  if (providerReady(upgrade) || (await providerCached(upgrade))) return upgrade;
+  if (providerReady(upgrade)) return upgrade;
   if (providerReady(DEFAULT_EMBEDDING_ID)) return DEFAULT_EMBEDDING_ID;
-  if (opportunistic) return (await providerCached(DEFAULT_EMBEDDING_ID))
-    ? DEFAULT_EMBEDDING_ID
-    : null;
-  return DEFAULT_EMBEDDING_ID;
+  if (opportunistic) return null;
+  return null;
 }
 
 export async function embed(
@@ -224,7 +254,11 @@ export async function embed(
 ): Promise<{ vectors: number[][]; provider: EmbeddingProviderId } | null> {
   const id = opts.provider ?? (await activeProvider(Boolean(opts.opportunistic)));
   if (!id) return null;
-  const pipe = opts.opportunistic ? await ensureProviderIfCached(id) : await ensureProvider(id);
+  const pipe = opts.opportunistic
+    ? providerReady(id)
+      ? await ensureProviderIfCached(id)
+      : null
+    : await loadCachedProvider(id);
   if (!pipe) return null;
   const run = queue.then(async () => {
     const out = await pipe(texts, { pooling: "mean", normalize: true });
@@ -274,7 +308,7 @@ export async function rankTiered(
   if (best >= CONFIDENT || first.provider === "lfm-encoder-230m")
     return { ...first, escalated: false };
 
-  if (await providerCached("lfm-encoder-230m")) {
+  if (providerReady("lfm-encoder-230m")) {
     const second = await score("lfm-encoder-230m");
     if (second) return { ...second, escalated: true };
   }
