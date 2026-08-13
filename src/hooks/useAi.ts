@@ -154,6 +154,31 @@ export function useAi() {
     return isReady(settings.aiModelId);
   }, [cloudCfg, ctx, load, settings.aiModelId]);
 
+  /**
+   * The explicit activation boundary: select, verify, load, wait for ready,
+   * then make it the answering target. Nothing "hopes the provider notices".
+   */
+  const activate = useCallback(
+    async (modelId: string): Promise<{ ok: boolean; error?: string }> => {
+      patchAssistant({ modelId, provider: "local" });
+      setSettings({ aiModelId: modelId });
+      try {
+        await loadModel(modelId, (s) => mounted.current && setStatus(s), { nCtx: ctx });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "the model failed to load";
+        if (mounted.current) setStatus({ phase: "error", message });
+        return { ok: false, error: message };
+      }
+      if (!isReady(modelId)) return { ok: false, error: "the model did not reach a ready state" };
+      setLoadedCtx(loadedContext());
+      setBackend(activeBackend());
+      setSettings({ aiEnabled: true, aiModelId: modelId });
+      void refreshDownloaded();
+      return { ok: true };
+    },
+    [ctx, refreshDownloaded, setSettings],
+  );
+
   const ask = useCallback(
     async (prompt: { system: string; user: string }, options: ChatOptions = {}) => {
       setRunning(true);
