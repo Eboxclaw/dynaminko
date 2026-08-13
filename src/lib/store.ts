@@ -127,6 +127,8 @@ export type Settings = {
   notifications: boolean;
   /** automation agents that are switched on */
   automation: Record<string, boolean>;
+  /** symbol -> basket, chosen by the user, wins over the registry */
+  basketOverrides: Record<string, string>;
   assistant: AssistantConfig;
 };
 
@@ -161,6 +163,7 @@ export const EMPTY_DOC: PotDoc = {
     dismissedTrades: [],
     notifications: false,
     automation: {},
+    basketOverrides: {},
     assistant: {
       provider: "local",
       modelId: "lfm2-450-vl",

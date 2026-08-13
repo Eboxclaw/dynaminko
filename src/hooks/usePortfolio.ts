@@ -63,6 +63,8 @@ export function useActiveWallet() {
 }
 
 export function usePortfolio() {
+  const doc = useDoc();
+  const overrides = doc.settings.basketOverrides;
   const { active, wallets } = useActiveWallet();
   const key = active ? walletKey(active.chainId, active.address) : null;
 
@@ -114,7 +116,10 @@ export function usePortfolio() {
   });
 
   const quotes = quotesQuery.data ?? [];
-  const portfolio = useMemo(() => buildPortfolio(snapshot, quotes), [snapshot, quotes]);
+  const portfolio = useMemo(
+    () => buildPortfolio(snapshot, quotes, overrides),
+    [snapshot, quotes, overrides],
+  );
   const trades = useMemo(() => tradesFromSnapshot(snapshot, quotes), [snapshot, quotes]);
 
   const refresh = useCallback(() => {
