@@ -12,7 +12,9 @@ export type ChatCard = {
 };
 
 export type Approval = {
+  /** a tool id, or a semantic command id when `kind` is "command" */
   toolId: string;
+  kind?: "tool" | "command";
   access: string;
   target: string;
   input: unknown;
