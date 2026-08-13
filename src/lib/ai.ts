@@ -402,6 +402,7 @@ export async function loadModel(
   } catch (err) {
     instance = null;
     currentModel = null;
+    activeBackendValue = "unavailable";
     onStatus({
       phase: "error",
       message: err instanceof Error ? err.message : "the assistant failed to start",
@@ -415,7 +416,9 @@ export async function unload() {
   await instance.exit().catch(() => {});
   instance = null;
   currentModel = null;
+  activeBackendValue = "unavailable";
 }
+
 
 /** Stops the generation currently streaming, if any. */
 export function stopGeneration() {
