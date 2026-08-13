@@ -55,7 +55,7 @@ export const DEFAULT_EMBEDDING_ID: EmbeddingProviderId = "minilm";
 /** Below this the cheap tier is not trusted and the upgrade tier is consulted. */
 export const CONFIDENT = 0.55;
 
-export type ProviderState = "required" | "downloading" | "ready" | "unavailable" | "error";
+export type ProviderState = "missing" | "downloaded" | "loading" | "loaded" | "unavailable" | "error";
 
 type Extractor = (
   input: string | string[],
@@ -79,7 +79,7 @@ let queue: Promise<unknown> = Promise.resolve();
 function slot(id: EmbeddingProviderId): Slot {
   let s = slots.get(id);
   if (!s) {
-    s = { pipe: null, loading: null, state: "required", progress: 0, error: null, backend: null };
+    s = { pipe: null, loading: null, state: "missing", progress: 0, error: null, backend: null };
     slots.set(id, s);
   }
   return s;
@@ -127,16 +127,23 @@ export async function providerCached(id: EmbeddingProviderId): Promise<boolean> 
   return false;
 }
 
-export async function ensureProvider(
+async function loadProviderInternal(
   id: EmbeddingProviderId = DEFAULT_EMBEDDING_ID,
   onProgress?: (fraction: number) => void,
+  opts: { allowDownload: boolean } = { allowDownload: false },
 ): Promise<Extractor | null> {
   const s = slot(id);
   if (s.pipe) return s.pipe;
   if (s.loading) return s.loading;
   if (typeof window === "undefined") return null;
+  if (!opts.allowDownload && !(await providerCached(id))) {
+    s.state = "missing";
+    s.error = "Download this semantic encoder before loading it.";
+    emit();
+    return null;
+  }
 
-  s.state = "downloading";
+  s.state = "loading";
   s.progress = 0;
   s.error = null;
   emit();
@@ -161,12 +168,12 @@ export async function ensureProvider(
       })) as unknown as Extractor;
       s.pipe = created;
       s.backend = device;
-      s.state = "ready";
+      s.state = "loaded";
       s.progress = 1;
       emit();
       return created;
     } catch (err) {
-      s.state = "unavailable";
+      s.state = "error";
       s.error = err instanceof Error ? err.message : "this embedding model failed to load";
       emit();
       return null;
@@ -177,19 +184,38 @@ export async function ensureProvider(
   return s.loading;
 }
 
+export async function downloadProvider(
+  id: EmbeddingProviderId = DEFAULT_EMBEDDING_ID,
+  onProgress?: (fraction: number) => void,
+): Promise<Extractor | null> {
+  return loadProviderInternal(id, onProgress, { allowDownload: true });
+}
+
+export async function loadDownloadedProvider(
+  id: EmbeddingProviderId = DEFAULT_EMBEDDING_ID,
+  onProgress?: (fraction: number) => void,
+): Promise<Extractor | null> {
+  return loadProviderInternal(id, onProgress, { allowDownload: false });
+}
+
+export async function ensureProvider(
+  id: EmbeddingProviderId = DEFAULT_EMBEDDING_ID,
+  onProgress?: (fraction: number) => void,
+): Promise<Extractor | null> {
+  return loadDownloadedProvider(id, onProgress);
+}
+
 export async function ensureProviderIfCached(
   id: EmbeddingProviderId,
 ): Promise<Extractor | null> {
-  if (slot(id).pipe) return slot(id).pipe;
-  if (!(await providerCached(id))) return null;
-  return ensureProvider(id);
+  return slot(id).pipe ?? null;
 }
 
 export function unloadProvider(id: EmbeddingProviderId) {
   const s = slot(id);
   s.pipe = null;
   s.backend = null;
-  s.state = "required";
+  s.state = "missing";
   s.progress = 0;
   emit();
 }
@@ -210,12 +236,9 @@ export function cosine(a: number[], b: number[]): number {
 /** The provider actually usable right now: upgrade tier first when resident. */
 export async function activeProvider(opportunistic: boolean): Promise<EmbeddingProviderId | null> {
   const upgrade: EmbeddingProviderId = "lfm-encoder-230m";
-  if (providerReady(upgrade) || (await providerCached(upgrade))) return upgrade;
+  if (providerReady(upgrade)) return upgrade;
   if (providerReady(DEFAULT_EMBEDDING_ID)) return DEFAULT_EMBEDDING_ID;
-  if (opportunistic) return (await providerCached(DEFAULT_EMBEDDING_ID))
-    ? DEFAULT_EMBEDDING_ID
-    : null;
-  return DEFAULT_EMBEDDING_ID;
+  return opportunistic ? null : DEFAULT_EMBEDDING_ID;
 }
 
 export async function embed(
@@ -224,7 +247,7 @@ export async function embed(
 ): Promise<{ vectors: number[][]; provider: EmbeddingProviderId } | null> {
   const id = opts.provider ?? (await activeProvider(Boolean(opts.opportunistic)));
   if (!id) return null;
-  const pipe = opts.opportunistic ? await ensureProviderIfCached(id) : await ensureProvider(id);
+  const pipe = opts.opportunistic ? await ensureProviderIfCached(id) : await loadDownloadedProvider(id);
   if (!pipe) return null;
   const run = queue.then(async () => {
     const out = await pipe(texts, { pooling: "mean", normalize: true });
@@ -274,7 +297,7 @@ export async function rankTiered(
   if (best >= CONFIDENT || first.provider === "lfm-encoder-230m")
     return { ...first, escalated: false };
 
-  if (await providerCached("lfm-encoder-230m")) {
+  if (providerReady("lfm-encoder-230m")) {
     const second = await score("lfm-encoder-230m");
     if (second) return { ...second, escalated: true };
   }

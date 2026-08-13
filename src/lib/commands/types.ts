@@ -46,6 +46,7 @@ export type CommandDefinition = {
   description: string;
   args: Record<string, ArgType>;
   mode: "single" | "goal";
+  batchMode: "single" | "batch" | "aggregate" | "workspace";
   capability: string[];
   access: Access;
   execute: CommandExecutor;

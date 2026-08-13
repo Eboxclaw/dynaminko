@@ -46,8 +46,8 @@ export const ACTION_LABEL: Record<ModelAction, string> = {
 
 function generationSlot(state: ModelState | undefined, status: AiStatus): CapabilitySlot {
   if (status.phase === "error") return "error";
-  if (state === "ready") return "loaded";
-  if (state === "downloaded" || state === "downloading") return "downloaded";
+  if (state === "loaded") return "loaded";
+  if (state === "downloaded" || state === "loading") return "downloaded";
   if (state === "error") return "error";
   return "missing";
 }
@@ -75,7 +75,7 @@ export function deriveCapability(input: {
   let semantic: CapabilitySlot;
   if (input.semanticWanted === false) semantic = "not_required";
   else if (input.encoder.state === "error") semantic = "error";
-  else if (input.encoder.state === "ready") semantic = "loaded";
+  else if (input.encoder.state === "loaded") semantic = "loaded";
   else if (input.encoder.cached) semantic = "downloaded";
   else semantic = "missing";
 
@@ -84,7 +84,7 @@ export function deriveCapability(input: {
     generation,
     vision,
     semantic,
-    canAnswer: generation === "loaded" || generation === "downloaded",
+    canAnswer: generation === "loaded",
     // Routing always works: vectors when the encoder is loaded, keywords otherwise.
     canRoute: true,
     routeFallback: semantic !== "loaded" && semantic !== "not_required",

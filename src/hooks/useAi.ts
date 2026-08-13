@@ -6,7 +6,9 @@ import {
   chat,
   deviceProfile,
   isReady,
-  loadModel,
+  downloadModel,
+  loadedModelId,
+  rotateToDownloadedModel,
   loadedContext,
   modelState,
   MODELS,
@@ -31,7 +33,8 @@ import {
   encoderError,
   encoderProgress,
   encoderState,
-  ensureEncoder,
+  activateSemantic,
+  downloadSemanticProvider,
   onEncoderChange,
   unloadEncoder,
   type EncoderState,
@@ -54,7 +57,7 @@ function useEncoder() {
   const snap = useSyncExternalStore(
     onEncoderChange,
     () => `${encoderState()}:${Math.round(encoderProgress() * 100)}`,
-    () => "required:0",
+    () => "missing:0",
   );
   const [state, pct] = snap.split(":");
   const [cached, setCached] = useState(false);
@@ -67,7 +70,8 @@ function useEncoder() {
     progress: Number(pct) / 100,
     error: encoderError(),
     backend: encoderBackend(),
-    load: ensureEncoder,
+    download: downloadSemanticProvider,
+    load: activateSemantic,
     unload: unloadEncoder,
   };
 }
@@ -106,7 +110,7 @@ export function useAi() {
       if (mounted.current) setCaps(c);
     });
     if (isReady(settings.aiModelId)) {
-      setStatus({ phase: "ready" });
+      setStatus({ phase: "ready", modelId: settings.aiModelId });
       setLoadedCtx(loadedContext());
       setBackend(activeBackend());
     }
@@ -127,10 +131,9 @@ export function useAi() {
   const load = useCallback(
     async (modelId = settings.aiModelId) => {
       try {
-        await loadModel(modelId, (s) => mounted.current && setStatus(s), { nCtx: ctx });
-        setLoadedCtx(loadedContext());
-        setBackend(activeBackend());
-        setSettings({ aiEnabled: true, aiModelId: modelId });
+        await downloadModel(modelId, (s) => mounted.current && setStatus(s), { nCtx: ctx });
+        setStatus({ phase: "idle" });
+        setSettings({ aiModelId: modelId });
         void refreshDownloaded();
       } catch {
         /* status already carries the error */
@@ -146,13 +149,11 @@ export function useAi() {
     setSettings({ aiEnabled: false });
   }, [setSettings]);
 
-  /** Loads the selected model if it is not running yet. Downloads on demand. */
+  /** Generation never installs implicitly. The caller must load a downloaded model first. */
   const ensure = useCallback(async () => {
     if (cloudCfg) return true;
-    if (isReady(settings.aiModelId) && loadedContext() === ctx) return true;
-    await load();
-    return isReady(settings.aiModelId);
-  }, [cloudCfg, ctx, load, settings.aiModelId]);
+    return isReady(settings.aiModelId) && loadedContext() === ctx;
+  }, [cloudCfg, ctx, settings.aiModelId]);
 
   /**
    * The explicit activation boundary: select, verify, load, wait for ready,
@@ -163,10 +164,13 @@ export function useAi() {
       patchAssistant({ modelId, provider: "local" });
       setSettings({ aiModelId: modelId });
       try {
-        await loadModel(modelId, (s) => mounted.current && setStatus(s), { nCtx: ctx });
+        const result = await rotateToDownloadedModel(modelId, (s) => mounted.current && setStatus(s), { nCtx: ctx });
+        if (result.status === "install_required" || result.status === "unsupported" || result.status === "error") {
+          throw new Error(result.message);
+        }
       } catch (err) {
         const message = err instanceof Error ? err.message : "the model failed to load";
-        if (mounted.current) setStatus({ phase: "error", message });
+        if (mounted.current) setStatus({ phase: "error", message, modelId });
         return { ok: false, error: message };
       }
       if (!isReady(modelId)) return { ok: false, error: "the model did not reach a ready state" };
@@ -203,7 +207,9 @@ export function useAi() {
           });
           return text;
         }
-        if (!isReady(settings.aiModelId)) await load();
+        if (!isReady(settings.aiModelId)) {
+          throw new Error("No local model is loaded. Load a downloaded model from the Model panel first.");
+        }
         const text = await chat(
           prompt.system,
           prompt.user,
@@ -223,7 +229,7 @@ export function useAi() {
         if (mounted.current) setRunning(false);
       }
     },
-    [cloudCfg, load, maxTokens, settings.aiModelId, temperature],
+    [cloudCfg, maxTokens, settings.aiModelId, temperature],
   );
 
   const abort = useCallback(() => {
@@ -239,7 +245,7 @@ export function useAi() {
       out[m.id] = modelState(m.id, {
         downloaded,
         status,
-        activeId: settings.aiModelId,
+        loadedId: loadedModelId(),
         mobile: profile.mobile,
       });
     }
@@ -299,6 +305,7 @@ export function useAi() {
   return {
     models: MODELS,
     modelId: settings.aiModelId,
+    loadedModelId: loadedModelId(),
     spec,
     install,
     actionFor,

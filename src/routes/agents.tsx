@@ -19,6 +19,8 @@ import { Panel, Shell } from "@/components/pot/Shell";
 import { useAi } from "@/hooks/useAi";
 import { useTurn } from "@/hooks/useTurn";
 import { semanticLabel } from "@/lib/ai/capability";
+import { commandObservation, inkoSystemPrompt, type ToolObservation } from "@/lib/agent/context";
+import { capabilityCatalogue } from "@/lib/capabilities/catalogue";
 import { PHASE_LABEL } from "@/lib/chat/pipeline";
 import { useDoc } from "@/hooks/useDoc";
 import { relativeTime } from "@/lib/format";
@@ -177,6 +179,7 @@ function ChatConsole({
 
   const boxRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const observationsRef = useRef<ToolObservation[]>([]);
   const fileRef = useRef<HTMLInputElement>(null);
 
   // One idempotent bootstrap: read the index, create a session only when empty.
@@ -232,22 +235,17 @@ function ChatConsole({
   };
 
   const speak = async (system: string, user: string, ground = false) => {
-    // Chatting is itself the request to download: the model loads on demand.
-    // Cloud targets skip this entirely.
+    // Generation never downloads or loads implicitly. Deterministic facts can
+    // still render, but prose needs an explicitly loaded local model or cloud.
     turn.stage("model", ai.target.label);
-    if (ai.target.kind === "local" && ai.status.phase !== "ready") {
-      turn.move("selecting");
+    if (ai.target.kind === "local" && !ai.loadedModelId) {
+      turn.settle("model", "skipped", "no loaded local model");
       push({
         role: "note",
-        text: `${ai.spec?.label ?? "The model"} is not running yet, starting it now. First run downloads ~${ai.spec?.weightsGb ?? "?"} GB, then it stays on this device.`,
+        text: "No local model is loaded. Load a downloaded model from the Model panel first; downloads are never started by chat.",
       });
-      turn.move("loading");
-      const ok = await ai.ensure();
-      if (!ok) {
-        turn.settle("model", "error");
-        turn.fail("The model could not start. The numbers above are still computed locally.");
-        return;
-      }
+      turn.complete();
+      return;
     }
     turn.settle("model", "ok", ai.backend);
     turn.move("ready");
@@ -276,7 +274,7 @@ function ChatConsole({
       turn.stage("answer", ai.spec?.label ?? ai.target.label);
       const raw = await ai.ask(
         {
-          system: `${system}\n\nContext: ${digestLine()}${grounding}`,
+          system: `${inkoSystemPrompt({ capabilities: capabilityCatalogue().slice(0, 20), observations: observationsRef.current })}\n\n${system}\n\nContext: ${digestLine()}${grounding}`,
           user: `${history.text}\n\n${user}`,
         },
         {
@@ -431,6 +429,7 @@ function ChatConsole({
     }
     turn.stage("command", def.id);
     const res = await runCommand(def.id, args);
+    observationsRef.current.push(commandObservation(res));
     turn.settle("command", res.status === "ok" ? "ok" : "error", res.summary ?? res.status);
     showCommandResult(res);
   };
@@ -473,6 +472,7 @@ function ChatConsole({
     const text = input.trim();
     if (!text || busy || switchBusy) return;
     setInput("");
+    observationsRef.current = [];
     turn.begin();
     push({ role: "user", text });
 
@@ -553,7 +553,7 @@ function ChatConsole({
       if (name === "model") {
         const wanted = MODELS.find((m) => m.id === rest || m.label.toLowerCase() === rest.toLowerCase());
         if (wanted) {
-          push({ role: "note", text: `Activating ${wanted.label}…` });
+          push({ role: "note", text: `Loading ${wanted.label} from downloaded assets…` });
           setSwitchBusy(true);
           const res = await ai.activate(wanted.id);
           setSwitchBusy(false);
@@ -561,7 +561,9 @@ function ChatConsole({
             role: "note",
             text: res.ok
               ? `${wanted.label} is loaded and answering.`
-              : `${wanted.label} failed to load: ${res.error}`,
+              : res.error?.includes("not downloaded")
+                ? `${wanted.label} is not downloaded. Download it first.`
+                : `${wanted.label} failed to load: ${res.error}`,
           });
           return;
         }
@@ -620,6 +622,11 @@ function ChatConsole({
 
     turn.stage("route", "deterministic");
     const routed = routeMessage(text);
+    if (routed.kind === "command") {
+      turn.settle("route", "ok", routed.why);
+      push({ role: "note", text: `Running ${routed.commandId}: ${routed.why}.` });
+      return void runCommandTurn(routed.commandId, routed.args ? JSON.stringify(routed.args) : "");
+    }
     if (routed.kind === "skill") {
       turn.settle("route", "ok", routed.why);
       push({ role: "note", text: `Running ${routed.skillId}: ${routed.why}.` });
@@ -651,6 +658,10 @@ function ChatConsole({
         semantic.kind === "skill" ? semantic.why : "no confident match",
       );
       turn.settle("route", "ok");
+      if (semantic.kind === "command") {
+        push({ role: "note", text: `Running ${semantic.commandId}: ${semantic.why}.` });
+        return void runCommandTurn(semantic.commandId, semantic.args ? JSON.stringify(semantic.args) : "");
+      }
       if (semantic.kind === "skill") {
         push({ role: "note", text: `Running ${semantic.skillId}: ${semantic.why}.` });
         return void runSkillTurn(semantic.skillId);

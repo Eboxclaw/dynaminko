@@ -139,14 +139,14 @@ function LocalModels({ ai }: { ai: ReturnType<typeof useAi> }) {
                       <span
                         className={cn(
                           "eyebrow",
-                          state === "ready" && "text-gain",
+                          state === "loaded" && "text-gain",
                           state === "downloaded" && "text-ink-soft",
                           (state === "error" || state === "unavailable") && "text-loss",
-                          state === "required" && "text-ink-faint",
+                          state === "missing" && "text-ink-faint",
                         )}
                       >
                         {STATE_LABEL[state]}
-                        {state === "ready" ? ` · ${BACKEND_LABEL[ai.backend]}` : ""}
+                        {state === "loaded" ? ` · ${BACKEND_LABEL[ai.backend]}` : ""}
                       </span>
                       {profile.probed && m.id === rec.id && (
                         <span className="eyebrow">recommended</span>
@@ -165,9 +165,9 @@ function LocalModels({ ai }: { ai: ReturnType<typeof useAi> }) {
         <span className="min-w-0 flex-1">
           <span className="text-[13px] font-medium">Router encoder</span>
           <span className="eyebrow ml-2">
-            {enc.state === "ready"
+            {enc.state === "loaded"
               ? `running · ${enc.backend ?? "wasm"}`
-              : enc.state === "downloading"
+              : enc.state === "loading"
                 ? `downloading ${Math.round(enc.progress * 100)}%`
                 : enc.cached
                   ? "on device"
@@ -178,7 +178,7 @@ function LocalModels({ ai }: { ai: ReturnType<typeof useAi> }) {
           </span>
           {enc.error && <span className="mt-1 block text-[12px] text-loss">{enc.error}</span>}
         </span>
-        {enc.state === "ready" ? (
+        {enc.state === "loaded" ? (
           <button
             type="button"
             onClick={() => enc.unload()}
@@ -189,7 +189,7 @@ function LocalModels({ ai }: { ai: ReturnType<typeof useAi> }) {
         ) : (
           <button
             type="button"
-            onClick={() => void enc.load()}
+            onClick={() => void (enc.cached ? enc.load() : enc.download())}
             className="doodle-pill px-3 py-1 text-[11px] hover:border-ink"
           >
             {enc.cached ? "Load" : "Download"}
@@ -255,10 +255,14 @@ function LocalModels({ ai }: { ai: ReturnType<typeof useAi> }) {
         <button
           type="button"
           disabled={action === "unavailable"}
-          onClick={() => (action === "unload" ? void ai.stop() : void ai.activate(selected))}
+          onClick={() => {
+            if (action === "unload") return void ai.stop();
+            if (action === "download" || action === "resume") return void ai.load(selected);
+            return void ai.activate(selected);
+          }}
           className="doodle-pill bg-ink px-4 py-1.5 text-[12px] font-medium text-paper disabled:opacity-40"
         >
-          {action === "unload" && ai.loadedCtx !== ai.ctx ? "Reload" : ACTION_LABEL[action]}
+          {action === "unload" && ai.loadedCtx !== ai.ctx ? "Reload" : action === "load" ? "Load" : ACTION_LABEL[action]}
         </button>
         {ai.status.phase === "downloading" && (
           <span className="num text-[12px] text-ink-faint">
