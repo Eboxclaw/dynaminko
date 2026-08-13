@@ -1,6 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 
+import { HelpDot } from "@/components/pot/HelpDot";
 import { Panel, Shell } from "@/components/pot/Shell";
 import { useDoc } from "@/hooks/useDoc";
 import { relativeTime } from "@/lib/format";
