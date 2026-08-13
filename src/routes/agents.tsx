@@ -686,7 +686,25 @@ function ChatConsole({
           </ul>
         </div>
 
-        {picks.length > 0 && (
+        {mentions.length > 0 && (
+          <ul className="max-h-[190px] overflow-y-auto border-t border-stroke">
+            {mentions.map((r) => (
+              <li key={`${r.kind}:${r.id}`}>
+                <button
+                  type="button"
+                  onClick={() => applyMention(r)}
+                  className="flex w-full items-baseline gap-2 px-4 py-2 text-left hover:bg-sunken"
+                >
+                  <span className="eyebrow">{r.kind}</span>
+                  <span className="min-w-0 flex-1 truncate text-[12px]">{r.title}</span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+
+        {mentions.length === 0 && picks.length > 0 && (
+
           <ul className="max-h-[190px] overflow-y-auto border-t border-stroke">
             {picks.map((s) => (
               <li key={s.insert}>
