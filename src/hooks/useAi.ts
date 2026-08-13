@@ -264,10 +264,46 @@ export function useAi() {
         backend,
       };
 
+  /**
+   * Cache state per model, kept separate from "which model is the default".
+   * A downloaded model must never be offered as a download again.
+   */
+  const install = useMemo(() => {
+    const out: Record<string, InstallState> = {};
+    for (const m of MODELS) out[m.id] = downloaded.has(m.id) ? "complete" : "missing";
+    return out;
+  }, [downloaded]);
+
+  const actionFor = useCallback(
+    (modelId: string): ModelAction =>
+      modelAction(
+        install[modelId] ?? "missing",
+        isReady(modelId),
+        states[modelId] !== "unavailable",
+      ),
+    [install, states],
+  );
+
+  const capability = useMemo(
+    () =>
+      deriveCapability({
+        modelId: settings.aiModelId,
+        state: states[settings.aiModelId],
+        status,
+        cloud: Boolean(cloudCfg),
+        encoder: { state: encoder.state, cached: encoder.cached },
+      }),
+    [cloudCfg, encoder.cached, encoder.state, settings.aiModelId, states, status],
+  );
+
   return {
     models: MODELS,
     modelId: settings.aiModelId,
     spec,
+    install,
+    actionFor,
+    capability,
+    activate,
     enabled: settings.aiEnabled,
     status,
     states,
