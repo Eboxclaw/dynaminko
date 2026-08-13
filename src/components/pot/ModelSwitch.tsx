@@ -91,9 +91,10 @@ export function ModelSwitch({
         )}
       >
         {cloud ? <Cloud className="h-3 w-3 shrink-0" /> : <Cpu className="h-3 w-3 shrink-0" />}
-        <span className="truncate">{ai.target.label}</span>
-        <span className="text-ink-faint">{state}</span>
+        <span className="min-w-0 truncate">{ai.target.label}</span>
+        <span className="shrink-0 whitespace-nowrap text-ink-faint">{state}</span>
         <ChevronDown className="h-3 w-3 shrink-0" />
+
       </button>
 
       {error && (
