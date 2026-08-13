@@ -32,7 +32,7 @@ function PortfolioPage() {
   const doc = useDoc();
   const hidden = doc.settings.hideBalances;
   const { portfolio, status, refresh, isFetching } = usePortfolio();
-  const { reports, total: venueTotal, isFetching: venuesFetching } = useVenues();
+  const { reports, equity, isFetching: venuesFetching } = useVenues();
 
   const grouped = SECTOR_ORDER.map((id: SectorId) => {
     const holdings = portfolio.holdings.filter((h) => h.sector === id);
@@ -42,7 +42,10 @@ function PortfolioPage() {
 
   const lpVenues = VENUES.filter((v) => v.kind === "lp");
   const tradingVenues = VENUES.filter((v) => v.kind === "trading");
-  const net = portfolio.total + venueTotal;
+  // Net worth = wallet balances + trading-account equity. Perp notional is
+  // exposure, not money, so it never enters this sum.
+  const net = portfolio.total + equity;
+
 
   return (
     <Shell
