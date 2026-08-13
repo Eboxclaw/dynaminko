@@ -553,8 +553,16 @@ function ChatConsole({
       if (name === "model") {
         const wanted = MODELS.find((m) => m.id === rest || m.label.toLowerCase() === rest.toLowerCase());
         if (wanted) {
-          ai.select(wanted.id);
-          push({ role: "note", text: `${wanted.label} selected, ${STATE_LABEL[ai.states[wanted.id]]}.` });
+          push({ role: "note", text: `Activating ${wanted.label}…` });
+          setSwitchBusy(true);
+          const res = await ai.activate(wanted.id);
+          setSwitchBusy(false);
+          push({
+            role: "note",
+            text: res.ok
+              ? `${wanted.label} is loaded and answering.`
+              : `${wanted.label} failed to load: ${res.error}`,
+          });
           return;
         }
         onOpenRail("model");
