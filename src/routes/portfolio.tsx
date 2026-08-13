@@ -1,4 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { useEffect, useRef, useState } from "react";
 
 import { Panel, Shell } from "@/components/pot/Shell";
 import { VenueIcon } from "@/components/pot/VenueIcon";
@@ -6,19 +7,21 @@ import { useDoc } from "@/hooks/useDoc";
 import { usePortfolio } from "@/hooks/usePortfolio";
 import { useVenues } from "@/hooks/useVenues";
 import { amount, pct, usd } from "@/lib/format";
-import { SECTOR_BY_ID, SECTOR_ORDER, sectorColor, type SectorId } from "@/lib/sectors";
+import { SECTOR_BY_ID, SECTOR_ORDER, SECTORS, sectorColor, type SectorId } from "@/lib/sectors";
+import { patchSettings } from "@/lib/store";
 import { VENUE_BY_ID, VENUES } from "@/lib/venues";
+import type { AccountSummary, Position, VenueReport } from "@/lib/venues/types";
 
 export const Route = createFileRoute("/portfolio")({
   head: () => ({
     meta: [
-      { title: "Portfolio — Proof of Thesis" },
+      { title: "Portfolio · Proof of Thesis" },
       {
         name: "description",
         content:
           "Wallet balances, liquidity positions and trading accounts, grouped into conviction baskets.",
       },
-      { property: "og:title", content: "Portfolio — Proof of Thesis" },
+      { property: "og:title", content: "Portfolio · Proof of Thesis" },
       {
         property: "og:description",
         content: "Wallet, LPs and trading accounts grouped into conviction baskets.",
@@ -112,7 +115,14 @@ function PortfolioPage() {
               {grouped.map((g) => (
                 <section key={g.id}>
                   <header className="flex items-baseline gap-2 border-y border-stroke bg-sunken px-4 py-1.5 first:border-t-0">
-                    <span className="eyebrow flex-1">{SECTOR_BY_ID[g.id]?.label}</span>
+                    <span className="eyebrow flex-1">
+                      {SECTOR_BY_ID[g.id]?.label}
+                      {g.id === "unsorted" && (
+                        <span className="ml-2 normal-case text-ink-faint">
+                          tap a dot to sort
+                        </span>
+                      )}
+                    </span>
                     <span className="num text-[12px]">{usd(g.value, hidden)}</span>
                     <span className="num text-[11px] text-ink-faint">
                       {Math.round(g.share * 100)}%
@@ -145,6 +155,11 @@ function PortfolioPage() {
                         >
                           {pct(h.change24h)}
                         </span>
+                        <BasketPicker
+                          symbol={h.symbol}
+                          current={h.sector}
+                          overrides={doc.settings.basketOverrides ?? {}}
+                        />
                       </li>
                     ))}
                   </ul>
@@ -184,69 +199,117 @@ function VenueSection({
 }: {
   eyebrow: string;
   venues: string[];
-  reports: ReturnType<typeof useVenues>["reports"];
+  reports: VenueReport[];
   hidden: boolean;
   loading: boolean;
 }) {
   return (
     <Panel eyebrow={eyebrow} delay={100}>
-      <ul>
-        {venues.map((id) => {
-          const venue = VENUE_BY_ID[id];
-          const report = reports.find((r) => r.venueId === id);
-          const equity = report?.accounts.reduce((s, a) => s + (a.equity ?? 0), 0) ?? 0;
-          const notional = report?.positions.reduce((s, p) => s + (p.notionalValue ?? 0), 0) ?? 0;
-          const headline = equity > 0 ? equity : notional;
-          const state = loading && !report ? "reading…" : stateLabel(report?.status);
-          return (
-            <li key={id} className="border-b border-stroke px-4 py-3 last:border-0">
-              <div className="flex items-center gap-3">
-                <span className="text-ink-soft">
-                  <VenueIcon id={id} />
-                </span>
-                <span className="min-w-0 flex-1">
-                  <span className="block text-[14px] font-medium">
-                    {venue?.label}
-                    {report?.stale && <span className="eyebrow ml-2">cached</span>}
-                  </span>
-                  <span className="eyebrow">{venue?.blurb}</span>
-                </span>
-                <span className="num text-right text-[13px]">
-                  {headline > 0 ? (
-                    usd(headline, hidden)
-                  ) : (
-                    <span className="text-ink-faint">{state}</span>
-                  )}
-                </span>
-              </div>
+      <div className="grid gap-3 p-3">
+        {venues.map((id) => (
+          <VenueCard
+            key={id}
+            id={id}
+            report={reports.find((r) => r.venueId === id)}
+            hidden={hidden}
+            loading={loading}
+          />
+        ))}
+      </div>
+    </Panel>
+  );
+}
 
-              {report && report.accounts.length > 0 && (
-                <ul className="mt-2 space-y-1 pl-7">
-                  {report.accounts.map((a) => (
-                    <li key={a.id} className="flex items-baseline gap-3 text-[13px]">
-                      <span className="flex-1 truncate text-ink-soft">
-                        {a.label}
-                        <span className="eyebrow ml-2">equity</span>
-                      </span>
-                      {a.detail && (
-                        <span className="num text-[11px] text-ink-faint">{a.detail}</span>
-                      )}
-                      <span className="num">{a.equity != null ? usd(a.equity, hidden) : "—"}</span>
-                    </li>
-                  ))}
-                </ul>
-              )}
+const GROUPS: { kind: Position["kind"][]; label: string }[] = [
+  { kind: ["perp"], label: "Perps" },
+  { kind: ["spot"], label: "Margin spot" },
+  { kind: ["lp-concentrated", "lp-constant-product"], label: "Liquidity" },
+];
 
-              {report && report.positions.length > 0 && (
-                <ul className="mt-2 space-y-1 pl-7">
-                  {report.positions.map((p) => (
+function VenueCard({
+  id,
+  report,
+  hidden,
+  loading,
+}: {
+  id: string;
+  report?: VenueReport;
+  hidden: boolean;
+  loading: boolean;
+}) {
+  const [showEmpty, setShowEmpty] = useState(false);
+  const venue = VENUE_BY_ID[id];
+  const accounts = report?.accounts ?? [];
+  const funded = accounts.filter((a) => (a.equity ?? 0) > 0);
+  const idle = accounts.length - funded.length;
+  const positions = report?.positions ?? [];
+  const equity = accounts.reduce((s, a) => s + (a.equity ?? 0), 0);
+  const notional = positions.reduce((s, p) => s + (p.notionalValue ?? 0), 0);
+  const headline = equity > 0 ? equity : notional;
+  const quiet = !report || (accounts.length === 0 && positions.length === 0);
+  const state = loading && !report ? "reading" : stateLabel(report?.status);
+  const unpriced = positions.some((p) => p.notionalValue == null);
+
+  return (
+    <section className="doodle-inset px-3 py-2.5">
+      <header className="flex items-center gap-3">
+        <span className="text-ink-soft">
+          <VenueIcon id={id} />
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="block truncate text-[14px] font-medium">
+            {venue?.label}
+            {report?.stale && <span className="eyebrow ml-2">cached</span>}
+          </span>
+          <span className="eyebrow block truncate">{venue?.blurb}</span>
+        </span>
+        <span className="num text-right text-[13px]">
+          {headline > 0 ? usd(headline, hidden) : <span className="text-ink-faint">{state}</span>}
+        </span>
+      </header>
+
+      {!quiet && (
+        <div className="mt-2.5 grid gap-2.5">
+          {(showEmpty ? accounts : funded).length > 0 && (
+            <ul className="grid gap-1">
+              {(showEmpty ? accounts : funded).map((a: AccountSummary) => (
+                <li key={a.id} className="flex items-baseline gap-3 text-[13px]">
+                  <span className="min-w-0 flex-1 truncate text-ink-soft">{a.label}</span>
+                  {a.detail && <span className="num text-[11px] text-ink-faint">{a.detail}</span>}
+                  <span className="num">{a.equity != null ? usd(a.equity, hidden) : "—"}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+
+          {idle > 0 && (
+            <button
+              type="button"
+              onClick={() => setShowEmpty((v) => !v)}
+              className="eyebrow w-fit hover:text-ink"
+            >
+              {showEmpty ? "hide" : "show"} {idle} empty subaccount{idle === 1 ? "" : "s"}
+            </button>
+          )}
+
+          {GROUPS.map((group) => {
+            const rows = positions.filter((p) => group.kind.includes(p.kind));
+            if (rows.length === 0) return null;
+            return (
+              <div key={group.label}>
+                <p className="eyebrow border-b border-stroke pb-1">{group.label}</p>
+                <ul className="mt-1 grid gap-1">
+                  {rows.map((p) => (
                     <li key={p.id} className="flex items-baseline gap-3 text-[13px]">
-                      <span className="flex-1 truncate">
-                        {p.label}
-                        <span className="eyebrow ml-2">{kindLabel(p.kind)}</span>
+                      <span className="min-w-0 flex-1 truncate">
+                        {pairLabel(p)}
+                        {p.side && <span className="eyebrow ml-2">{p.side}</span>}
+                        {rangeChip(p) && <span className="eyebrow ml-2">{rangeChip(p)}</span>}
                       </span>
                       {p.detail && (
-                        <span className="num text-[11px] text-ink-faint">{p.detail}</span>
+                        <span className="num hidden text-[11px] text-ink-faint sm:inline">
+                          {p.detail}
+                        </span>
                       )}
                       <span className="num">
                         {p.notionalValue != null ? usd(p.notionalValue, hidden) : "—"}
@@ -254,33 +317,119 @@ function VenueSection({
                     </li>
                   ))}
                 </ul>
-              )}
-              {report?.note && <p className="eyebrow mt-1.5 pl-7">{report.note}</p>}
-            </li>
-          );
-        })}
-      </ul>
-    </Panel>
+              </div>
+            );
+          })}
+
+          {unpriced && <p className="eyebrow">A dash means this venue reported no price.</p>}
+          {report?.note && <p className="eyebrow">{report.note}</p>}
+        </div>
+      )}
+    </section>
   );
 }
 
-function kindLabel(kind: string) {
-  switch (kind) {
-    case "perp":
-      return "perp";
-    case "spot":
-      return "margin spot";
-    case "lp-concentrated":
-      return "CL pool";
-    case "lp-constant-product":
-      return "v2 pool";
-    default:
-      return kind;
-  }
+/** On-chain strings can be junk. Only clean symbols reach the UI. */
+function clean(symbol: string): string {
+  const s = (symbol ?? "").replace(/[^\w.\-/]/g, "").trim();
+  return s.slice(0, 12) || "?";
+}
+
+function pairLabel(p: Position): string {
+  if (p.symbols && p.symbols.length >= 2) return p.symbols.slice(0, 2).map(clean).join(" / ");
+  return clean(p.symbol || p.label);
+}
+
+function rangeChip(p: Position): string | null {
+  const state = p.metadata?.range ?? p.metadata?.inRange;
+  if (state == null) return null;
+  if (state === 1 || state === "in" || state === "in-range" || state === "true")
+    return "in range";
+  if (state === 0 || state === "out" || state === "out-of-range" || state === "false")
+    return "out of range";
+  return typeof state === "string" ? state : null;
+}
+
+function BasketPicker({
+  symbol,
+  current,
+  overrides,
+}: {
+  symbol: string;
+  current: SectorId;
+  overrides: Record<string, string>;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  const key = symbol.toUpperCase();
+  const overridden = Boolean(overrides[key]);
+
+  useEffect(() => {
+    if (!open) return;
+    const close = (e: MouseEvent) => {
+      if (!ref.current?.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", close);
+    return () => document.removeEventListener("mousedown", close);
+  }, [open]);
+
+  const set = (id: SectorId | null) => {
+    const next = { ...overrides };
+    if (id) next[key] = id;
+    else delete next[key];
+    patchSettings({ basketOverrides: next });
+    setOpen(false);
+  };
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        type="button"
+        aria-label={`Basket for ${symbol}`}
+        onClick={() => setOpen((v) => !v)}
+        className="flex h-7 w-7 items-center justify-center rounded-full border border-stroke hover:border-ink"
+      >
+        <span
+          className="h-2.5 w-2.5 rounded-full"
+          style={{ background: sectorColor(current) }}
+        />
+      </button>
+      {overridden && (
+        <span className="pointer-events-none absolute -right-0.5 -top-0.5 h-1.5 w-1.5 rounded-full bg-ink" />
+      )}
+      {open && (
+        <div className="absolute right-0 top-8 z-20 w-44 rounded-xl border border-stroke bg-paper p-1 shadow-lg">
+          {SECTORS.map((sct) => (
+            <button
+              key={sct.id}
+              type="button"
+              onClick={() => set(sct.id)}
+              className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-[13px] hover:bg-sunken"
+            >
+              <span
+                className="h-2.5 w-2.5 shrink-0 rounded-full"
+                style={{ background: sectorColor(sct.id) }}
+              />
+              <span className="flex-1">{sct.label}</span>
+              {current === sct.id && <span className="eyebrow">now</span>}
+            </button>
+          ))}
+          {overridden && (
+            <button
+              type="button"
+              onClick={() => set(null)}
+              className="eyebrow w-full px-2 py-1.5 text-left hover:text-ink"
+            >
+              reset to automatic
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
 }
 
 function stateLabel(status?: string) {
-
   switch (status) {
     case "empty":
       return "no positions";

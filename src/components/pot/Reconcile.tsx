@@ -139,7 +139,7 @@ export function Reconcile({
             </div>
           )}
           <div className="border border-stroke bg-paper p-3">
-            <p className="eyebrow">No fit — write a new one</p>
+            <p className="eyebrow">No fit, write a new one</p>
             <input
               value={a.newThesis}
               onChange={(e) => set({ newThesis: e.target.value, thesisId: null })}

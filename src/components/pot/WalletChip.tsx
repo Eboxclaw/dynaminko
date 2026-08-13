@@ -66,7 +66,7 @@ export function WalletPanel({
     }
     addWallet({ address: value, chainId, label: "Watching", kind: "watch" });
     setAddress("");
-    toast.success("Wallet added — reading it now");
+    toast.success("Wallet added, reading it now");
     onDone?.();
   }
 
@@ -80,7 +80,7 @@ export function WalletPanel({
         label: injected.name,
         kind: "connected",
       });
-      toast.success(`${injected.name} connected — read only`);
+      toast.success(`${injected.name} connected, read only`);
       onDone?.();
     } catch {
       toast.error("Connection cancelled");

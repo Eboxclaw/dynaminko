@@ -68,8 +68,8 @@ function LocalModels({ ai }: { ai: ReturnType<typeof useAi> }) {
 
   return (
     <div>
-      <p className="border-b border-stroke px-4 py-2.5 text-[12px] text-ink-soft">
-        {rec.reason}
+      <p className="flex items-center gap-2 border-b border-stroke px-4 py-2.5 text-[12px] text-ink-soft">
+        <span className="flex-1">{rec.reason}</span>
         {profile.probed && rec.id !== selected && (
           <button
             type="button"
@@ -124,11 +124,7 @@ function LocalModels({ ai }: { ai: ReturnType<typeof useAi> }) {
                         <span className="eyebrow">recommended</span>
                       )}
                     </span>
-                    <span className="mt-1 block text-[12px] text-ink-soft">{m.role}</span>
-                    <span className="eyebrow mt-1 block">
-                      ~{m.weightsGb} GB · {m.capabilities.join(" · ")} · ctx ≤ {m.maxCtx} ·{" "}
-                      {m.backend.preferred} → {m.backend.fallback}
-                    </span>
+                    <span className="eyebrow mt-1 block">~{m.weightsGb} GB</span>
                   </span>
                 </label>
               </li>
@@ -150,8 +146,7 @@ function LocalModels({ ai }: { ai: ReturnType<typeof useAi> }) {
                   : "optional · not downloaded"}
           </span>
           <span className="mt-1 block text-[12px] text-ink-soft">
-            ~30 MB. Improves command and context matching. Without it, routing falls back to
-            keywords.
+            ~23 MB. Sharper command matching. Optional.
           </span>
           {enc.error && <span className="mt-1 block text-[12px] text-loss">{enc.error}</span>}
         </span>
@@ -281,7 +276,7 @@ function CloudModels({ ai }: { ai: ReturnType<typeof useAi> }) {
   return (
     <div>
       <p className="border-b border-stroke px-4 py-2.5 text-[12px] text-ink-soft">
-        Optional. Keys are stored in this browser only and sent to the provider you configure —
+        Optional. Keys are stored in this browser only and sent to the provider you configure,
         nowhere else. Every endpoint uses the OpenAI chat shape.
       </p>
       <ul>

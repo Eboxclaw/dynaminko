@@ -42,19 +42,22 @@ import { useDoc } from "./useDoc";
 
 /** Subscribes to the encoder without polling. */
 function useEncoder() {
-  const state = useSyncExternalStore<EncoderState>(
+  // The snapshot carries the progress too, otherwise a download that only
+  // moves the percentage never re-renders.
+  const snap = useSyncExternalStore(
     onEncoderChange,
-    () => encoderState(),
-    () => "required" as EncoderState,
+    () => `${encoderState()}:${Math.round(encoderProgress() * 100)}`,
+    () => "required:0",
   );
+  const [state, pct] = snap.split(":");
   const [cached, setCached] = useState(false);
   useEffect(() => {
     void encoderCached().then(setCached);
-  }, [state]);
+  }, [snap]);
   return {
-    state,
+    state: state as EncoderState,
     cached,
-    progress: encoderProgress(),
+    progress: Number(pct) / 100,
     error: encoderError(),
     backend: encoderBackend(),
     load: ensureEncoder,

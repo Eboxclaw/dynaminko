@@ -11,13 +11,13 @@ import { cn } from "@/lib/utils";
 export const Route = createFileRoute("/pot")({
   head: () => ({
     meta: [
-      { title: "POT Index — Proof of Thesis" },
+      { title: "POT Index · Proof of Thesis" },
       {
         name: "description",
         content:
           "Sentiment times action over results: coverage, alignment, discipline, execution and steadiness, measured only from what you wrote.",
       },
-      { property: "og:title", content: "POT Index — Proof of Thesis" },
+      { property: "og:title", content: "POT Index · Proof of Thesis" },
       {
         property: "og:description",
         content: "The score of how well your trades matched your convictions.",

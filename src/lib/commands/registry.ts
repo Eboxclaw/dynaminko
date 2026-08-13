@@ -113,6 +113,6 @@ export const COMMAND_BY_ID: Record<string, CommandDefinition> = Object.fromEntri
 /** What the model is shown: id, one line, argument names. Nothing else. */
 export function commandCatalogue(): string {
   return COMMAND_DEFS.map(
-    (c) => `${c.id}(${Object.keys(c.args).join(", ")}) — ${c.description}`,
+    (c) => `${c.id}(${Object.keys(c.args).join(", ")}) · ${c.description}`,
   ).join("\n");
 }

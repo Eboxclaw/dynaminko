@@ -30,7 +30,7 @@ export function useAlerts() {
     for (const f of firings) {
       patchAlert(f.alert.id, { lastFiredAt: Date.now() });
       toast(f.title, { description: f.body });
-      log("watcher", "alert fired", { level: "call", detail: `${f.title} — ${f.body}` });
+      log("watcher", "alert fired", { level: "call", detail: `${f.title}: ${f.body}` });
       if (doc.settings.notifications) void showNotification(f.title, f.body, f.alert.id);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps

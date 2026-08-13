@@ -117,6 +117,17 @@ export function sectorFor(symbol: string): SectorId {
   return SYMBOL_SECTOR[upper] ?? SYMBOL_SECTOR[stripped] ?? "unsorted";
 }
 
+/** User override first, then the registry. */
+export function resolveSector(
+  symbol: string,
+  overrides?: Record<string, string> | null,
+): SectorId {
+  const upper = symbol.trim().toUpperCase();
+  const chosen = overrides?.[upper];
+  if (chosen && SECTOR_BY_ID[chosen as SectorId]) return chosen as SectorId;
+  return sectorFor(upper);
+}
+
 export function sectorColor(id: SectorId, dark = false): string {
   const s = SECTOR_BY_ID[id] ?? SECTOR_BY_ID.unsorted;
   if (id === "unsorted") return dark ? "oklch(0.5 0.01 60)" : "oklch(0.72 0.01 60)";

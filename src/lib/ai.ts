@@ -204,7 +204,7 @@ export function recommendModel(profile = deviceProfile()): { id: string; reason:
       : "memory not reported by the browser";
   return {
     id: pick.id,
-    reason: `${seen}${profile.mobile ? " · touch device" : ""} — ${pick.label} fits.`,
+    reason: `${seen}${profile.mobile ? " · touch device" : ""} · ${pick.label} fits.`,
   };
 }
 

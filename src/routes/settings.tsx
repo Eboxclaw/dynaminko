@@ -9,12 +9,12 @@ import { exportDoc, patchSettings, walletKey, wipe } from "@/lib/store";
 export const Route = createFileRoute("/settings")({
   head: () => ({
     meta: [
-      { title: "Settings — Proof of Thesis" },
+      { title: "Settings · Proof of Thesis" },
       {
         name: "description",
         content: "Wallets, privacy, on-device assistant and your local data.",
       },
-      { property: "og:title", content: "Settings — Proof of Thesis" },
+      { property: "og:title", content: "Settings · Proof of Thesis" },
       { property: "og:description", content: "Wallets, privacy and your local data." },
     ],
   }),

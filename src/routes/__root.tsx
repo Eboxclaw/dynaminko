@@ -74,14 +74,14 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1, viewport-fit=cover" },
       { name: "theme-color", content: "#F4F3F0" },
-      { title: "Proof of Thesis — an assisted journal for your trades" },
+      { title: "Proof of Thesis, an assisted journal for your trades" },
       {
         name: "description",
         content:
           "Proof of Thesis reads your wallet, builds your portfolio and helps you write down why you traded. Local-first, on-device AI, no accounts.",
       },
       { name: "author", content: "INKO" },
-      { property: "og:title", content: "Proof of Thesis — an assisted journal for your trades" },
+      { property: "og:title", content: "Proof of Thesis, an assisted journal for your trades" },
       {
         property: "og:description",
         content:

@@ -5,7 +5,7 @@
 
 import type { ChainTransfer, WalletSnapshot } from "./chain/blockscout";
 import type { Quote } from "./prices";
-import { sectorFor, type SectorId } from "./sectors";
+import { resolveSector, sectorFor, type SectorId } from "./sectors";
 
 export type Holding = {
   key: string;
@@ -35,6 +35,7 @@ export type Portfolio = {
 export function buildPortfolio(
   snapshot: WalletSnapshot | null,
   quotes: Quote[],
+  overrides?: Record<string, string> | null,
 ): Portfolio {
   if (!snapshot) return { holdings: [], total: 0, priced: false, slices: [] };
   const quoteBy = new Map(quotes.map((q) => [q.symbol.toUpperCase(), q]));
@@ -53,7 +54,7 @@ export function buildPortfolio(
         price,
         value: price != null ? price * t.amount : null,
         change24h: q?.change24h ?? null,
-        sector: sectorFor(t.symbol),
+        sector: resolveSector(t.symbol, overrides),
       };
     })
     .sort((a, b) => (b.value ?? -1) - (a.value ?? -1));
