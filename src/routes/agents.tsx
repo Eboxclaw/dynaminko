@@ -843,7 +843,26 @@ function ChatConsole({
           </ul>
         )}
 
-        <div className="border-t border-stroke px-4 py-3">
+        <div className="border-t border-stroke">
+          <FlowStrip nodes={turn.nodes} />
+          {turn.error && (
+            <div className="flex items-start gap-2 border-b border-loss/40 bg-loss/5 px-4 py-2">
+              <span className="eyebrow shrink-0 text-loss">{PHASE_LABEL[turn.error.phase]}</span>
+              <span className="min-w-0 flex-1 text-[12px] text-loss">{turn.error.message}</span>
+              <button
+                type="button"
+                onClick={turn.clearError}
+                aria-label="Dismiss error"
+                className="doodle-pill grid h-5 w-5 shrink-0 place-items-center text-loss"
+              >
+                <X className="h-3 w-3" />
+              </button>
+            </div>
+          )}
+          {switchBusy && (
+            <p className="eyebrow border-b border-stroke px-4 py-2">loading model…</p>
+          )}
+          <div className="px-4 py-3">
           <div className="flex items-end gap-2">
             <textarea
               ref={inputRef}
@@ -856,8 +875,9 @@ function ChatConsole({
                   void submit();
                 }
               }}
-              placeholder="Ask, or / for commands"
-              className="min-h-[38px] flex-1 resize-none bg-transparent text-[13px] outline-none"
+              disabled={switchBusy}
+              placeholder={switchBusy ? "Loading model…" : "Ask, or / for commands"}
+              className="min-h-[38px] flex-1 resize-none bg-transparent text-[13px] outline-none disabled:opacity-50"
             />
             {busy ? (
               <button
@@ -871,8 +891,9 @@ function ChatConsole({
               <button
                 type="button"
                 onClick={() => void submit()}
+                disabled={switchBusy}
                 aria-label="Send"
-                className="doodle-pill grid h-8 w-8 place-items-center bg-ink text-paper"
+                className="doodle-pill grid h-8 w-8 place-items-center bg-ink text-paper disabled:opacity-50"
               >
                 <Send className="h-3.5 w-3.5" />
               </button>
@@ -968,6 +989,7 @@ function ChatConsole({
             )}
             {ai.speed && <span>{ai.speed.tps.toFixed(1)} tok/s</span>}
           </p>
+        </div>
         </div>
         {help && (
           <HelpPanel
