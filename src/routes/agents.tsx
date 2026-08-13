@@ -187,8 +187,19 @@ function ChatConsole({
   }, [busy, activeId]);
 
   const picks = useMemo(() => suggestions(input), [input]);
+  // `@` pulls journal entries and theses into the turn. Deterministic lookup —
+  // no embeddings, no download, and only the picked records travel to a model.
+  const mentionQuery = useMemo(() => {
+    const m = /(?:^|\s)@([\w .-]*)$/.exec(input);
+    return m ? m[1] : null;
+  }, [input]);
+  const mentions = useMemo(
+    () => (mentionQuery === null ? [] : referenceIndex(mentionQuery, 8)),
+    [mentionQuery],
+  );
   const canSee = Boolean(ai.spec?.vision);
   const canReason = Boolean(ai.spec?.reasoning);
+
 
   const push = (m: Omit<ChatMessage, "id" | "ts">) => {
     const msg = newMessage(m);
