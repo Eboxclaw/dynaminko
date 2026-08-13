@@ -92,8 +92,6 @@ function AgentsPage() {
   const navigate = Route.useNavigate();
   const [railOpen, setRailOpen] = useState(false);
   const ai = useAi();
-  const turn = useTurn();
-  const [switchBusy, setSwitchBusy] = useState(false);
 
   const openRail = (next: RailTab) => {
     void navigate({ search: { tab: next } });
@@ -174,6 +172,8 @@ function ChatConsole({
   const [busy, setBusy] = useState(false);
   const [help, setHelp] = useState(false);
   const [helpQuery, setHelpQuery] = useState("");
+  const [switchBusy, setSwitchBusy] = useState(false);
+  const turn = useTurn();
 
   const boxRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
