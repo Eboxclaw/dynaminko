@@ -2,7 +2,7 @@
 // signals and the basket taxonomy — no model, no network.
 
 import { addAlert, getDoc, patchSettings } from "@/lib/store";
-import { SECTOR_BY_ID, sectorFor, type SectorId } from "@/lib/sectors";
+import { SECTOR_BY_ID, resolveSector, type SectorId } from "@/lib/sectors";
 
 import { failed, ok, type CommandContext, type CommandResult } from "./types";
 
@@ -15,10 +15,10 @@ function str(v: unknown): string | null {
 /** classification: user override wins, then the deterministic registry. */
 export function classify(symbol: string): { basket: SectorId; source: "user" | "registry"; confidence: number } {
   const sym = symbol.toUpperCase();
-  const override = (getDoc().settings as { basketOverrides?: Record<string, SectorId> })
-    .basketOverrides?.[sym];
-  if (override) return { basket: override, source: "user", confidence: 1 };
-  return { basket: sectorFor(sym), source: "registry", confidence: 0.8 };
+  const overrides = getDoc().settings.basketOverrides;
+  if (overrides?.[sym])
+    return { basket: overrides[sym] as SectorId, source: "user", confidence: 1 };
+  return { basket: resolveSector(sym), source: "registry", confidence: 0.8 };
 }
 
 function lines(ctx: CommandContext): Line[] {
@@ -90,10 +90,8 @@ export function categorizeToken(args: Record<string, unknown>, ctx: CommandConte
   ctx.count();
   if (basket) {
     if (!SECTOR_BY_ID[basket]) return failed(id, "invalid_arguments", `unknown basket ${basket}`);
-    const settings = getDoc().settings as { basketOverrides?: Record<string, SectorId> };
-    patchSettings({
-      basketOverrides: { ...(settings.basketOverrides ?? {}), [symbol]: basket },
-    } as never);
+    const overrides = getDoc().settings.basketOverrides ?? {};
+    patchSettings({ basketOverrides: { ...overrides, [symbol]: basket } });
     return ok(id, { symbol, basket, source: "user" }, `${symbol} → ${basket} (your override).`);
   }
   const c = classify(symbol);
