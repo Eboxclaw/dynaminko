@@ -219,9 +219,10 @@ function ChatConsole({
     setMessages([]);
   };
 
-  const speak = async (system: string, user: string) => {
+  const speak = async (system: string, user: string, ground = false) => {
     // Chatting is itself the request to download: the model loads on demand.
-    if (ai.status.phase !== "ready") {
+    // Cloud targets skip this entirely.
+    if (ai.target.kind === "local" && ai.status.phase !== "ready") {
       push({
         role: "note",
         text: `${ai.spec?.label ?? "The model"} is not running yet — starting it now. First run downloads ~${ai.spec?.weightsGb ?? "?"} GB, then it stays on this device.`,
@@ -237,14 +238,31 @@ function ChatConsole({
     }
     setBusy(true);
     try {
+      // Retrieval before generation: a handful of records, never the journal.
+      let grounding = "";
+      if (ground) {
+        const found = await retrieveContext(user, 6);
+        if (found.count) {
+          grounding = `\n\nRecords (${found.how}):\n${found.lines.join("\n")}`;
+          push({
+            role: "tool",
+            text: `retrieval · ${found.count} records`,
+            card: { source: `journal.retrieve (${found.how})`, facts: found.lines.slice(0, 5) },
+          });
+        }
+      }
       const history = contextFor(messages, Math.floor(ai.ctx * 0.4), MAX_CONTEXT_MESSAGES);
       const raw = await ai.ask(
-        { system: `${system}\n\nContext: ${digestLine()}`, user: `${history.text}\n\n${user}` },
+        {
+          system: `${system}\n\nContext: ${digestLine()}${grounding}`,
+          user: `${history.text}\n\n${user}`,
+        },
         {
           thinking,
           images: vision && image ? [image] : undefined,
         },
       );
+
       const { thinking: think, answer } = splitThinking(raw);
       push({ role: "assistant", text: answer || raw, thinking: think });
       setImage(null);
