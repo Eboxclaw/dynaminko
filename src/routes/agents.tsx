@@ -18,7 +18,6 @@ import { useAi } from "@/hooks/useAi";
 import { useDoc } from "@/hooks/useDoc";
 import { relativeTime } from "@/lib/format";
 import { MAX_CONTEXT_MESSAGES, MODELS, STATE_LABEL, splitThinking } from "@/lib/ai";
-import { encoderState } from "@/lib/ai/encoder";
 import { referenceIndex, retrieveContext, type Reference } from "@/lib/ai/retrieval";
 
 import { AGENTS, automationOn } from "@/lib/agents/registry";
@@ -108,16 +107,16 @@ function AgentsPage() {
         </button>
       }
     >
-      <div className={cn("grid gap-4", railOpen && "lg:grid-cols-[minmax(0,1fr)_320px]")}>
+      <div className="grid gap-4">
         <ChatConsole ai={ai} onOpenRail={openRail} />
 
         <aside
           className={cn(
-            "grid content-start gap-4",
+            "grid max-h-[70vh] content-start gap-3 overflow-y-auto overscroll-contain rounded-2xl border border-stroke bg-paper p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]",
             !railOpen && "hidden",
           )}
         >
-          <nav className="flex gap-1 overflow-x-auto">
+          <nav className="sticky top-0 z-10 -mx-3 -mt-3 flex gap-1 overflow-x-auto bg-paper px-3 py-2">
             {RAIL.map((t) => (
               <button
                 key={t.id}
@@ -687,12 +686,9 @@ function ChatConsole({
         <div ref={boxRef} className="max-h-[52vh] min-h-[240px] overflow-y-auto px-4 py-3">
 
           {messages.length === 0 && (
-            <div className="py-6 text-[13px] text-ink-soft">
-              <p>Ask in plain words, or press / for a command.</p>
-              <p className="eyebrow mt-3">
-                {digestLine()}
-              </p>
-            </div>
+            <p className="py-6 text-[13px] text-ink-soft">
+              Ask in plain words, or press / for a command.
+            </p>
           )}
           <ul className="grid gap-3">
             {messages.map((m) => (
@@ -926,7 +922,7 @@ function ChatConsole({
           <p className="num eyebrow mt-2 flex flex-wrap gap-x-3">
             <span>ctx {ai.ctx}</span>
             <span>
-              {ctxUsed.turns}/{MAX_CONTEXT_MESSAGES} turns replayed · ~{ctxUsed.used} tok
+              {ctxUsed.turns}/{MAX_CONTEXT_MESSAGES} turns
             </span>
             <span>
               {ai.target.kind === "cloud" ? "cloud" : ai.backend === "webgpu" ? "WebGPU" : "WASM"}
@@ -935,7 +931,6 @@ function ChatConsole({
               <span>downloading {Math.round(ai.status.progress * 100)}%</span>
             )}
             {ai.speed && <span>{ai.speed.tps.toFixed(1)} tok/s</span>}
-            <span>{encoderState() === "required" ? "encoder optional" : `encoder ${encoderState()}`}</span>
           </p>
         </div>
         {help && (
