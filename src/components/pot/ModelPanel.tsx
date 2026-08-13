@@ -86,6 +86,32 @@ function LocalModels({ ai }: { ai: ReturnType<typeof useAi> }) {
         )}
       </p>
 
+      {/* Two independent capabilities. The encoder never gates generation. */}
+      <dl className="grid grid-cols-2 gap-x-4 border-b border-stroke px-4 py-3">
+        <div>
+          <dt className="eyebrow">Model</dt>
+          <dd className="text-[13px] font-medium">{spec?.label ?? "no model"}</dd>
+          <dd className="num eyebrow">
+            {ai.capability.generation === "loaded"
+              ? `READY · ${BACKEND_LABEL[ai.backend]}`
+              : ai.capability.generation === "downloaded"
+                ? "ON DEVICE · not loaded"
+                : ai.capability.generation === "error"
+                  ? "ERROR"
+                  : "NOT INSTALLED"}
+          </dd>
+        </div>
+        <div>
+          <dt className="eyebrow">Semantic</dt>
+          <dd className="text-[13px] font-medium">Encoder 230M</dd>
+          <dd
+            className={cn("num eyebrow", ai.capability.routeFallback && "text-ink-faint")}
+          >
+            {semanticLabel(ai.capability)}
+          </dd>
+        </div>
+      </dl>
+
       <ul>
         {ai.models
           .filter((m) => m.generative)

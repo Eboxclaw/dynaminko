@@ -80,7 +80,9 @@ export async function routeSemantic(text: string): Promise<Routed> {
       text: `${t.label}. ${t.purpose}`,
     })),
   ];
-  const ranked = await rank(text, targets, { opportunistic: true });
+  // The encoder is an accelerator. Any failure downgrades routing to keywords,
+  // it never breaks the turn.
+  const ranked = await rank(text, targets, { opportunistic: true }).catch(() => null);
   const best = ranked?.[0];
   if (!best || best.score < THRESHOLD) return { kind: "none" };
   const [kind, id] = best.id.split(":");
@@ -101,6 +103,6 @@ export async function discover(text: string, limit = 5) {
       text: `${t.label}. ${t.purpose}`,
     })),
   ];
-  const ranked = await rank(text, targets, { opportunistic: true });
+  const ranked = await rank(text, targets, { opportunistic: true }).catch(() => null);
   return ranked?.slice(0, limit) ?? [];
 }
