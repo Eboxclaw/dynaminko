@@ -849,7 +849,7 @@ function ChatConsole({
               <span>downloading {Math.round(ai.status.progress * 100)}%</span>
             )}
             {ai.speed && <span>{ai.speed.tps.toFixed(1)} tok/s</span>}
-            <span>encoder {encoderState()}</span>
+            <span>{encoderState() === "required" ? "encoder optional" : `encoder ${encoderState()}`}</span>
           </p>
         </div>
         {help && (
