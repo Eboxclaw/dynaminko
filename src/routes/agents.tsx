@@ -803,11 +803,23 @@ function ChatConsole({
             )}
             <button
               type="button"
+              onClick={() => setHelp((h) => !h)}
+              className={cn(
+                "doodle-pill ml-auto inline-flex items-center gap-1 px-2.5 py-1 text-[11px]",
+                help ? "bg-ink text-paper" : "text-ink-faint hover:border-ink",
+              )}
+            >
+              <HelpCircle className="h-3 w-3" /> Help
+            </button>
+            <button
+              type="button"
               onClick={() => onOpenRail("model")}
-              className="doodle-pill num ml-auto inline-flex items-center gap-1 px-2.5 py-1 text-[11px] hover:border-ink"
+              className="doodle-pill num inline-flex items-center gap-1 px-2.5 py-1 text-[11px] hover:border-ink"
             >
               <SquareStack className="h-3 w-3" />
-              {ai.spec?.label ?? "no model"} · {STATE_LABEL[ai.states[ai.modelId]]}
+              {ai.target.kind === "cloud"
+                ? ai.target.label
+                : `${ai.spec?.label ?? "no model"} · ${STATE_LABEL[ai.states[ai.modelId]]}`}
             </button>
 
             <input
@@ -830,12 +842,28 @@ function ChatConsole({
             <span>
               {ctxUsed.turns}/{MAX_CONTEXT_MESSAGES} turns replayed · ~{ctxUsed.used} tok
             </span>
+            <span>
+              {ai.target.kind === "cloud" ? "cloud" : ai.backend === "webgpu" ? "WebGPU" : "WASM"}
+            </span>
             {ai.status.phase === "downloading" && (
               <span>downloading {Math.round(ai.status.progress * 100)}%</span>
             )}
             {ai.speed && <span>{ai.speed.tps.toFixed(1)} tok/s</span>}
             <span>encoder {encoderState()}</span>
           </p>
+        </div>
+        {help && (
+          <HelpPanel
+            query={helpQuery}
+            onQuery={setHelpQuery}
+            onPick={(insert) => {
+              setInput(insert);
+              setHelp(false);
+              inputRef.current?.focus();
+            }}
+          />
+        )}
+
         </div>
       </Panel>
 
