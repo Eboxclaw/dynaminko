@@ -55,6 +55,24 @@ export const COMMANDS: Command[] = [
         })),
   },
   {
+    name: "run",
+    args: "<command>",
+    blurb: "Run one semantic command: the app collects and aggregates, then answers.",
+    suggest: (q) =>
+      COMMAND_DEFS.filter((c) => !q || match(`${c.id} ${c.description}`, q)).map((c) => ({
+        insert: `/run ${c.id} `,
+        label: c.id,
+        hint: c.description,
+        badge: c.access,
+      })),
+  },
+  {
+    name: "goal",
+    args: "<what you want done>",
+    blurb: "Bounded multi-step run: same commands, up to two cycles, cancellable.",
+    suggest: () => [],
+  },
+  {
     name: "journal",
     args: "<query>",
     blurb: "Search entries and extracted trades.",
