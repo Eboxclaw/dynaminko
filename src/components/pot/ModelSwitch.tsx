@@ -68,6 +68,13 @@ export function ModelSwitch({
     setError(null);
     setSwitching(modelId);
     onBusyChange?.(true);
+    const action = ai.actionFor(modelId);
+    if (action === "download" || action === "resume") {
+      await ai.load(modelId);
+      setSwitching(null);
+      onBusyChange?.(false);
+      return;
+    }
     const res = await ai.activate(modelId);
     setSwitching(null);
     onBusyChange?.(false);
@@ -115,7 +122,7 @@ export function ModelSwitch({
               .filter((m) => m.generative)
               .map((m) => {
                 const action = ai.actionFor(m.id);
-                const active = !cloud && ai.modelId === m.id;
+                const active = !cloud && ai.loadedModelId === m.id;
                 return (
                   <li key={m.id}>
                     <button

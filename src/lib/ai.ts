@@ -228,19 +228,26 @@ export function memoryEstimateGb(modelId: string, nCtx: number): number {
  * wants it but the weights are not on the device yet.
  */
 export type ModelState =
-  | "required"
-  | "downloading"
+  | "missing"
   | "downloaded"
-  | "ready"
+  | "loading"
+  | "loaded"
   | "unavailable"
   | "error";
 
 export type AiStatus =
-  | { phase: "idle" }
-  | { phase: "downloading"; progress: number }
-  | { phase: "loading" }
-  | { phase: "ready" }
-  | { phase: "error"; message: string };
+  | { phase: "idle"; modelId?: string }
+  | { phase: "downloading"; progress: number; modelId?: string }
+  | { phase: "loading"; modelId?: string }
+  | { phase: "ready"; modelId?: string }
+  | { phase: "error"; message: string; modelId?: string };
+
+export type LifecycleResult =
+  | { status: "ready"; modelId: string }
+  | { status: "already_loaded"; modelId: string }
+  | { status: "install_required"; modelId: string; message: string }
+  | { status: "unsupported"; modelId: string; message: string }
+  | { status: "error"; modelId: string; message: string };
 
 let instance: Wllama | null = null;
 let currentModel: string | null = null;
@@ -324,58 +331,58 @@ export async function cachedModels(): Promise<Set<string>> {
 /** Resolve the six-state label for one model. */
 export function modelState(
   modelId: string,
-  opts: { downloaded: Set<string>; status: AiStatus; activeId: string | null; mobile?: boolean },
+  opts: { downloaded: Set<string>; status: AiStatus; loadedId: string | null; mobile?: boolean },
 ): ModelState {
   const spec = MODEL_BY_ID[modelId];
   if (!spec) return "unavailable";
   if (spec.desktopOnly && opts.mobile) return "unavailable";
-  if (opts.activeId === modelId) {
+  if (opts.status.modelId === modelId) {
     if (opts.status.phase === "error") return "error";
-    if (opts.status.phase === "downloading") return "downloading";
-    if (opts.status.phase === "loading") return "downloading";
-    if (opts.status.phase === "ready") return "ready";
+    if (opts.status.phase === "downloading" || opts.status.phase === "loading") return "loading";
   }
-  return opts.downloaded.has(modelId) ? "downloaded" : "required";
+  if (opts.loadedId === modelId && isReady(modelId)) return "loaded";
+  return opts.downloaded.has(modelId) ? "downloaded" : "missing";
 }
 
 export const STATE_LABEL: Record<ModelState, string> = {
-  required: "needs download",
-  downloading: "downloading",
-  downloaded: "on device",
-  ready: "running",
+  missing: "missing",
+  loading: "loading",
+  downloaded: "downloaded",
+  loaded: "loaded",
   unavailable: "unavailable here",
   error: "error",
 };
 
 export type LoadOptions = { nCtx?: number };
 
-export async function loadModel(
+async function loadModelInternal(
   modelId: string,
   onStatus: (s: AiStatus) => void,
-  options: LoadOptions = {},
+  options: LoadOptions & { allowDownload: boolean } = { allowDownload: false },
 ): Promise<void> {
   const spec = MODEL_BY_ID[modelId] ?? MODEL_BY_ID[DEFAULT_MODEL_ID];
   if (spec.runtime !== "gguf") {
     throw new Error(`${spec.label} is loaded through the encoder runtime, not the chat runtime.`);
   }
   const nCtx = Math.min(options.nCtx ?? DEFAULT_CTX, spec.maxCtx);
+  if (!options.allowDownload && !(await cachedModels()).has(spec.id)) {
+    const err = new Error(`${spec.label} is not downloaded. Download it first.`);
+    onStatus({ phase: "error", message: err.message, modelId: spec.id });
+    throw err;
+  }
   if (isReady(spec.id) && currentCtx === nCtx) {
-    onStatus({ phase: "ready" });
+    onStatus({ phase: "ready", modelId: spec.id });
     return;
   }
   try {
-    // Only one generative model is resident at a time: unload before loading.
-    if (instance) {
-      await instance.exit().catch(() => {});
-      instance = null;
-      currentModel = null;
-      activeBackendValue = "unavailable";
-    }
-    onStatus({ phase: "downloading", progress: 0 });
+    await unload();
+    onStatus(
+      options.allowDownload
+        ? { phase: "downloading", progress: 0, modelId: spec.id }
+        : { phase: "loading", modelId: spec.id },
+    );
     const caps = await detectRuntime();
     const runtime = await createRuntime();
-    // WebGPU first; when the adapter or device never came back we run the
-    // WASM SIMD path instead of pretending the GPU is in play.
     const gpuOk = caps.webgpu && runtime.isSupportWebGPU?.() !== false;
     const load = async (useGpu: boolean) =>
       runtime.loadModelFromHF(
@@ -389,7 +396,13 @@ export async function loadModel(
           useCache: true,
           n_gpu_layers: useGpu ? 99999 : 0,
           progressCallback: ({ loaded, total }: { loaded: number; total: number }) => {
-            onStatus({ phase: "downloading", progress: total ? loaded / total : 0 });
+            if (options.allowDownload) {
+              onStatus({
+                phase: "downloading",
+                progress: total ? loaded / total : 0,
+                modelId: spec.id,
+              });
+            }
           },
         } as never,
       );
@@ -398,15 +411,14 @@ export async function loadModel(
       activeBackendValue = gpuOk ? "webgpu" : caps.wasmSimd || caps.wasm ? "wasm" : "unavailable";
     } catch (gpuErr) {
       if (!gpuOk) throw gpuErr;
-      onStatus({ phase: "loading" });
+      onStatus({ phase: "loading", modelId: spec.id });
       await load(false);
       activeBackendValue = "wasm";
     }
     instance = runtime;
     currentModel = spec.id;
     currentCtx = nCtx;
-    onStatus({ phase: "ready" });
-
+    onStatus({ phase: "ready", modelId: spec.id });
   } catch (err) {
     instance = null;
     currentModel = null;
@@ -414,19 +426,88 @@ export async function loadModel(
     onStatus({
       phase: "error",
       message: err instanceof Error ? err.message : "the assistant failed to start",
+      modelId: spec.id,
     });
     throw err;
   }
 }
 
-export async function unload() {
-  if (!instance) return;
-  await instance.exit().catch(() => {});
-  instance = null;
-  currentModel = null;
-  activeBackendValue = "unavailable";
+/** Explicit install path. This may fetch model assets and then unloads the runtime. */
+export async function downloadModel(
+  modelId: string,
+  onStatus: (s: AiStatus) => void,
+  options: LoadOptions = {},
+): Promise<LifecycleResult> {
+  const spec = MODEL_BY_ID[modelId] ?? MODEL_BY_ID[DEFAULT_MODEL_ID];
+  try {
+    await loadModelInternal(spec.id, onStatus, { ...options, allowDownload: true });
+    await unload();
+    return { status: "ready", modelId: spec.id };
+  } catch (err) {
+    return {
+      status: "error",
+      modelId: spec.id,
+      message: err instanceof Error ? err.message : "download failed",
+    };
+  }
 }
 
+/** Explicit load path. It refuses to fetch assets. */
+export async function loadDownloadedModel(
+  modelId: string,
+  onStatus: (s: AiStatus) => void,
+  options: LoadOptions = {},
+): Promise<LifecycleResult> {
+  const spec = MODEL_BY_ID[modelId] ?? MODEL_BY_ID[DEFAULT_MODEL_ID];
+  if (spec.desktopOnly && deviceProfile().mobile) {
+    return { status: "unsupported", modelId: spec.id, message: "This model is unavailable here." };
+  }
+  if (!(await cachedModels()).has(spec.id)) {
+    const message = `${spec.label} is not downloaded. Download it first.`;
+    onStatus({ phase: "error", message, modelId: spec.id });
+    return { status: "install_required", modelId: spec.id, message };
+  }
+  try {
+    await loadModelInternal(spec.id, onStatus, { ...options, allowDownload: false });
+    return { status: "ready", modelId: spec.id };
+  } catch (err) {
+    return {
+      status: "error",
+      modelId: spec.id,
+      message: err instanceof Error ? err.message : "load failed",
+    };
+  }
+}
+
+export async function rotateToDownloadedModel(
+  modelId: string,
+  onStatus: (s: AiStatus) => void,
+  options: LoadOptions = {},
+): Promise<LifecycleResult> {
+  const spec = MODEL_BY_ID[modelId] ?? MODEL_BY_ID[DEFAULT_MODEL_ID];
+  if (isReady(spec.id)) return { status: "already_loaded", modelId: spec.id };
+  return loadDownloadedModel(spec.id, onStatus, options);
+}
+
+/** Backwards-compatible name for explicit cached load. Never downloads. */
+export async function loadModel(
+  modelId: string,
+  onStatus: (s: AiStatus) => void,
+  options: LoadOptions = {},
+): Promise<void> {
+  const result = await loadDownloadedModel(modelId, onStatus, options);
+  if (result.status === "install_required" || result.status === "unsupported" || result.status === "error") {
+    throw new Error(result.message);
+  }
+}
+
+export async function unload() {
+  if (instance) await instance.exit().catch(() => {});
+  instance = null;
+  currentModel = null;
+  currentCtx = DEFAULT_CTX;
+  activeBackendValue = "unavailable";
+}
 
 /** Stops the generation currently streaming, if any. */
 export function stopGeneration() {

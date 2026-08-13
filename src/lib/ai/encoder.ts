@@ -11,7 +11,8 @@ import {
   DEFAULT_EMBEDDING_ID,
   cosine as cosineOf,
   embed as embedWith,
-  ensureProvider,
+  downloadProvider,
+  loadDownloadedProvider,
   ensureProviderIfCached,
   onEmbeddingChange,
   providerBackend,
@@ -25,7 +26,7 @@ import {
   type EmbeddingProviderId,
 } from "@/lib/ai/embedding";
 
-export type EncoderState = "required" | "downloading" | "ready" | "unavailable" | "error";
+export type EncoderState = "missing" | "downloaded" | "loading" | "loaded" | "unavailable" | "error";
 
 /** Which provider the legacy encoder API drives. */
 function active(): EmbeddingProviderId {
@@ -56,8 +57,12 @@ export async function encoderCached(): Promise<boolean> {
   );
 }
 
-export async function ensureEncoder(onProgress?: (fraction: number) => void) {
-  return ensureProvider(active(), onProgress);
+export async function downloadSemanticProvider(onProgress?: (fraction: number) => void) {
+  return downloadProvider(active(), onProgress);
+}
+
+export async function activateSemantic(onProgress?: (fraction: number) => void) {
+  return loadDownloadedProvider(active(), onProgress);
 }
 
 export async function ensureEncoderIfCached() {
