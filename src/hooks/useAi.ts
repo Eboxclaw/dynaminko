@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 
 import {
+  activeBackend,
   cachedModels,
   chat,
   deviceProfile,
@@ -13,14 +14,57 @@ import {
   DEFAULT_CTX,
   stopGeneration,
   unload,
+  UNKNOWN_PROFILE,
   type AiStatus,
   type ChatOptions,
   type ModelState,
 } from "@/lib/ai";
+import {
+  detectRuntime,
+  runtimeSnapshot,
+  type Backend,
+  type RuntimeCapabilities,
+} from "@/lib/ai/runtime";
+import {
+  encoderBackend,
+  encoderCached,
+  encoderError,
+  encoderProgress,
+  encoderState,
+  ensureEncoder,
+  onEncoderChange,
+  unloadEncoder,
+  type EncoderState,
+} from "@/lib/ai/encoder";
+import { cloudChat, CLOUD_BY_ID, type CloudConfig } from "@/lib/ai/cloud";
 import { useSettings } from "./useDoc";
+import { useDoc } from "./useDoc";
+
+/** Subscribes to the encoder without polling. */
+function useEncoder() {
+  const state = useSyncExternalStore<EncoderState>(
+    onEncoderChange,
+    () => encoderState(),
+    () => "required" as EncoderState,
+  );
+  const [cached, setCached] = useState(false);
+  useEffect(() => {
+    void encoderCached().then(setCached);
+  }, [state]);
+  return {
+    state,
+    cached,
+    progress: encoderProgress(),
+    error: encoderError(),
+    backend: encoderBackend(),
+    load: ensureEncoder,
+    unload: unloadEncoder,
+  };
+}
 
 export function useAi() {
   const [settings, setSettings] = useSettings();
+  const doc = useDoc();
   const [status, setStatus] = useState<AiStatus>({ phase: "idle" });
   const [output, setOutput] = useState("");
   const [running, setRunning] = useState(false);
@@ -30,14 +74,31 @@ export function useAi() {
   const [maxTokens, setMaxTokens] = useState(320);
   const [downloaded, setDownloaded] = useState<Set<string>>(new Set());
   const [speed, setSpeed] = useState<{ tps: number; tokens: number } | null>(null);
-  const [profile] = useState(() => deviceProfile());
+  // Probed after mount so the server and the first client render agree.
+  const [profile, setProfile] = useState(UNKNOWN_PROFILE);
+  const [caps, setCaps] = useState<RuntimeCapabilities>(() => runtimeSnapshot());
+  const [backend, setBackend] = useState<Backend>("unavailable");
+  const encoder = useEncoder();
   const mounted = useRef(true);
+  const cloudAbort = useRef<AbortController | null>(null);
+
+  const assistant = doc.settings.assistant;
+  const cloudId = assistant.cloudId;
+  const cloudCfg: CloudConfig | null =
+    assistant.provider === "cloud" && cloudId && assistant.cloud?.[cloudId]?.apiKey
+      ? { id: cloudId as CloudConfig["id"], ...assistant.cloud[cloudId] }
+      : null;
 
   useEffect(() => {
     mounted.current = true;
+    setProfile(deviceProfile());
+    void detectRuntime().then((c) => {
+      if (mounted.current) setCaps(c);
+    });
     if (isReady(settings.aiModelId)) {
       setStatus({ phase: "ready" });
       setLoadedCtx(loadedContext());
+      setBackend(activeBackend());
     }
     return () => {
       mounted.current = false;
@@ -58,6 +119,7 @@ export function useAi() {
       try {
         await loadModel(modelId, (s) => mounted.current && setStatus(s), { nCtx: ctx });
         setLoadedCtx(loadedContext());
+        setBackend(activeBackend());
         setSettings({ aiEnabled: true, aiModelId: modelId });
         void refreshDownloaded();
       } catch {
@@ -70,23 +132,43 @@ export function useAi() {
   const stop = useCallback(async () => {
     await unload();
     setStatus({ phase: "idle" });
+    setBackend("unavailable");
     setSettings({ aiEnabled: false });
   }, [setSettings]);
 
   /** Loads the selected model if it is not running yet. Downloads on demand. */
   const ensure = useCallback(async () => {
+    if (cloudCfg) return true;
     if (isReady(settings.aiModelId) && loadedContext() === ctx) return true;
     await load();
     return isReady(settings.aiModelId);
-  }, [ctx, load, settings.aiModelId]);
+  }, [cloudCfg, ctx, load, settings.aiModelId]);
 
   const ask = useCallback(
     async (prompt: { system: string; user: string }, options: ChatOptions = {}) => {
-      if (!isReady(settings.aiModelId)) await load();
       setRunning(true);
       setOutput("");
       setSpeed(null);
       try {
+        if (cloudCfg) {
+          const controller = new AbortController();
+          cloudAbort.current = controller;
+          const started = performance.now();
+          const text = await cloudChat(cloudCfg, prompt.system, prompt.user, {
+            temperature,
+            maxTokens,
+            signal: controller.signal,
+            onToken: (partial) => {
+              if (!mounted.current) return;
+              setOutput(partial);
+              const secs = (performance.now() - started) / 1000;
+              const tokens = Math.ceil(partial.length / 4);
+              if (secs > 0.2) setSpeed({ tps: tokens / secs, tokens });
+            },
+          });
+          return text;
+        }
+        if (!isReady(settings.aiModelId)) await load();
         const text = await chat(
           prompt.system,
           prompt.user,
@@ -102,11 +184,17 @@ export function useAi() {
         );
         return text;
       } finally {
+        cloudAbort.current = null;
         if (mounted.current) setRunning(false);
       }
     },
-    [load, maxTokens, settings.aiModelId, temperature],
+    [cloudCfg, load, maxTokens, settings.aiModelId, temperature],
   );
+
+  const abort = useCallback(() => {
+    cloudAbort.current?.abort();
+    stopGeneration();
+  }, []);
 
   const spec = MODEL_BY_ID[settings.aiModelId];
 
@@ -128,6 +216,19 @@ export function useAi() {
     [setSettings],
   );
 
+  /** What is actually answering: the local model or a configured cloud model. */
+  const target = cloudCfg
+    ? {
+        kind: "cloud" as const,
+        label: `${CLOUD_BY_ID[cloudCfg.id].label} · ${cloudCfg.model || CLOUD_BY_ID[cloudCfg.id].model}`,
+        backend: "cloud" as const,
+      }
+    : {
+        kind: "local" as const,
+        label: spec?.label ?? "no model",
+        backend,
+      };
+
   return {
     models: MODELS,
     modelId: settings.aiModelId,
@@ -137,6 +238,11 @@ export function useAi() {
     states,
     downloaded,
     profile,
+    caps,
+    backend,
+    encoder,
+    cloud: cloudCfg,
+    target,
     speed,
     output,
     running,
@@ -151,7 +257,7 @@ export function useAi() {
     ensure,
     select,
     stop,
-    abort: stopGeneration,
+    abort,
     ask,
     setOutput,
     refreshDownloaded,
