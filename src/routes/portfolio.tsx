@@ -527,17 +527,51 @@ function BasketPicker({
   overrides: Record<string, string>;
 }) {
   const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
+  const [pos, setPos] = useState<{ top: number; left: number; height: number } | null>(null);
+  const [sheet, setSheet] = useState(false);
+  const btnRef = useRef<HTMLButtonElement>(null);
+  const popRef = useRef<HTMLDivElement>(null);
   const key = symbol.toUpperCase();
   const overridden = Boolean(overrides[key]);
+
+  // The menu is measured against the viewport, so it never grows past the
+  // card it lives in: it flips above the dot and scrolls internally instead.
+  const place = () => {
+    const r = btnRef.current?.getBoundingClientRect();
+    if (!r) return;
+    const narrow = window.innerWidth < 640;
+    setSheet(narrow);
+    if (narrow) return;
+    const width = 224;
+    const below = window.innerHeight - r.bottom - 12;
+    const above = r.top - 12;
+    const flip = below < 220 && above > below;
+    const height = Math.max(160, Math.min(360, flip ? above : below));
+    setPos({
+      top: flip ? r.top - 8 - height : r.bottom + 8,
+      left: Math.min(Math.max(8, r.right - width), window.innerWidth - width - 8),
+      height,
+    });
+  };
 
   useEffect(() => {
     if (!open) return;
     const close = (e: MouseEvent) => {
-      if (!ref.current?.contains(e.target as Node)) setOpen(false);
+      const t = e.target as Node;
+      if (!btnRef.current?.contains(t) && !popRef.current?.contains(t)) setOpen(false);
     };
+    const esc = (e: KeyboardEvent) => e.key === "Escape" && setOpen(false);
+    const reflow = () => place();
     document.addEventListener("mousedown", close);
-    return () => document.removeEventListener("mousedown", close);
+    document.addEventListener("keydown", esc);
+    window.addEventListener("resize", reflow);
+    window.addEventListener("scroll", reflow, true);
+    return () => {
+      document.removeEventListener("mousedown", close);
+      document.removeEventListener("keydown", esc);
+      window.removeEventListener("resize", reflow);
+      window.removeEventListener("scroll", reflow, true);
+    };
   }, [open]);
 
   const set = (id: SectorId | null) => {
@@ -548,12 +582,60 @@ function BasketPicker({
     setOpen(false);
   };
 
+  const list = (
+    <div
+      ref={popRef}
+      className={
+        sheet
+          ? "fixed inset-x-0 bottom-0 z-50 max-h-[70dvh] overflow-y-auto rounded-t-2xl border-t border-stroke bg-paper p-2 pb-[calc(env(safe-area-inset-bottom)+12px)] shadow-2xl"
+          : "fixed z-50 w-56 overflow-y-auto rounded-[3px] border border-stroke bg-paper p-1 shadow-xl"
+      }
+      style={
+        sheet || !pos ? undefined : { top: pos.top, left: pos.left, maxHeight: pos.height }
+      }
+    >
+      <p className="eyebrow flex items-center justify-between px-2 py-1.5">
+        <span className="truncate">{symbol}</span>
+        <span className="truncate">{SOURCE_LABEL[classifyAsset(symbol, overrides).source]}</span>
+      </p>
+      {SECTORS.map((sct) => (
+        <button
+          key={sct.id}
+          type="button"
+          onClick={() => set(sct.id)}
+          className="flex w-full items-center gap-2 rounded-[2px] px-2 py-2 text-left text-[13px] hover:bg-sunken"
+        >
+          <span
+            className="h-2.5 w-2.5 shrink-0 rounded-full"
+            style={{ background: sectorColor(sct.id) }}
+          />
+          <span className="flex-1 truncate">{sct.label}</span>
+          {current === sct.id && <span className="eyebrow">now</span>}
+        </button>
+      ))}
+      {overridden && (
+        <button
+          type="button"
+          onClick={() => set(null)}
+          className="eyebrow w-full px-2 py-2 text-left hover:text-ink"
+        >
+          reset to automatic
+        </button>
+      )}
+    </div>
+  );
+
   return (
-    <div ref={ref} className="relative">
+    <div className="relative shrink-0">
       <button
+        ref={btnRef}
         type="button"
         aria-label={`Basket for ${symbol}`}
-        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        onClick={() => {
+          place();
+          setOpen((v) => !v);
+        }}
         className="flex h-7 w-7 items-center justify-center rounded-full border border-stroke hover:border-ink"
       >
         <span
@@ -564,40 +646,21 @@ function BasketPicker({
       {overridden && (
         <span className="pointer-events-none absolute -right-0.5 -top-0.5 h-1.5 w-1.5 rounded-full bg-ink" />
       )}
-      {open && (
-        <div className="absolute right-0 top-8 z-20 w-52 rounded-xl border border-stroke bg-paper p-1 shadow-lg">
-          <p className="eyebrow px-2 py-1.5">
-            {SOURCE_LABEL[classifyAsset(symbol, overrides).source]}
-          </p>
-          {SECTORS.map((sct) => (
-            <button
-              key={sct.id}
-              type="button"
-              onClick={() => set(sct.id)}
-              className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-[13px] hover:bg-sunken"
-            >
-              <span
-                className="h-2.5 w-2.5 shrink-0 rounded-full"
-                style={{ background: sectorColor(sct.id) }}
-              />
-              <span className="flex-1">{sct.label}</span>
-              {current === sct.id && <span className="eyebrow">now</span>}
-            </button>
-          ))}
-          {overridden && (
-            <button
-              type="button"
-              onClick={() => set(null)}
-              className="eyebrow w-full px-2 py-1.5 text-left hover:text-ink"
-            >
-              reset to automatic
-            </button>
-          )}
-        </div>
-      )}
+      {open &&
+        typeof document !== "undefined" &&
+        createPortal(
+          <>
+            {sheet && (
+              <div className="fixed inset-0 z-40 bg-ink/20" onClick={() => setOpen(false)} />
+            )}
+            {list}
+          </>,
+          document.body,
+        )}
     </div>
   );
 }
+
 
 function stateLabel(status?: string) {
   switch (status) {
