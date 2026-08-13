@@ -360,27 +360,45 @@ export async function loadModel(
     return;
   }
   try {
+    // Only one generative model is resident at a time: unload before loading.
     if (instance) {
       await instance.exit().catch(() => {});
       instance = null;
       currentModel = null;
+      activeBackendValue = "unavailable";
     }
     onStatus({ phase: "downloading", progress: 0 });
+    const caps = await detectRuntime();
     const runtime = await createRuntime();
-    await runtime.loadModelFromHF(
-      { repo: spec.repo, quant: spec.quant },
-      {
-        n_ctx: nCtx,
-        useCache: true,
-        progressCallback: ({ loaded, total }: { loaded: number; total: number }) => {
-          onStatus({ phase: "downloading", progress: total ? loaded / total : 0 });
-        },
-      },
-    );
+    // WebGPU first; when the adapter or device never came back we run the
+    // WASM SIMD path instead of pretending the GPU is in play.
+    const gpuOk = caps.webgpu && runtime.isSupportWebGPU?.() !== false;
+    const load = async (useGpu: boolean) =>
+      runtime.loadModelFromHF(
+        { repo: spec.repo, quant: spec.quant },
+        {
+          n_ctx: nCtx,
+          useCache: true,
+          n_gpu_layers: useGpu ? 99999 : 0,
+          progressCallback: ({ loaded, total }: { loaded: number; total: number }) => {
+            onStatus({ phase: "downloading", progress: total ? loaded / total : 0 });
+          },
+        } as never,
+      );
+    try {
+      await load(gpuOk);
+      activeBackendValue = gpuOk ? "webgpu" : caps.wasmSimd || caps.wasm ? "wasm" : "unavailable";
+    } catch (gpuErr) {
+      if (!gpuOk) throw gpuErr;
+      onStatus({ phase: "loading" });
+      await load(false);
+      activeBackendValue = "wasm";
+    }
     instance = runtime;
     currentModel = spec.id;
     currentCtx = nCtx;
     onStatus({ phase: "ready" });
+
   } catch (err) {
     instance = null;
     currentModel = null;
