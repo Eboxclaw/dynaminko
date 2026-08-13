@@ -5,6 +5,7 @@ import { getDoc, type Sentiment } from "@/lib/store";
 import { CTX_CHOICES, MODELS } from "@/lib/ai";
 import { SKILLS } from "@/lib/skills/registry";
 import { TOOLS } from "@/lib/tools/registry";
+import { COMMAND_DEFS } from "@/lib/commands/registry";
 
 export type Suggestion = {
   /** what gets inserted into the composer */
