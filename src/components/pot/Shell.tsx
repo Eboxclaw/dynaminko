@@ -147,9 +147,12 @@ export function Shell({
         </div>
       </header>
 
-      <main className="mx-auto max-w-5xl px-4 pb-28 pt-5 md:px-8 lg:pb-14 lg:pl-[92px] lg:pr-8">
-        {children}
+      {/* The rail offset lives on the outer element so the cards stay centred
+          inside the remaining width instead of drifting right of centre. */}
+      <main className="pb-28 pt-5 lg:pb-14 lg:pl-[68px]">
+        <div className="mx-auto w-full max-w-5xl px-4 md:px-8">{children}</div>
       </main>
+
 
       <nav className="fixed inset-x-0 bottom-0 z-30 border-t border-stroke bg-paper/95 pb-[env(safe-area-inset-bottom)] backdrop-blur-xl lg:hidden">
         <div className="mx-auto flex max-w-md items-stretch justify-between px-2 py-1.5">

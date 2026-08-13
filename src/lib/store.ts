@@ -95,13 +95,25 @@ export type LogLine = {
   ms: number | null;
 };
 
+/** One optional cloud endpoint, OpenAI-compatible. Keys stay on this device. */
+export type CloudCredential = {
+  apiKey: string;
+  baseUrl?: string;
+  model?: string;
+};
+
 /** The single agent the user is allowed to configure. */
 export type AssistantConfig = {
   provider: "local" | "cloud";
   modelId: string;
   skills: string[];
   tools: string[];
+  /** which cloud provider is active when provider === "cloud" */
+  cloudId?: string;
+  /** provider id → credential, local to this browser */
+  cloud?: Record<string, CloudCredential>;
 };
+
 
 export type Settings = {
   hideBalances: boolean;
@@ -444,6 +456,17 @@ export function patchAssistant(patch: Partial<AssistantConfig>) {
     d.settings.assistant = { ...d.settings.assistant, ...patch };
   });
 }
+
+/** Store or clear one cloud credential. Local only, never leaves the device. */
+export function patchCloudCredential(id: string, patch: Partial<CloudCredential> | null) {
+  update((d) => {
+    const cloud = { ...(d.settings.assistant.cloud ?? {}) };
+    if (patch === null) delete cloud[id];
+    else cloud[id] = { ...(cloud[id] ?? { apiKey: "" }), ...patch };
+    d.settings.assistant = { ...d.settings.assistant, cloud };
+  });
+}
+
 
 export function toggleAssistantItem(field: "skills" | "tools", id: string) {
   update((d) => {

@@ -1,6 +1,16 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { Brain, Eye, ImagePlus, Send, Sparkles, SquareStack, X } from "lucide-react";
+import {
+  Brain,
+  Eye,
+  HelpCircle,
+  ImagePlus,
+  Send,
+  Sparkles,
+  SquareStack,
+  X,
+} from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
+
 
 import { ModelPanel } from "@/components/pot/ModelPanel";
 import { Panel, Shell } from "@/components/pot/Shell";
@@ -9,6 +19,8 @@ import { useDoc } from "@/hooks/useDoc";
 import { relativeTime } from "@/lib/format";
 import { MAX_CONTEXT_MESSAGES, MODELS, STATE_LABEL, splitThinking } from "@/lib/ai";
 import { encoderState } from "@/lib/ai/encoder";
+import { referenceIndex, retrieveContext, type Reference } from "@/lib/ai/retrieval";
+
 import { AGENTS, automationOn } from "@/lib/agents/registry";
 import { COMMANDS, parseCommand, suggestions, type Suggestion } from "@/lib/chat/commands";
 import { digestLine } from "@/lib/chat/context";
@@ -151,6 +163,9 @@ function ChatConsole({
   const [reasoning, setReasoning] = useState(false);
   const [thinking, setThinking] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [help, setHelp] = useState(false);
+  const [helpQuery, setHelpQuery] = useState("");
+
   const boxRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -175,8 +190,19 @@ function ChatConsole({
   }, [busy, activeId]);
 
   const picks = useMemo(() => suggestions(input), [input]);
+  // `@` pulls journal entries and theses into the turn. Deterministic lookup —
+  // no embeddings, no download, and only the picked records travel to a model.
+  const mentionQuery = useMemo(() => {
+    const m = /(?:^|\s)@([\w .-]*)$/.exec(input);
+    return m ? m[1] : null;
+  }, [input]);
+  const mentions = useMemo(
+    () => (mentionQuery === null ? [] : referenceIndex(mentionQuery, 8)),
+    [mentionQuery],
+  );
   const canSee = Boolean(ai.spec?.vision);
   const canReason = Boolean(ai.spec?.reasoning);
+
 
   const push = (m: Omit<ChatMessage, "id" | "ts">) => {
     const msg = newMessage(m);
@@ -196,9 +222,10 @@ function ChatConsole({
     setMessages([]);
   };
 
-  const speak = async (system: string, user: string) => {
+  const speak = async (system: string, user: string, ground = false) => {
     // Chatting is itself the request to download: the model loads on demand.
-    if (ai.status.phase !== "ready") {
+    // Cloud targets skip this entirely.
+    if (ai.target.kind === "local" && ai.status.phase !== "ready") {
       push({
         role: "note",
         text: `${ai.spec?.label ?? "The model"} is not running yet — starting it now. First run downloads ~${ai.spec?.weightsGb ?? "?"} GB, then it stays on this device.`,
@@ -214,14 +241,36 @@ function ChatConsole({
     }
     setBusy(true);
     try {
+      // Retrieval before generation: a handful of records, never the journal.
+      let grounding = "";
+      if (ground) {
+        const found = await retrieveContext(user, 6);
+        if (found.count) {
+          grounding = `\n\nRecords (${found.how}):\n${found.lines.join("\n")}`;
+          push({
+            role: "tool",
+            text: `retrieval · ${found.count} records`,
+            card: {
+              source: `journal.retrieve (${found.how})`,
+              facts: found.lines.slice(0, 5),
+              data: { count: found.count, how: found.how },
+            },
+
+          });
+        }
+      }
       const history = contextFor(messages, Math.floor(ai.ctx * 0.4), MAX_CONTEXT_MESSAGES);
       const raw = await ai.ask(
-        { system: `${system}\n\nContext: ${digestLine()}`, user: `${history.text}\n\n${user}` },
+        {
+          system: `${system}\n\nContext: ${digestLine()}${grounding}`,
+          user: `${history.text}\n\n${user}`,
+        },
         {
           thinking,
           images: vision && image ? [image] : undefined,
         },
       );
+
       const { thinking: think, answer } = splitThinking(raw);
       push({ role: "assistant", text: answer || raw, thinking: think });
       setImage(null);
@@ -479,15 +528,24 @@ function ChatConsole({
     }
 
     await speak(
-      "You are the assistant inside a trading journal. Answer briefly. If a number is needed, say which tool would produce it instead of guessing.",
+      "You are the assistant inside a trading journal. Answer briefly. Use the records provided; if a number is needed and no record carries it, say which tool would produce it instead of guessing.",
       text,
+      true,
     );
+
   };
 
   const apply = (s: Suggestion) => {
     setInput(s.insert);
     inputRef.current?.focus();
   };
+
+  /** Replaces the trailing `@query` with the picked record's title. */
+  const applyMention = (r: Reference) => {
+    setInput((prev) => prev.replace(/(?:^|\s)@([\w .-]*)$/, (m) => `${m.startsWith(" ") ? " " : ""}@${r.title} `));
+    inputRef.current?.focus();
+  };
+
 
   const active = sessions.find((s) => s.id === activeId);
   const ctxUsed = contextFor(messages, Math.floor(ai.ctx * 0.4), MAX_CONTEXT_MESSAGES);
@@ -628,7 +686,25 @@ function ChatConsole({
           </ul>
         </div>
 
-        {picks.length > 0 && (
+        {mentions.length > 0 && (
+          <ul className="max-h-[190px] overflow-y-auto border-t border-stroke">
+            {mentions.map((r) => (
+              <li key={`${r.kind}:${r.id}`}>
+                <button
+                  type="button"
+                  onClick={() => applyMention(r)}
+                  className="flex w-full items-baseline gap-2 px-4 py-2 text-left hover:bg-sunken"
+                >
+                  <span className="eyebrow">{r.kind}</span>
+                  <span className="min-w-0 flex-1 truncate text-[12px]">{r.title}</span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+
+        {mentions.length === 0 && picks.length > 0 && (
+
           <ul className="max-h-[190px] overflow-y-auto border-t border-stroke">
             {picks.map((s) => (
               <li key={s.insert}>
@@ -727,11 +803,23 @@ function ChatConsole({
             )}
             <button
               type="button"
+              onClick={() => setHelp((h) => !h)}
+              className={cn(
+                "doodle-pill ml-auto inline-flex items-center gap-1 px-2.5 py-1 text-[11px]",
+                help ? "bg-ink text-paper" : "text-ink-faint hover:border-ink",
+              )}
+            >
+              <HelpCircle className="h-3 w-3" /> Help
+            </button>
+            <button
+              type="button"
               onClick={() => onOpenRail("model")}
-              className="doodle-pill num ml-auto inline-flex items-center gap-1 px-2.5 py-1 text-[11px] hover:border-ink"
+              className="doodle-pill num inline-flex items-center gap-1 px-2.5 py-1 text-[11px] hover:border-ink"
             >
               <SquareStack className="h-3 w-3" />
-              {ai.spec?.label ?? "no model"} · {STATE_LABEL[ai.states[ai.modelId]]}
+              {ai.target.kind === "cloud"
+                ? ai.target.label
+                : `${ai.spec?.label ?? "no model"} · ${STATE_LABEL[ai.states[ai.modelId]]}`}
             </button>
 
             <input
@@ -754,18 +842,104 @@ function ChatConsole({
             <span>
               {ctxUsed.turns}/{MAX_CONTEXT_MESSAGES} turns replayed · ~{ctxUsed.used} tok
             </span>
+            <span>
+              {ai.target.kind === "cloud" ? "cloud" : ai.backend === "webgpu" ? "WebGPU" : "WASM"}
+            </span>
             {ai.status.phase === "downloading" && (
               <span>downloading {Math.round(ai.status.progress * 100)}%</span>
             )}
             {ai.speed && <span>{ai.speed.tps.toFixed(1)} tok/s</span>}
-            <span>encoder {encoderState()}</span>
+            <span>{encoderState() === "required" ? "encoder optional" : `encoder ${encoderState()}`}</span>
           </p>
         </div>
+        {help && (
+          <HelpPanel
+            query={helpQuery}
+            onQuery={setHelpQuery}
+            onPick={(insert) => {
+              setInput(insert);
+              setHelp(false);
+              inputRef.current?.focus();
+            }}
+          />
+        )}
       </Panel>
 
     </div>
   );
 }
+
+/**
+ * Searchable reference for everything the console can do: commands, skills and
+ * live tools. Plain substring matching — discovery must work with no model and
+ * no encoder on the device.
+ */
+function HelpPanel({
+  query,
+  onQuery,
+  onPick,
+}: {
+  query: string;
+  onQuery: (v: string) => void;
+  onPick: (insert: string) => void;
+}) {
+  const q = query.trim().toLowerCase();
+  const hit = (...parts: string[]) => !q || parts.join(" ").toLowerCase().includes(q);
+
+  const rows = [
+    ...COMMANDS.filter((c) => hit(c.name, c.args, c.blurb)).map((c) => ({
+      key: `cmd:${c.name}`,
+      group: "command",
+      label: `/${c.name} ${c.args}`.trim(),
+      hint: c.blurb,
+      insert: `/${c.name} `,
+    })),
+    ...SKILLS.filter((s) => hit(s.id, s.label, s.purpose)).map((s) => ({
+      key: `skill:${s.id}`,
+      group: s.aiRequired ? "skill · uses a model" : "skill · deterministic",
+      label: `/skill ${s.id}`,
+      hint: s.purpose,
+      insert: `/skill ${s.id}`,
+    })),
+    ...TOOLS.filter((t) => t.live && hit(t.id, t.label, t.purpose)).map((t) => ({
+      key: `tool:${t.id}`,
+      group: `tool · ${t.access}`,
+      label: `/tool ${t.id}`,
+      hint: t.purpose,
+      insert: `/tool ${t.id} `,
+    })),
+  ];
+
+  return (
+    <div className="border-t border-stroke">
+      <input
+        value={query}
+        onChange={(e) => onQuery(e.target.value)}
+        placeholder="Search commands, skills and tools"
+        className="w-full border-b border-stroke bg-transparent px-4 py-2 text-[12px] outline-none"
+      />
+      <ul className="max-h-[240px] overflow-y-auto">
+        {rows.length === 0 && (
+          <li className="px-4 py-3 text-[12px] text-ink-soft">Nothing matches that.</li>
+        )}
+        {rows.map((r) => (
+          <li key={r.key}>
+            <button
+              type="button"
+              onClick={() => onPick(r.insert)}
+              className="flex w-full items-baseline gap-2 px-4 py-2 text-left hover:bg-sunken"
+            >
+              <span className="num text-[12px] font-medium">{r.label}</span>
+              <span className="min-w-0 flex-1 truncate text-[12px] text-ink-soft">{r.hint}</span>
+              <span className="eyebrow">{r.group}</span>
+            </button>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 
 function Toggle({
   on,

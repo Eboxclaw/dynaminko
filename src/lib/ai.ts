@@ -4,6 +4,8 @@
 // Nothing leaves the device; weights are cached after the first download.
 
 import type { Wllama } from "@wllama/wllama/esm/index.js";
+import { detectRuntime, type Backend } from "@/lib/ai/runtime";
+
 
 /** What a model is allowed to be used for. Cheapest capable model wins. */
 export type Capability = "encode" | "extract" | "vision" | "assist" | "reason";
@@ -32,10 +34,15 @@ export type ModelSpec = {
   /** can generate prose at all (the encoder cannot) */
   generative: boolean;
   maxCtx: number;
+  /** which browser backend this model prefers, and what it falls back to */
+  backend: { preferred: "webgpu"; fallback: "wasm" };
 };
 
-/** Strongest first — the recommendation walks down this list. */
-export const MODELS: ModelSpec[] = [
+/** Every model here runs in the browser: GPU when the device has one. */
+const BROWSER_BACKEND = { preferred: "webgpu", fallback: "wasm" } as const;
+
+const MODEL_LIST: Omit<ModelSpec, "backend">[] = [
+
   {
     id: "lfm2-2_6",
     label: "LFM 2.5 2.6B",
@@ -107,7 +114,13 @@ export const MODELS: ModelSpec[] = [
   },
 ];
 
-export const MODEL_BY_ID = Object.fromEntries(MODELS.map((m) => [m.id, m]));
+/** Strongest first — the recommendation walks down this list. */
+export const MODELS: ModelSpec[] = MODEL_LIST.map((m) => ({ ...m, backend: BROWSER_BACKEND }));
+
+export const MODEL_BY_ID: Record<string, ModelSpec> = Object.fromEntries(
+  MODELS.map((m) => [m.id, m]),
+);
+
 
 export const DEFAULT_MODEL_ID = "lfm2-450-vl";
 export const ENCODER_ID = "lfm2-230-encoder";
@@ -137,10 +150,20 @@ export type DeviceProfile = {
   ramGb: number | null;
   cores: number | null;
   mobile: boolean;
+  /** false until the browser has actually been probed (SSR-safe) */
+  probed: boolean;
+};
+
+/** Same value on the server and on the first client render — no mismatch. */
+export const UNKNOWN_PROFILE: DeviceProfile = {
+  ramGb: null,
+  cores: null,
+  mobile: false,
+  probed: false,
 };
 
 export function deviceProfile(): DeviceProfile {
-  if (typeof navigator === "undefined") return { ramGb: null, cores: null, mobile: false };
+  if (typeof navigator === "undefined") return UNKNOWN_PROFILE;
   const nav = navigator as Navigator & { deviceMemory?: number };
   const mobile =
     typeof matchMedia === "function" ? matchMedia("(pointer: coarse)").matches : false;
@@ -148,20 +171,33 @@ export function deviceProfile(): DeviceProfile {
     ramGb: typeof nav.deviceMemory === "number" ? nav.deviceMemory : null,
     cores: nav.hardwareConcurrency ?? null,
     mobile,
+    probed: true,
   };
 }
 
 /**
- * Aim at the largest generative model and step down until the device carries it.
- * When the browser hides deviceMemory we assume 4 GB on desktop, 2 on mobile.
+ * Mobile first. The 1.2B instruct model is the preferred general assistant on
+ * anything capable; the 450M VL model is the lightweight fallback; the 2.6B is
+ * never recommended automatically on a phone.
  */
+const RECOMMEND_ORDER = ["lfm2-1_2-instruct", "lfm2-450-vl", "lfm2-2_6"];
+
 export function recommendModel(profile = deviceProfile()): { id: string; reason: string } {
+  if (!profile.probed) {
+    return {
+      id: DEFAULT_MODEL_ID,
+      reason: "checking what this device can carry…",
+    };
+  }
   const assumed = profile.ramGb ?? (profile.mobile ? 2 : 4);
   const budget = profile.mobile ? assumed / 2 : assumed;
+  const candidates = RECOMMEND_ORDER.map((id) => MODEL_BY_ID[id]).filter(Boolean);
   const pick =
-    MODELS.find(
+    candidates.find(
       (m) => m.generative && budget >= m.minRamGb && !(m.desktopOnly && profile.mobile),
-    ) ?? MODEL_BY_ID[DEFAULT_MODEL_ID];
+    ) ??
+    MODEL_BY_ID["lfm2-450-vl"] ??
+    MODEL_BY_ID[DEFAULT_MODEL_ID];
   const seen =
     profile.ramGb != null
       ? `${profile.ramGb} GB reported`
@@ -171,6 +207,7 @@ export function recommendModel(profile = deviceProfile()): { id: string; reason:
     reason: `${seen}${profile.mobile ? " · touch device" : ""} — ${pick.label} fits.`,
   };
 }
+
 
 /** Rough working-set estimate so the context slider can warn honestly. */
 export function memoryEstimateGb(modelId: string, nCtx: number): number {
@@ -205,14 +242,23 @@ let instance: Wllama | null = null;
 let currentModel: string | null = null;
 let currentCtx = DEFAULT_CTX;
 let abortRun = false;
+let activeBackendValue: Backend = "unavailable";
+
+/** The backend the loaded model is actually running on, never a guess. */
+export function activeBackend(): Backend {
+  return activeBackendValue;
+}
 
 async function createRuntime(): Promise<Wllama> {
   // The binary lives in public/wasm and is fetched by URL after hydration, so it
-  // never enters the server bundle.
+  // never enters the server bundle. One binary covers both single and
+  // multi-threaded execution; wllama enables pthreads only when the page is
+  // cross-origin isolated, so nothing here has to be guessed.
   const { Wllama: Ctor } = await import("@wllama/wllama/esm/index.js");
   return new Ctor(
     { default: "/wasm/wllama.wasm" },
     { allowOffline: true, suppressNativeLog: true, parallelDownloads: 2 },
+
   );
 }
 
@@ -314,30 +360,49 @@ export async function loadModel(
     return;
   }
   try {
+    // Only one generative model is resident at a time: unload before loading.
     if (instance) {
       await instance.exit().catch(() => {});
       instance = null;
       currentModel = null;
+      activeBackendValue = "unavailable";
     }
     onStatus({ phase: "downloading", progress: 0 });
+    const caps = await detectRuntime();
     const runtime = await createRuntime();
-    await runtime.loadModelFromHF(
-      { repo: spec.repo, quant: spec.quant },
-      {
-        n_ctx: nCtx,
-        useCache: true,
-        progressCallback: ({ loaded, total }: { loaded: number; total: number }) => {
-          onStatus({ phase: "downloading", progress: total ? loaded / total : 0 });
-        },
-      },
-    );
+    // WebGPU first; when the adapter or device never came back we run the
+    // WASM SIMD path instead of pretending the GPU is in play.
+    const gpuOk = caps.webgpu && runtime.isSupportWebGPU?.() !== false;
+    const load = async (useGpu: boolean) =>
+      runtime.loadModelFromHF(
+        { repo: spec.repo, quant: spec.quant },
+        {
+          n_ctx: nCtx,
+          useCache: true,
+          n_gpu_layers: useGpu ? 99999 : 0,
+          progressCallback: ({ loaded, total }: { loaded: number; total: number }) => {
+            onStatus({ phase: "downloading", progress: total ? loaded / total : 0 });
+          },
+        } as never,
+      );
+    try {
+      await load(gpuOk);
+      activeBackendValue = gpuOk ? "webgpu" : caps.wasmSimd || caps.wasm ? "wasm" : "unavailable";
+    } catch (gpuErr) {
+      if (!gpuOk) throw gpuErr;
+      onStatus({ phase: "loading" });
+      await load(false);
+      activeBackendValue = "wasm";
+    }
     instance = runtime;
     currentModel = spec.id;
     currentCtx = nCtx;
     onStatus({ phase: "ready" });
+
   } catch (err) {
     instance = null;
     currentModel = null;
+    activeBackendValue = "unavailable";
     onStatus({
       phase: "error",
       message: err instanceof Error ? err.message : "the assistant failed to start",
@@ -351,7 +416,9 @@ export async function unload() {
   await instance.exit().catch(() => {});
   instance = null;
   currentModel = null;
+  activeBackendValue = "unavailable";
 }
+
 
 /** Stops the generation currently streaming, if any. */
 export function stopGeneration() {
