@@ -7,7 +7,15 @@ import { useDoc } from "@/hooks/useDoc";
 import { usePortfolio } from "@/hooks/usePortfolio";
 import { useVenues } from "@/hooks/useVenues";
 import { amount, pct, usd } from "@/lib/format";
-import { SECTOR_BY_ID, SECTOR_ORDER, SECTORS, sectorColor, type SectorId } from "@/lib/sectors";
+import {
+  SECTOR_BY_ID,
+  SECTOR_ORDER,
+  SECTORS,
+  SOURCE_LABEL,
+  classifyAsset,
+  sectorColor,
+  type SectorId,
+} from "@/lib/sectors";
 import { patchSettings } from "@/lib/store";
 import { VENUE_BY_ID, VENUES } from "@/lib/venues";
 import type { AccountSummary, Position, VenueReport } from "@/lib/venues/types";
@@ -36,6 +44,7 @@ function PortfolioPage() {
   const hidden = doc.settings.hideBalances;
   const { portfolio, status, refresh, isFetching } = usePortfolio();
   const { reports, equity, isFetching: venuesFetching } = useVenues();
+  const [sort, setSort] = useState<"basket" | "asset">("basket");
 
   const grouped = SECTOR_ORDER.map((id: SectorId) => {
     const holdings = portfolio.holdings.filter((h) => h.sector === id);
@@ -107,9 +116,43 @@ function PortfolioPage() {
           )}
         </Panel>
 
-        <Panel eyebrow="Holdings // Detail" delay={60}>
+        <Panel
+          eyebrow="Holdings // Detail"
+          delay={60}
+          action={
+            <div className="flex items-center gap-1">
+              {(["basket", "asset"] as const).map((mode) => (
+                <button
+                  key={mode}
+                  type="button"
+                  onClick={() => setSort(mode)}
+                  aria-pressed={sort === mode}
+                  className={`doodle-pill px-2.5 py-1 text-[11px] ${
+                    sort === mode ? "bg-ink text-paper" : "text-ink-soft"
+                  }`}
+                >
+                  by {mode}
+                </button>
+              ))}
+            </div>
+          }
+        >
           {grouped.length === 0 ? (
             <p className="p-4 text-[13px] text-ink-soft">No balances found on this wallet yet.</p>
+          ) : sort === "asset" ? (
+            <ul>
+              {[...portfolio.holdings]
+                .sort((a, b) => (b.value ?? 0) - (a.value ?? 0))
+                .map((h) => (
+                  <HoldingRow
+                    key={h.key}
+                    h={h}
+                    hidden={hidden}
+                    overrides={doc.settings.basketOverrides ?? {}}
+                    showBasket
+                  />
+                ))}
+            </ul>
           ) : (
             <div>
               {grouped.map((g) => (
@@ -130,37 +173,12 @@ function PortfolioPage() {
                   </header>
                   <ul>
                     {g.holdings.map((h) => (
-                      <li
+                      <HoldingRow
                         key={h.key}
-                        className="flex items-center gap-3 border-b border-stroke px-4 py-3 last:border-0"
-                      >
-                        <span className="min-w-0 flex-1">
-                          <span className="block truncate text-[14px] font-medium">
-                            {h.symbol}
-                          </span>
-                          <span className="block truncate text-[12px] text-ink-faint">
-                            {h.name}
-                          </span>
-                        </span>
-                        <span className="text-right">
-                          <span className="num block text-[14px]">{amount(h.amount, hidden)}</span>
-                          <span className="num block text-[12px] text-ink-faint">
-                            {h.value != null ? usd(h.value, hidden) : "unpriced"}
-                          </span>
-                        </span>
-                        <span
-                          className={`num w-16 text-right text-[12px] ${
-                            (h.change24h ?? 0) >= 0 ? "text-gain" : "text-loss"
-                          }`}
-                        >
-                          {pct(h.change24h)}
-                        </span>
-                        <BasketPicker
-                          symbol={h.symbol}
-                          current={h.sector}
-                          overrides={doc.settings.basketOverrides ?? {}}
-                        />
-                      </li>
+                        h={h}
+                        hidden={hidden}
+                        overrides={doc.settings.basketOverrides ?? {}}
+                      />
                     ))}
                   </ul>
                 </section>
@@ -350,6 +368,43 @@ function rangeChip(p: Position): string | null {
   return typeof state === "string" ? state : null;
 }
 
+function HoldingRow({
+  h,
+  hidden,
+  overrides,
+  showBasket = false,
+}: {
+  h: { key: string; symbol: string; name: string; amount: number; value: number | null; change24h?: number | null; sector: SectorId };
+  hidden: boolean;
+  overrides: Record<string, string>;
+  showBasket?: boolean;
+}) {
+  return (
+    <li className="flex items-center gap-3 border-b border-stroke px-4 py-3 last:border-0">
+      <span className="min-w-0 flex-1">
+        <span className="block truncate text-[14px] font-medium">{h.symbol}</span>
+        <span className="block truncate text-[12px] text-ink-faint">
+          {showBasket ? (SECTOR_BY_ID[h.sector]?.label ?? h.name) : h.name}
+        </span>
+      </span>
+      <span className="text-right">
+        <span className="num block text-[14px]">{amount(h.amount, hidden)}</span>
+        <span className="num block text-[12px] text-ink-faint">
+          {h.value != null ? usd(h.value, hidden) : "unpriced"}
+        </span>
+      </span>
+      <span
+        className={`num w-16 text-right text-[12px] ${
+          (h.change24h ?? 0) >= 0 ? "text-gain" : "text-loss"
+        }`}
+      >
+        {pct(h.change24h)}
+      </span>
+      <BasketPicker symbol={h.symbol} current={h.sector} overrides={overrides} />
+    </li>
+  );
+}
+
 function BasketPicker({
   symbol,
   current,
@@ -398,7 +453,10 @@ function BasketPicker({
         <span className="pointer-events-none absolute -right-0.5 -top-0.5 h-1.5 w-1.5 rounded-full bg-ink" />
       )}
       {open && (
-        <div className="absolute right-0 top-8 z-20 w-44 rounded-xl border border-stroke bg-paper p-1 shadow-lg">
+        <div className="absolute right-0 top-8 z-20 w-52 rounded-xl border border-stroke bg-paper p-1 shadow-lg">
+          <p className="eyebrow px-2 py-1.5">
+            {SOURCE_LABEL[classifyAsset(symbol, overrides).source]}
+          </p>
           {SECTORS.map((sct) => (
             <button
               key={sct.id}
