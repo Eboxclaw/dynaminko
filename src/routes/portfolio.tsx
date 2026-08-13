@@ -223,7 +223,7 @@ function VenueSection({
 }) {
   return (
     <Panel eyebrow={eyebrow} delay={100}>
-      <div className="grid gap-3 p-3">
+      <div className="grid content-start gap-3 p-3">
         {venues.map((id) => (
           <VenueCard
             key={id}
@@ -237,6 +237,7 @@ function VenueSection({
     </Panel>
   );
 }
+
 
 const GROUPS: { kind: Position["kind"][]; label: string }[] = [
   { kind: ["perp"], label: "Perps" },
