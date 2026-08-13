@@ -1,0 +1,68 @@
+# Inko agent runtime — intents, commands, tools
+
+Extends the existing architecture. No second agent stack: `/goal` is a **mode**
+of the same command system, not a parallel runtime.
+
+```
+user text
+   │  (encoder or keywords)
+intent            what the user means
+   │
+command           what the app can do — semantic, argument-typed
+   │
+tools             deterministic reads, computes, writes
+   │
+result            compact CommandResult
+   │
+model             only when prose or judgement is required
+```
+
+## Layers
+
+| Layer | File | Rule |
+| --- | --- | --- |
+| Command contract | `src/lib/commands/types.ts` | Status, reason, diagnostics, next action. |
+| Registry | `src/lib/commands/registry.ts` | One line per command; all the model ever sees. |
+| Executors | `src/lib/commands/{journal,portfolio}.ts` | Collect → aggregate → answer. Never return raw rows. |
+| Runner | `src/lib/commands/runner.ts` | Validation, retries, timeout, cancellation, approval, logging. |
+| Embeddings | `src/lib/ai/embedding.ts` | Tiered providers; the encoder facade delegates here. |
+
+## Collect → aggregate → model
+
+The model never scans the journal. `journal.resolve_inbox` gathers every pending
+trade, aggregates what is missing, and asks **one** question that resolves many
+rows. `journal.apply_answer` writes the answer back in a single batch.
+
+## Limits
+
+| Limit | Local | Cloud |
+| --- | --- | --- |
+| tool hops per turn | 5 | 5 |
+| goal cycles | 2 | unbounded by count |
+| calls per cycle | 5 | unbounded |
+| total steps | 10 | unbounded |
+| retries | 1, transient only | same |
+| wall-clock deadline | 120 s | 120 s — always enforced |
+| per-command timeout | 30 s | 30 s |
+| cancellation | always | always |
+
+Cloud drops the *semantic* call cap only. Deadline, per-request timeout and
+cancellation stay so a malformed agent can never hang a session.
+
+## Approval
+
+Access level decides. `READ`/`COMPUTE` run immediately; `WRITE`/`EDIT`/`DELETE`/
+`EXECUTE`/`EXTERNAL` render the intended change and wait. Every run is logged
+with duration, tool count and whether a model was involved.
+
+## Embedding tiers
+
+| Tier | Model | Size | Role |
+| --- | --- | --- | --- |
+| default | MiniLM L6 v2 | 23 MB | Cheap semantic index for retrieval and routing. |
+| upgrade | LFM 2.5 Encoder-230M | ~180 MB | Recommended experimental backend: stronger routing and classification. |
+
+Cheap tier first; when its best match scores below `0.55` and the encoder is
+already on the device, the query is re-ranked with it. The encoder becomes the
+default only after a journal-specific benchmark, not before. Nothing downloads
+automatically, and routing degrades to keywords when neither is present.
