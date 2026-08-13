@@ -1,6 +1,16 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { Brain, Eye, ImagePlus, Send, Sparkles, SquareStack, X } from "lucide-react";
+import {
+  Brain,
+  Eye,
+  HelpCircle,
+  ImagePlus,
+  Send,
+  Sparkles,
+  SquareStack,
+  X,
+} from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
+
 
 import { ModelPanel } from "@/components/pot/ModelPanel";
 import { Panel, Shell } from "@/components/pot/Shell";
