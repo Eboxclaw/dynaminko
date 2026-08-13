@@ -37,6 +37,13 @@ import {
   type EncoderState,
 } from "@/lib/ai/encoder";
 import { cloudChat, CLOUD_BY_ID, type CloudConfig } from "@/lib/ai/cloud";
+import {
+  deriveCapability,
+  modelAction,
+  type InstallState,
+  type ModelAction,
+} from "@/lib/ai/capability";
+import { patchAssistant } from "@/lib/store";
 import { useSettings } from "./useDoc";
 import { useDoc } from "./useDoc";
 
