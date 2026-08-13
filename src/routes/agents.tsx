@@ -39,6 +39,9 @@ import {
 
 import { SKILLS } from "@/lib/skills/registry";
 import { runSkill } from "@/lib/skills/run";
+import { COMMAND_BY_ID } from "@/lib/commands/registry";
+import { commandNeedsApproval, runCommand } from "@/lib/commands/runner";
+import type { CommandResult } from "@/lib/commands/types";
 import { searchCards } from "@/lib/tools/journal";
 import * as ind from "@/lib/tools/indicators";
 import { TOOLS, TOOL_BY_ID, TOOL_GROUPS } from "@/lib/tools/registry";
