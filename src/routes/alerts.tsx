@@ -1,6 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 
+import { HelpDot } from "@/components/pot/HelpDot";
 import { Panel, Shell } from "@/components/pot/Shell";
 import { useDoc } from "@/hooks/useDoc";
 import { relativeTime } from "@/lib/format";
@@ -46,13 +47,17 @@ function Permission() {
   const on = state === "granted" && doc.settings.notifications;
 
   return (
-    <Panel eyebrow="Delivery // Where an alert lands">
+    <Panel
+      eyebrow="Delivery // Where an alert lands"
+      action={
+        <HelpDot label="About alert delivery">
+          Alerts always appear inside the app while it is open. For your phone lock screen,
+          grant notification permission and install Proof of Thesis to your home screen.
+        </HelpDot>
+      }
+    >
       <div className="space-y-3 px-4 py-4 text-[13px]">
-        <p className="text-ink-soft">
-          Alerts always appear inside the app while it is open. To get them on your phone&apos;s
-          lock screen, grant notification permission and install Proof of Thesis to your home
-          screen.
-        </p>
+
 
         <ul className="space-y-1.5 text-[12px]">
           <Row label="In-app toasts" value="always on" ok />

@@ -1,8 +1,12 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 
+
+import { HelpDot } from "@/components/pot/HelpDot";
 import { Panel, Shell } from "@/components/pot/Shell";
 import { VenueIcon } from "@/components/pot/VenueIcon";
+
 import { useDoc } from "@/hooks/useDoc";
 import { usePortfolio } from "@/hooks/usePortfolio";
 import { useVenues } from "@/hooks/useVenues";
@@ -223,7 +227,7 @@ function VenueSection({
 }) {
   return (
     <Panel eyebrow={eyebrow} delay={100}>
-      <div className="grid gap-3 p-3">
+      <div className="grid min-w-0 content-start gap-3 p-3">
         {venues.map((id) => (
           <VenueCard
             key={id}
@@ -237,6 +241,7 @@ function VenueSection({
     </Panel>
   );
 }
+
 
 const GROUPS: { kind: Position["kind"][]; label: string }[] = [
   { kind: ["perp"], label: "Perps" },
@@ -281,10 +286,16 @@ function VenueCard({
   if (equity > 0) chips.push({ label: "equity", value: usd(equity, hidden) });
   if (notional > 0) chips.push({ label: "notional", value: usd(notional, hidden) });
 
+  const notes = [
+    unpriced ? "A dash means this venue reported no USD price. Amounts are read on-chain." : null,
+    report?.note ?? null,
+    report?.stale ? "Showing the last cached read." : null,
+  ].filter(Boolean) as string[];
+
   return (
-    <section className="doodle-inset px-3 py-2.5">
+    <section className="doodle-inset min-w-0 overflow-hidden px-3 py-3">
       <header className="flex items-center gap-3">
-        <span className="text-ink-soft">
+        <span className="shrink-0 text-ink-soft">
           <VenueIcon id={id} />
         </span>
         <span className="min-w-0 flex-1">
@@ -294,13 +305,26 @@ function VenueCard({
           </span>
           <span className="eyebrow block truncate">{venue?.blurb}</span>
         </span>
-        <span className="num text-right text-[13px]">
+        <span className="num shrink-0 text-right text-[13px]">
           {headline > 0 ? usd(headline, hidden) : <span className="text-ink-faint">{state}</span>}
         </span>
+        {notes.length > 0 && (
+          <span className="shrink-0">
+            <HelpDot label={`About ${venue?.label ?? "this venue"}`}>
+              <span className="grid gap-1.5">
+                {notes.map((n) => (
+                  <span key={n} className="block">
+                    {n}
+                  </span>
+                ))}
+              </span>
+            </HelpDot>
+          </span>
+        )}
       </header>
 
       {chips.length > 0 && (
-        <ul className="mt-2 flex flex-wrap gap-1">
+        <ul className="mt-2.5 flex flex-wrap gap-1">
           {chips.map((c) => (
             <li key={c.label} className="doodle-pill num px-2 py-0.5 text-[10px] uppercase tracking-[0.14em] text-ink-soft">
               {c.label}
@@ -311,14 +335,20 @@ function VenueCard({
       )}
 
       {!quiet && (
-        <div className="mt-2.5 grid gap-2.5">
+        <div className="mt-3 grid gap-3">
           {(showEmpty ? accounts : funded).length > 0 && (
-            <ul className="grid gap-1">
+            <ul className="grid gap-1.5">
               {(showEmpty ? accounts : funded).map((a: AccountSummary) => (
                 <li key={a.id} className="flex items-baseline gap-3 text-[13px]">
                   <span className="min-w-0 flex-1 truncate text-ink-soft">{a.label}</span>
-                  {a.detail && <span className="num text-[11px] text-ink-faint">{a.detail}</span>}
-                  <span className="num">{a.equity != null ? usd(a.equity, hidden) : "—"}</span>
+                  {a.detail && (
+                    <span className="num hidden text-[11px] text-ink-faint sm:inline">
+                      {a.detail}
+                    </span>
+                  )}
+                  <span className="num w-24 shrink-0 text-right">
+                    {a.equity != null ? usd(a.equity, hidden) : "—"}
+                  </span>
                 </li>
               ))}
             </ul>
@@ -340,7 +370,7 @@ function VenueCard({
             return (
               <div key={group.label}>
                 <p className="eyebrow border-b border-stroke pb-1">{group.label}</p>
-                <ul className="mt-1 grid gap-1">
+                <ul className="mt-1.5 grid gap-2">
                   {rows.map((p) => (
                     <PositionRow key={p.id} p={p} hidden={hidden} />
                   ))}
@@ -348,9 +378,6 @@ function VenueCard({
               </div>
             );
           })}
-
-          {unpriced && <p className="eyebrow">A dash means this venue reported no price.</p>}
-          {report?.note && <p className="eyebrow">{report.note}</p>}
         </div>
       )}
     </section>
@@ -363,28 +390,44 @@ function PositionRow({ p, hidden }: { p: Position; hidden: boolean }) {
   const meta = Object.entries(p.metadata ?? {}).filter(
     ([, v]) => v != null && typeof v !== "object",
   );
+  const legs = lpLegs(p);
+  const range = rangeChip(p);
   return (
     <li>
       <button
         type="button"
         onClick={() => meta.length > 0 && setOpen((v) => !v)}
         aria-expanded={open}
-        className="flex w-full items-baseline gap-3 text-left text-[13px]"
+        className="w-full text-left text-[13px]"
       >
-        <span className="min-w-0 flex-1 truncate">
-          {pairLabel(p)}
-          {p.side && <span className="eyebrow ml-2">{p.side}</span>}
-          {rangeChip(p) && <span className="eyebrow ml-2">{rangeChip(p)}</span>}
+        <span className="flex items-baseline gap-3">
+          <span className="min-w-0 flex-1 truncate">
+            {pairLabel(p)}
+            {p.side && <span className="eyebrow ml-2">{p.side}</span>}
+          </span>
+          {range && <span className="eyebrow shrink-0">{range}</span>}
+          {!range && !legs && p.detail && (
+            <span className="num hidden text-[11px] text-ink-faint sm:inline">{p.detail}</span>
+          )}
+          <span className="num w-24 shrink-0 text-right">
+            {p.notionalValue != null ? usd(p.notionalValue, hidden) : "—"}
+          </span>
         </span>
-        {p.detail && (
-          <span className="num hidden text-[11px] text-ink-faint sm:inline">{p.detail}</span>
+        {legs && (
+          <span className="mt-0.5 flex items-baseline gap-2 text-[11px] text-ink-faint">
+            <span className="num min-w-0 flex-1 truncate">
+              {legs.map((l, i) => (
+                <span key={l.symbol + i} className={l.zero ? "opacity-45" : undefined}>
+                  {i > 0 && <span className="mx-1.5 opacity-45">+</span>}
+                  {amount(l.value, hidden)} {l.symbol}
+                </span>
+              ))}
+            </span>
+          </span>
         )}
-        <span className="num">
-          {p.notionalValue != null ? usd(p.notionalValue, hidden) : "—"}
-        </span>
       </button>
       {open && meta.length > 0 && (
-        <dl className="mt-1 grid grid-cols-2 gap-x-3 gap-y-0.5 border-l border-stroke pl-2">
+        <dl className="mt-1.5 grid grid-cols-2 gap-x-3 gap-y-0.5 border-l border-stroke pl-2">
           {meta.map(([k, v]) => (
             <div key={k} className="contents">
               <dt className="eyebrow truncate">{k}</dt>
@@ -397,9 +440,29 @@ function PositionRow({ p, hidden }: { p: Position; hidden: boolean }) {
   );
 }
 
-/** On-chain strings can be junk. Only clean symbols reach the UI. */
+/** Token legs of an LP position, read from the venue metadata. */
+function lpLegs(p: Position): { symbol: string; value: number; zero: boolean }[] | null {
+  if (!p.kind.startsWith("lp")) return null;
+  const a0 = p.metadata?.amount0;
+  const a1 = p.metadata?.amount1;
+  if (typeof a0 !== "number" || typeof a1 !== "number") return null;
+  const [s0, s1] = [clean(p.symbols?.[0] ?? ""), clean(p.symbols?.[1] ?? "")];
+  return [
+    { symbol: s0, value: a0, zero: a0 === 0 },
+    { symbol: s1, value: a1, zero: a1 === 0 },
+  ];
+}
+
+/**
+ * On-chain strings can be junk. Only clean symbols reach the UI, and the
+ * common unicode tickers are folded to their plain ASCII spelling.
+ */
 function clean(symbol: string): string {
-  const s = (symbol ?? "").replace(/[^\w.\-/]/g, "").trim();
+  const s = (symbol ?? "")
+    .normalize("NFKC")
+    .replace(/₮/g, "T")
+    .replace(/[^\w.\-/]/g, "")
+    .trim();
   return s.slice(0, 12) || "?";
 }
 
@@ -407,6 +470,7 @@ function pairLabel(p: Position): string {
   if (p.symbols && p.symbols.length >= 2) return p.symbols.slice(0, 2).map(clean).join(" / ");
   return clean(p.symbol || p.label);
 }
+
 
 function rangeChip(p: Position): string | null {
   const state = p.metadata?.range ?? p.metadata?.inRange;
@@ -465,17 +529,51 @@ function BasketPicker({
   overrides: Record<string, string>;
 }) {
   const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
+  const [pos, setPos] = useState<{ top: number; left: number; height: number } | null>(null);
+  const [sheet, setSheet] = useState(false);
+  const btnRef = useRef<HTMLButtonElement>(null);
+  const popRef = useRef<HTMLDivElement>(null);
   const key = symbol.toUpperCase();
   const overridden = Boolean(overrides[key]);
+
+  // The menu is measured against the viewport, so it never grows past the
+  // card it lives in: it flips above the dot and scrolls internally instead.
+  const place = () => {
+    const r = btnRef.current?.getBoundingClientRect();
+    if (!r) return;
+    const narrow = window.innerWidth < 640;
+    setSheet(narrow);
+    if (narrow) return;
+    const width = 224;
+    const below = window.innerHeight - r.bottom - 12;
+    const above = r.top - 12;
+    const flip = below < 220 && above > below;
+    const height = Math.max(160, Math.min(360, flip ? above : below));
+    setPos({
+      top: flip ? r.top - 8 - height : r.bottom + 8,
+      left: Math.min(Math.max(8, r.right - width), window.innerWidth - width - 8),
+      height,
+    });
+  };
 
   useEffect(() => {
     if (!open) return;
     const close = (e: MouseEvent) => {
-      if (!ref.current?.contains(e.target as Node)) setOpen(false);
+      const t = e.target as Node;
+      if (!btnRef.current?.contains(t) && !popRef.current?.contains(t)) setOpen(false);
     };
+    const esc = (e: KeyboardEvent) => e.key === "Escape" && setOpen(false);
+    const reflow = () => place();
     document.addEventListener("mousedown", close);
-    return () => document.removeEventListener("mousedown", close);
+    document.addEventListener("keydown", esc);
+    window.addEventListener("resize", reflow);
+    window.addEventListener("scroll", reflow, true);
+    return () => {
+      document.removeEventListener("mousedown", close);
+      document.removeEventListener("keydown", esc);
+      window.removeEventListener("resize", reflow);
+      window.removeEventListener("scroll", reflow, true);
+    };
   }, [open]);
 
   const set = (id: SectorId | null) => {
@@ -486,12 +584,60 @@ function BasketPicker({
     setOpen(false);
   };
 
+  const list = (
+    <div
+      ref={popRef}
+      className={
+        sheet
+          ? "fixed inset-x-0 bottom-0 z-50 max-h-[70dvh] overflow-y-auto rounded-t-2xl border-t border-stroke bg-paper p-2 pb-[calc(env(safe-area-inset-bottom)+12px)] shadow-2xl"
+          : "fixed z-50 w-56 overflow-y-auto rounded-[3px] border border-stroke bg-paper p-1 shadow-xl"
+      }
+      style={
+        sheet || !pos ? undefined : { top: pos.top, left: pos.left, maxHeight: pos.height }
+      }
+    >
+      <p className="eyebrow flex items-center justify-between px-2 py-1.5">
+        <span className="truncate">{symbol}</span>
+        <span className="truncate">{SOURCE_LABEL[classifyAsset(symbol, overrides).source]}</span>
+      </p>
+      {SECTORS.map((sct) => (
+        <button
+          key={sct.id}
+          type="button"
+          onClick={() => set(sct.id)}
+          className="flex w-full items-center gap-2 rounded-[2px] px-2 py-2 text-left text-[13px] hover:bg-sunken"
+        >
+          <span
+            className="h-2.5 w-2.5 shrink-0 rounded-full"
+            style={{ background: sectorColor(sct.id) }}
+          />
+          <span className="flex-1 truncate">{sct.label}</span>
+          {current === sct.id && <span className="eyebrow">now</span>}
+        </button>
+      ))}
+      {overridden && (
+        <button
+          type="button"
+          onClick={() => set(null)}
+          className="eyebrow w-full px-2 py-2 text-left hover:text-ink"
+        >
+          reset to automatic
+        </button>
+      )}
+    </div>
+  );
+
   return (
-    <div ref={ref} className="relative">
+    <div className="relative shrink-0">
       <button
+        ref={btnRef}
         type="button"
         aria-label={`Basket for ${symbol}`}
-        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        onClick={() => {
+          place();
+          setOpen((v) => !v);
+        }}
         className="flex h-7 w-7 items-center justify-center rounded-full border border-stroke hover:border-ink"
       >
         <span
@@ -502,40 +648,21 @@ function BasketPicker({
       {overridden && (
         <span className="pointer-events-none absolute -right-0.5 -top-0.5 h-1.5 w-1.5 rounded-full bg-ink" />
       )}
-      {open && (
-        <div className="absolute right-0 top-8 z-20 w-52 rounded-xl border border-stroke bg-paper p-1 shadow-lg">
-          <p className="eyebrow px-2 py-1.5">
-            {SOURCE_LABEL[classifyAsset(symbol, overrides).source]}
-          </p>
-          {SECTORS.map((sct) => (
-            <button
-              key={sct.id}
-              type="button"
-              onClick={() => set(sct.id)}
-              className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-[13px] hover:bg-sunken"
-            >
-              <span
-                className="h-2.5 w-2.5 shrink-0 rounded-full"
-                style={{ background: sectorColor(sct.id) }}
-              />
-              <span className="flex-1">{sct.label}</span>
-              {current === sct.id && <span className="eyebrow">now</span>}
-            </button>
-          ))}
-          {overridden && (
-            <button
-              type="button"
-              onClick={() => set(null)}
-              className="eyebrow w-full px-2 py-1.5 text-left hover:text-ink"
-            >
-              reset to automatic
-            </button>
-          )}
-        </div>
-      )}
+      {open &&
+        typeof document !== "undefined" &&
+        createPortal(
+          <>
+            {sheet && (
+              <div className="fixed inset-0 z-40 bg-ink/20" onClick={() => setOpen(false)} />
+            )}
+            {list}
+          </>,
+          document.body,
+        )}
     </div>
   );
 }
+
 
 function stateLabel(status?: string) {
   switch (status) {

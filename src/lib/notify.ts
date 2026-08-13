@@ -36,8 +36,8 @@ export async function show(title: string, body: string, tag?: string): Promise<b
   const options: NotificationOptions = {
     body,
     tag,
-    icon: "/dynaminko.svg",
-    badge: "/dynaminko.svg",
+    icon: "/pot-mark.svg",
+    badge: "/pot-mark.svg",
   };
   try {
     if (backgroundCapable()) {
