@@ -12,9 +12,14 @@ import {
 import { useEffect, useMemo, useRef, useState } from "react";
 
 
+import { FlowStrip } from "@/components/pot/FlowStrip";
 import { ModelPanel } from "@/components/pot/ModelPanel";
+import { ModelSwitch } from "@/components/pot/ModelSwitch";
 import { Panel, Shell } from "@/components/pot/Shell";
 import { useAi } from "@/hooks/useAi";
+import { useTurn } from "@/hooks/useTurn";
+import { semanticLabel } from "@/lib/ai/capability";
+import { PHASE_LABEL } from "@/lib/chat/pipeline";
 import { useDoc } from "@/hooks/useDoc";
 import { relativeTime } from "@/lib/format";
 import { MAX_CONTEXT_MESSAGES, MODELS, STATE_LABEL, splitThinking } from "@/lib/ai";
@@ -167,6 +172,8 @@ function ChatConsole({
   const [busy, setBusy] = useState(false);
   const [help, setHelp] = useState(false);
   const [helpQuery, setHelpQuery] = useState("");
+  const [switchBusy, setSwitchBusy] = useState(false);
+  const turn = useTurn();
 
   const boxRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -227,20 +234,23 @@ function ChatConsole({
   const speak = async (system: string, user: string, ground = false) => {
     // Chatting is itself the request to download: the model loads on demand.
     // Cloud targets skip this entirely.
+    turn.stage("model", ai.target.label);
     if (ai.target.kind === "local" && ai.status.phase !== "ready") {
+      turn.move("selecting");
       push({
         role: "note",
         text: `${ai.spec?.label ?? "The model"} is not running yet, starting it now. First run downloads ~${ai.spec?.weightsGb ?? "?"} GB, then it stays on this device.`,
       });
+      turn.move("loading");
       const ok = await ai.ensure();
       if (!ok) {
-        push({
-          role: "note",
-          text: "The model could not start. The numbers above are still computed locally.",
-        });
+        turn.settle("model", "error");
+        turn.fail("The model could not start. The numbers above are still computed locally.");
         return;
       }
     }
+    turn.settle("model", "ok", ai.backend);
+    turn.move("ready");
     setBusy(true);
     try {
       // Retrieval before generation: a handful of records, never the journal.
@@ -262,6 +272,8 @@ function ChatConsole({
         }
       }
       const history = contextFor(messages, Math.floor(ai.ctx * 0.4), MAX_CONTEXT_MESSAGES);
+      turn.move("generating");
+      turn.stage("answer", ai.spec?.label ?? ai.target.label);
       const raw = await ai.ask(
         {
           system: `${system}\n\nContext: ${digestLine()}${grounding}`,
@@ -274,13 +286,20 @@ function ChatConsole({
       );
 
       const { thinking: think, answer } = splitThinking(raw);
-      push({ role: "assistant", text: answer || raw, thinking: think });
+      const text = (answer || raw || "").trim();
+      // Zero output is a failure, never a quiet success.
+      if (!text) {
+        turn.settle("answer", "error");
+        turn.fail("The model completed without producing a response.", "no_output");
+        return;
+      }
+      push({ role: "assistant", text, thinking: think });
+      turn.settle("answer", "ok");
+      turn.complete();
       setImage(null);
     } catch (err) {
-      push({
-        role: "note",
-        text: err instanceof Error ? err.message : "the assistant failed",
-      });
+      turn.settle("answer", "error");
+      turn.fail(err instanceof Error ? err.message : "the assistant failed");
     } finally {
       setBusy(false);
     }
@@ -291,7 +310,9 @@ function ChatConsole({
     skillId: string,
     args: { motive?: never; thesisId?: string } = {},
   ) => {
+    turn.stage("skill", skillId);
     const result = runSkill(skillId, args);
+    turn.settle("skill", "ok", `${result.skill.tools.length} tools`);
     push({
       role: "tool",
       text: result.skill.label,
@@ -306,6 +327,8 @@ function ChatConsole({
         "You are a trading-journal analyst. Use only the structured result. Be concrete and brief.",
         result.prompt,
       );
+    } else {
+      turn.complete();
     }
   };
 
@@ -406,7 +429,10 @@ function ChatConsole({
         },
       });
     }
-    showCommandResult(await runCommand(def.id, args));
+    turn.stage("command", def.id);
+    const res = await runCommand(def.id, args);
+    turn.settle("command", res.status === "ok" ? "ok" : "error", res.summary ?? res.status);
+    showCommandResult(res);
   };
 
   const approve = async (id: string, ok: boolean) => {
@@ -445,8 +471,9 @@ function ChatConsole({
 
   const submit = async () => {
     const text = input.trim();
-    if (!text || busy) return;
+    if (!text || busy || switchBusy) return;
     setInput("");
+    turn.begin();
     push({ role: "user", text });
 
     const cmd = parseCommand(text);
@@ -526,8 +553,16 @@ function ChatConsole({
       if (name === "model") {
         const wanted = MODELS.find((m) => m.id === rest || m.label.toLowerCase() === rest.toLowerCase());
         if (wanted) {
-          ai.select(wanted.id);
-          push({ role: "note", text: `${wanted.label} selected, ${STATE_LABEL[ai.states[wanted.id]]}.` });
+          push({ role: "note", text: `Activating ${wanted.label}…` });
+          setSwitchBusy(true);
+          const res = await ai.activate(wanted.id);
+          setSwitchBusy(false);
+          push({
+            role: "note",
+            text: res.ok
+              ? `${wanted.label} is loaded and answering.`
+              : `${wanted.label} failed to load: ${res.error}`,
+          });
           return;
         }
         onOpenRail("model");
@@ -583,8 +618,10 @@ function ChatConsole({
       return;
     }
 
+    turn.stage("route", "deterministic");
     const routed = routeMessage(text);
     if (routed.kind === "skill") {
+      turn.settle("route", "ok", routed.why);
       push({ role: "note", text: `Running ${routed.skillId}: ${routed.why}.` });
       return void runSkillTurn(routed.skillId, { thesisId: routed.thesisId });
     }
@@ -604,8 +641,16 @@ function ChatConsole({
       }
     }
     if (routed.kind === "none") {
-      // Second pass: the 230M encoder, not a generative model.
+      // Second pass: the 230M encoder, not a generative model. The encoder is
+      // an accelerator — when it is absent or fails the turn simply carries on.
+      turn.stage("semantic", ai.capability.routeFallback ? "keyword fallback" : "encoder");
       const semantic = await routeSemantic(text);
+      turn.settle(
+        "semantic",
+        ai.capability.routeFallback ? "skipped" : "ok",
+        semantic.kind === "skill" ? semantic.why : "no confident match",
+      );
+      turn.settle("route", "ok");
       if (semantic.kind === "skill") {
         push({ role: "note", text: `Running ${semantic.skillId}: ${semantic.why}.` });
         return void runSkillTurn(semantic.skillId);
@@ -806,7 +851,26 @@ function ChatConsole({
           </ul>
         )}
 
-        <div className="border-t border-stroke px-4 py-3">
+        <div className="border-t border-stroke">
+          <FlowStrip nodes={turn.nodes} />
+          {turn.error && (
+            <div className="flex items-start gap-2 border-b border-loss/40 bg-loss/5 px-4 py-2">
+              <span className="eyebrow shrink-0 text-loss">{PHASE_LABEL[turn.error.phase]}</span>
+              <span className="min-w-0 flex-1 text-[12px] text-loss">{turn.error.message}</span>
+              <button
+                type="button"
+                onClick={turn.clearError}
+                aria-label="Dismiss error"
+                className="doodle-pill grid h-5 w-5 shrink-0 place-items-center text-loss"
+              >
+                <X className="h-3 w-3" />
+              </button>
+            </div>
+          )}
+          {switchBusy && (
+            <p className="eyebrow border-b border-stroke px-4 py-2">loading model…</p>
+          )}
+          <div className="px-4 py-3">
           <div className="flex items-end gap-2">
             <textarea
               ref={inputRef}
@@ -819,8 +883,9 @@ function ChatConsole({
                   void submit();
                 }
               }}
-              placeholder="Ask, or / for commands"
-              className="min-h-[38px] flex-1 resize-none bg-transparent text-[13px] outline-none"
+              disabled={switchBusy}
+              placeholder={switchBusy ? "Loading model…" : "Ask, or / for commands"}
+              className="min-h-[38px] flex-1 resize-none bg-transparent text-[13px] outline-none disabled:opacity-50"
             />
             {busy ? (
               <button
@@ -834,8 +899,9 @@ function ChatConsole({
               <button
                 type="button"
                 onClick={() => void submit()}
+                disabled={switchBusy}
                 aria-label="Send"
-                className="doodle-pill grid h-8 w-8 place-items-center bg-ink text-paper"
+                className="doodle-pill grid h-8 w-8 place-items-center bg-ink text-paper disabled:opacity-50"
               >
                 <Send className="h-3.5 w-3.5" />
               </button>
@@ -893,16 +959,11 @@ function ChatConsole({
             >
               <HelpCircle className="h-3 w-3" /> Help
             </button>
-            <button
-              type="button"
-              onClick={() => onOpenRail("model")}
-              className="doodle-pill num inline-flex items-center gap-1 px-2.5 py-1 text-[11px] hover:border-ink"
-            >
-              <SquareStack className="h-3 w-3" />
-              {ai.target.kind === "cloud"
-                ? ai.target.label
-                : `${ai.spec?.label ?? "no model"} · ${STATE_LABEL[ai.states[ai.modelId]]}`}
-            </button>
+            <ModelSwitch
+              ai={ai}
+              onOpenPanel={() => onOpenRail("model")}
+              onBusyChange={setSwitchBusy}
+            />
 
             <input
               ref={fileRef}
@@ -920,6 +981,10 @@ function ChatConsole({
           </div>
 
           <p className="num eyebrow mt-2 flex flex-wrap gap-x-3">
+            <span>
+              semantic · {semanticLabel(ai.capability).toLowerCase()}
+            </span>
+            {turn.phase !== "idle" && <span>{PHASE_LABEL[turn.phase]}</span>}
             <span>ctx {ai.ctx}</span>
             <span>
               {ctxUsed.turns}/{MAX_CONTEXT_MESSAGES} turns
@@ -932,6 +997,7 @@ function ChatConsole({
             )}
             {ai.speed && <span>{ai.speed.tps.toFixed(1)} tok/s</span>}
           </p>
+        </div>
         </div>
         {help && (
           <HelpPanel

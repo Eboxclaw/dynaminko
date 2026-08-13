@@ -7,7 +7,15 @@ import { useDoc } from "@/hooks/useDoc";
 import { usePortfolio } from "@/hooks/usePortfolio";
 import { useVenues } from "@/hooks/useVenues";
 import { amount, pct, usd } from "@/lib/format";
-import { SECTOR_BY_ID, SECTOR_ORDER, SECTORS, sectorColor, type SectorId } from "@/lib/sectors";
+import {
+  SECTOR_BY_ID,
+  SECTOR_ORDER,
+  SECTORS,
+  SOURCE_LABEL,
+  classifyAsset,
+  sectorColor,
+  type SectorId,
+} from "@/lib/sectors";
 import { patchSettings } from "@/lib/store";
 import { VENUE_BY_ID, VENUES } from "@/lib/venues";
 import type { AccountSummary, Position, VenueReport } from "@/lib/venues/types";
@@ -36,6 +44,7 @@ function PortfolioPage() {
   const hidden = doc.settings.hideBalances;
   const { portfolio, status, refresh, isFetching } = usePortfolio();
   const { reports, equity, isFetching: venuesFetching } = useVenues();
+  const [sort, setSort] = useState<"basket" | "asset">("basket");
 
   const grouped = SECTOR_ORDER.map((id: SectorId) => {
     const holdings = portfolio.holdings.filter((h) => h.sector === id);
@@ -107,9 +116,43 @@ function PortfolioPage() {
           )}
         </Panel>
 
-        <Panel eyebrow="Holdings // Detail" delay={60}>
+        <Panel
+          eyebrow="Holdings // Detail"
+          delay={60}
+          action={
+            <div className="flex items-center gap-1">
+              {(["basket", "asset"] as const).map((mode) => (
+                <button
+                  key={mode}
+                  type="button"
+                  onClick={() => setSort(mode)}
+                  aria-pressed={sort === mode}
+                  className={`doodle-pill px-2.5 py-1 text-[11px] ${
+                    sort === mode ? "bg-ink text-paper" : "text-ink-soft"
+                  }`}
+                >
+                  by {mode}
+                </button>
+              ))}
+            </div>
+          }
+        >
           {grouped.length === 0 ? (
             <p className="p-4 text-[13px] text-ink-soft">No balances found on this wallet yet.</p>
+          ) : sort === "asset" ? (
+            <ul>
+              {[...portfolio.holdings]
+                .sort((a, b) => (b.value ?? 0) - (a.value ?? 0))
+                .map((h) => (
+                  <HoldingRow
+                    key={h.key}
+                    h={h}
+                    hidden={hidden}
+                    overrides={doc.settings.basketOverrides ?? {}}
+                    showBasket
+                  />
+                ))}
+            </ul>
           ) : (
             <div>
               {grouped.map((g) => (
@@ -130,37 +173,12 @@ function PortfolioPage() {
                   </header>
                   <ul>
                     {g.holdings.map((h) => (
-                      <li
+                      <HoldingRow
                         key={h.key}
-                        className="flex items-center gap-3 border-b border-stroke px-4 py-3 last:border-0"
-                      >
-                        <span className="min-w-0 flex-1">
-                          <span className="block truncate text-[14px] font-medium">
-                            {h.symbol}
-                          </span>
-                          <span className="block truncate text-[12px] text-ink-faint">
-                            {h.name}
-                          </span>
-                        </span>
-                        <span className="text-right">
-                          <span className="num block text-[14px]">{amount(h.amount, hidden)}</span>
-                          <span className="num block text-[12px] text-ink-faint">
-                            {h.value != null ? usd(h.value, hidden) : "unpriced"}
-                          </span>
-                        </span>
-                        <span
-                          className={`num w-16 text-right text-[12px] ${
-                            (h.change24h ?? 0) >= 0 ? "text-gain" : "text-loss"
-                          }`}
-                        >
-                          {pct(h.change24h)}
-                        </span>
-                        <BasketPicker
-                          symbol={h.symbol}
-                          current={h.sector}
-                          overrides={doc.settings.basketOverrides ?? {}}
-                        />
-                      </li>
+                        h={h}
+                        hidden={hidden}
+                        overrides={doc.settings.basketOverrides ?? {}}
+                      />
                     ))}
                   </ul>
                 </section>
@@ -250,6 +268,19 @@ function VenueCard({
   const state = loading && !report ? "reading" : stateLabel(report?.status);
   const unpriced = positions.some((p) => p.notionalValue == null);
 
+  // Terminal-density summary: what kind of risk sits in this venue.
+  const count = (kinds: Position["kind"][]) =>
+    positions.filter((p) => kinds.includes(p.kind)).length;
+  const chips = [
+    { label: "perp", value: count(["perp"]) },
+    { label: "spot", value: count(["spot"]) },
+    { label: "lp", value: count(["lp-concentrated", "lp-constant-product"]) },
+  ]
+    .filter((c) => c.value > 0)
+    .map((c) => ({ label: c.label, value: String(c.value) }));
+  if (equity > 0) chips.push({ label: "equity", value: usd(equity, hidden) });
+  if (notional > 0) chips.push({ label: "notional", value: usd(notional, hidden) });
+
   return (
     <section className="doodle-inset px-3 py-2.5">
       <header className="flex items-center gap-3">
@@ -267,6 +298,17 @@ function VenueCard({
           {headline > 0 ? usd(headline, hidden) : <span className="text-ink-faint">{state}</span>}
         </span>
       </header>
+
+      {chips.length > 0 && (
+        <ul className="mt-2 flex flex-wrap gap-1">
+          {chips.map((c) => (
+            <li key={c.label} className="doodle-pill num px-2 py-0.5 text-[10px] uppercase tracking-[0.14em] text-ink-soft">
+              {c.label}
+              <span className="ml-1 text-ink">{c.value}</span>
+            </li>
+          ))}
+        </ul>
+      )}
 
       {!quiet && (
         <div className="mt-2.5 grid gap-2.5">
@@ -300,21 +342,7 @@ function VenueCard({
                 <p className="eyebrow border-b border-stroke pb-1">{group.label}</p>
                 <ul className="mt-1 grid gap-1">
                   {rows.map((p) => (
-                    <li key={p.id} className="flex items-baseline gap-3 text-[13px]">
-                      <span className="min-w-0 flex-1 truncate">
-                        {pairLabel(p)}
-                        {p.side && <span className="eyebrow ml-2">{p.side}</span>}
-                        {rangeChip(p) && <span className="eyebrow ml-2">{rangeChip(p)}</span>}
-                      </span>
-                      {p.detail && (
-                        <span className="num hidden text-[11px] text-ink-faint sm:inline">
-                          {p.detail}
-                        </span>
-                      )}
-                      <span className="num">
-                        {p.notionalValue != null ? usd(p.notionalValue, hidden) : "—"}
-                      </span>
-                    </li>
+                    <PositionRow key={p.id} p={p} hidden={hidden} />
                   ))}
                 </ul>
               </div>
@@ -326,6 +354,46 @@ function VenueCard({
         </div>
       )}
     </section>
+  );
+}
+
+/** One position, with the raw venue payload one tap away. */
+function PositionRow({ p, hidden }: { p: Position; hidden: boolean }) {
+  const [open, setOpen] = useState(false);
+  const meta = Object.entries(p.metadata ?? {}).filter(
+    ([, v]) => v != null && typeof v !== "object",
+  );
+  return (
+    <li>
+      <button
+        type="button"
+        onClick={() => meta.length > 0 && setOpen((v) => !v)}
+        aria-expanded={open}
+        className="flex w-full items-baseline gap-3 text-left text-[13px]"
+      >
+        <span className="min-w-0 flex-1 truncate">
+          {pairLabel(p)}
+          {p.side && <span className="eyebrow ml-2">{p.side}</span>}
+          {rangeChip(p) && <span className="eyebrow ml-2">{rangeChip(p)}</span>}
+        </span>
+        {p.detail && (
+          <span className="num hidden text-[11px] text-ink-faint sm:inline">{p.detail}</span>
+        )}
+        <span className="num">
+          {p.notionalValue != null ? usd(p.notionalValue, hidden) : "—"}
+        </span>
+      </button>
+      {open && meta.length > 0 && (
+        <dl className="mt-1 grid grid-cols-2 gap-x-3 gap-y-0.5 border-l border-stroke pl-2">
+          {meta.map(([k, v]) => (
+            <div key={k} className="contents">
+              <dt className="eyebrow truncate">{k}</dt>
+              <dd className="num truncate text-right text-[11px]">{String(v)}</dd>
+            </div>
+          ))}
+        </dl>
+      )}
+    </li>
   );
 }
 
@@ -348,6 +416,43 @@ function rangeChip(p: Position): string | null {
   if (state === 0 || state === "out" || state === "out-of-range" || state === "false")
     return "out of range";
   return typeof state === "string" ? state : null;
+}
+
+function HoldingRow({
+  h,
+  hidden,
+  overrides,
+  showBasket = false,
+}: {
+  h: { key: string; symbol: string; name: string; amount: number; value: number | null; change24h?: number | null; sector: SectorId };
+  hidden: boolean;
+  overrides: Record<string, string>;
+  showBasket?: boolean;
+}) {
+  return (
+    <li className="flex items-center gap-3 border-b border-stroke px-4 py-3 last:border-0">
+      <span className="min-w-0 flex-1">
+        <span className="block truncate text-[14px] font-medium">{h.symbol}</span>
+        <span className="block truncate text-[12px] text-ink-faint">
+          {showBasket ? (SECTOR_BY_ID[h.sector]?.label ?? h.name) : h.name}
+        </span>
+      </span>
+      <span className="text-right">
+        <span className="num block text-[14px]">{amount(h.amount, hidden)}</span>
+        <span className="num block text-[12px] text-ink-faint">
+          {h.value != null ? usd(h.value, hidden) : "unpriced"}
+        </span>
+      </span>
+      <span
+        className={`num w-16 text-right text-[12px] ${
+          (h.change24h ?? 0) >= 0 ? "text-gain" : "text-loss"
+        }`}
+      >
+        {pct(h.change24h)}
+      </span>
+      <BasketPicker symbol={h.symbol} current={h.sector} overrides={overrides} />
+    </li>
+  );
 }
 
 function BasketPicker({
@@ -398,7 +503,10 @@ function BasketPicker({
         <span className="pointer-events-none absolute -right-0.5 -top-0.5 h-1.5 w-1.5 rounded-full bg-ink" />
       )}
       {open && (
-        <div className="absolute right-0 top-8 z-20 w-44 rounded-xl border border-stroke bg-paper p-1 shadow-lg">
+        <div className="absolute right-0 top-8 z-20 w-52 rounded-xl border border-stroke bg-paper p-1 shadow-lg">
+          <p className="eyebrow px-2 py-1.5">
+            {SOURCE_LABEL[classifyAsset(symbol, overrides).source]}
+          </p>
           {SECTORS.map((sct) => (
             <button
               key={sct.id}
