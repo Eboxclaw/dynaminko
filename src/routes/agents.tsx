@@ -39,6 +39,9 @@ import {
 
 import { SKILLS } from "@/lib/skills/registry";
 import { runSkill } from "@/lib/skills/run";
+import { COMMAND_BY_ID } from "@/lib/commands/registry";
+import { LIMITS, commandNeedsApproval, runCommand } from "@/lib/commands/runner";
+import type { CommandResult } from "@/lib/commands/types";
 import { searchCards } from "@/lib/tools/journal";
 import * as ind from "@/lib/tools/indicators";
 import { TOOLS, TOOL_BY_ID, TOOL_GROUPS } from "@/lib/tools/registry";
@@ -344,6 +347,69 @@ function ChatConsole({
     });
   };
 
+  /** `/run <id> {json}` or `/run <id> key=value key=value` */
+  const parseArgs = (rest: string): Record<string, unknown> => {
+    if (!rest) return {};
+    if (rest.startsWith("{")) {
+      try {
+        return JSON.parse(rest) as Record<string, unknown>;
+      } catch {
+        /* fall through */
+      }
+    }
+    const out: Record<string, unknown> = {};
+    for (const part of rest.match(/[^\s"]+="[^"]*"|\S+/g) ?? []) {
+      const eq = part.indexOf("=");
+      if (eq < 0) continue;
+      out[part.slice(0, eq)] = part.slice(eq + 1).replace(/^"|"$/g, "");
+    }
+    if (Object.keys(out).length === 0) out.query = rest;
+    return out;
+  };
+
+  const showCommandResult = (result: CommandResult) => {
+    const d = result.diagnostics;
+    push({
+      role: "tool",
+      text: result.summary ?? result.command,
+      card: {
+        source: result.command,
+        facts: [
+          `status ${result.status}${result.reason ? ` · ${result.reason}` : ""}`,
+          `${d?.toolsUsed ?? 0} tool calls · ${d?.durationMs ?? 0} ms${d?.retried ? " · retried" : ""} · no model used`,
+          ...(result.nextAction?.reason ? [`next: ${result.nextAction.reason}`] : []),
+        ],
+        data: (result.data as Record<string, unknown>) ?? {},
+      },
+    });
+  };
+
+  const runCommandTurn = async (id: string, rest: string) => {
+    const def = COMMAND_BY_ID[id];
+    if (!def) {
+      return push({
+        role: "note",
+        text: `No command called ${id}. Type /run to see the list.`,
+      });
+    }
+    const args = parseArgs(rest);
+    if (commandNeedsApproval(def.id)) {
+      return push({
+        role: "tool",
+        text: `${def.id} needs your approval`,
+        approval: {
+          toolId: def.id,
+          kind: "command",
+          access: def.access,
+          target: rest || "—",
+          input: args,
+          state: "pending",
+        },
+      });
+    }
+    showCommandResult(await runCommand(def.id, args));
+  };
+
   const approve = async (id: string, ok: boolean) => {
     const msg = messages.find((m) => m.id === id);
     if (!msg?.approval) return;
@@ -355,6 +421,15 @@ function ChatConsole({
       ),
     );
     if (!ok) return;
+    if (msg.approval.kind === "command") {
+      showCommandResult(
+        await runCommand(
+          msg.approval.toolId,
+          (msg.approval.input as Record<string, unknown>) ?? {},
+        ),
+      );
+      return;
+    }
     const tool = TOOL_BY_ID[msg.approval.toolId];
     if (!tool) return;
     try {
@@ -461,6 +536,17 @@ function ChatConsole({
         return;
       }
 
+      if (name === "run") {
+        const [id, ...tail] = rest.split(/\s+/);
+        return void runCommandTurn(id, tail.join(" "));
+      }
+      if (name === "goal") {
+        push({
+          role: "note",
+          text: `Goal mode runs the same commands in up to ${LIMITS.maxCyclesLocal} cycles (${LIMITS.maxTotalSteps} steps, ${Math.round(LIMITS.goalDeadlineMs / 1000)}s deadline) and is cancellable. Use /run <command> for a single step meanwhile.`,
+        });
+        return;
+      }
       if (name === "pot") return void runSkillTurn("journal.review");
       if (name === "skill") return void runSkillTurn(rest.split(/\s+/)[0]);
       if (name === "tool") {

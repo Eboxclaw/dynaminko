@@ -5,6 +5,7 @@ import { getDoc, type Sentiment } from "@/lib/store";
 import { CTX_CHOICES, MODELS } from "@/lib/ai";
 import { SKILLS } from "@/lib/skills/registry";
 import { TOOLS } from "@/lib/tools/registry";
+import { COMMAND_DEFS } from "@/lib/commands/registry";
 
 export type Suggestion = {
   /** what gets inserted into the composer */
@@ -53,6 +54,24 @@ export const COMMANDS: Command[] = [
           hint: t.purpose,
           badge: t.access,
         })),
+  },
+  {
+    name: "run",
+    args: "<command>",
+    blurb: "Run one semantic command: the app collects and aggregates, then answers.",
+    suggest: (q) =>
+      COMMAND_DEFS.filter((c) => !q || match(`${c.id} ${c.description}`, q)).map((c) => ({
+        insert: `/run ${c.id} `,
+        label: c.id,
+        hint: c.description,
+        badge: c.access,
+      })),
+  },
+  {
+    name: "goal",
+    args: "<what you want done>",
+    blurb: "Bounded multi-step run: same commands, up to two cycles, cancellable.",
+    suggest: () => [],
   },
   {
     name: "journal",
