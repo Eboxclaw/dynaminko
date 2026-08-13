@@ -282,10 +282,16 @@ function VenueCard({
   if (equity > 0) chips.push({ label: "equity", value: usd(equity, hidden) });
   if (notional > 0) chips.push({ label: "notional", value: usd(notional, hidden) });
 
+  const notes = [
+    unpriced ? "A dash means this venue reported no USD price. Amounts are read on-chain." : null,
+    report?.note ?? null,
+    report?.stale ? "Showing the last cached read." : null,
+  ].filter(Boolean) as string[];
+
   return (
-    <section className="doodle-inset px-3 py-2.5">
+    <section className="doodle-inset px-3 py-3">
       <header className="flex items-center gap-3">
-        <span className="text-ink-soft">
+        <span className="shrink-0 text-ink-soft">
           <VenueIcon id={id} />
         </span>
         <span className="min-w-0 flex-1">
@@ -295,13 +301,26 @@ function VenueCard({
           </span>
           <span className="eyebrow block truncate">{venue?.blurb}</span>
         </span>
-        <span className="num text-right text-[13px]">
+        <span className="num shrink-0 text-right text-[13px]">
           {headline > 0 ? usd(headline, hidden) : <span className="text-ink-faint">{state}</span>}
         </span>
+        {notes.length > 0 && (
+          <span className="shrink-0">
+            <HelpDot label={`About ${venue?.label ?? "this venue"}`}>
+              <span className="grid gap-1.5">
+                {notes.map((n) => (
+                  <span key={n} className="block">
+                    {n}
+                  </span>
+                ))}
+              </span>
+            </HelpDot>
+          </span>
+        )}
       </header>
 
       {chips.length > 0 && (
-        <ul className="mt-2 flex flex-wrap gap-1">
+        <ul className="mt-2.5 flex flex-wrap gap-1">
           {chips.map((c) => (
             <li key={c.label} className="doodle-pill num px-2 py-0.5 text-[10px] uppercase tracking-[0.14em] text-ink-soft">
               {c.label}
@@ -312,14 +331,20 @@ function VenueCard({
       )}
 
       {!quiet && (
-        <div className="mt-2.5 grid gap-2.5">
+        <div className="mt-3 grid gap-3">
           {(showEmpty ? accounts : funded).length > 0 && (
-            <ul className="grid gap-1">
+            <ul className="grid gap-1.5">
               {(showEmpty ? accounts : funded).map((a: AccountSummary) => (
                 <li key={a.id} className="flex items-baseline gap-3 text-[13px]">
                   <span className="min-w-0 flex-1 truncate text-ink-soft">{a.label}</span>
-                  {a.detail && <span className="num text-[11px] text-ink-faint">{a.detail}</span>}
-                  <span className="num">{a.equity != null ? usd(a.equity, hidden) : "—"}</span>
+                  {a.detail && (
+                    <span className="num hidden text-[11px] text-ink-faint sm:inline">
+                      {a.detail}
+                    </span>
+                  )}
+                  <span className="num w-24 shrink-0 text-right">
+                    {a.equity != null ? usd(a.equity, hidden) : "—"}
+                  </span>
                 </li>
               ))}
             </ul>
@@ -341,7 +366,7 @@ function VenueCard({
             return (
               <div key={group.label}>
                 <p className="eyebrow border-b border-stroke pb-1">{group.label}</p>
-                <ul className="mt-1 grid gap-1">
+                <ul className="mt-1.5 grid gap-2">
                   {rows.map((p) => (
                     <PositionRow key={p.id} p={p} hidden={hidden} />
                   ))}
@@ -349,9 +374,6 @@ function VenueCard({
               </div>
             );
           })}
-
-          {unpriced && <p className="eyebrow">A dash means this venue reported no price.</p>}
-          {report?.note && <p className="eyebrow">{report.note}</p>}
         </div>
       )}
     </section>
@@ -364,28 +386,44 @@ function PositionRow({ p, hidden }: { p: Position; hidden: boolean }) {
   const meta = Object.entries(p.metadata ?? {}).filter(
     ([, v]) => v != null && typeof v !== "object",
   );
+  const legs = lpLegs(p);
+  const range = rangeChip(p);
   return (
     <li>
       <button
         type="button"
         onClick={() => meta.length > 0 && setOpen((v) => !v)}
         aria-expanded={open}
-        className="flex w-full items-baseline gap-3 text-left text-[13px]"
+        className="w-full text-left text-[13px]"
       >
-        <span className="min-w-0 flex-1 truncate">
-          {pairLabel(p)}
-          {p.side && <span className="eyebrow ml-2">{p.side}</span>}
-          {rangeChip(p) && <span className="eyebrow ml-2">{rangeChip(p)}</span>}
+        <span className="flex items-baseline gap-3">
+          <span className="min-w-0 flex-1 truncate">
+            {pairLabel(p)}
+            {p.side && <span className="eyebrow ml-2">{p.side}</span>}
+          </span>
+          {range && <span className="eyebrow shrink-0">{range}</span>}
+          {!range && !legs && p.detail && (
+            <span className="num hidden text-[11px] text-ink-faint sm:inline">{p.detail}</span>
+          )}
+          <span className="num w-24 shrink-0 text-right">
+            {p.notionalValue != null ? usd(p.notionalValue, hidden) : "—"}
+          </span>
         </span>
-        {p.detail && (
-          <span className="num hidden text-[11px] text-ink-faint sm:inline">{p.detail}</span>
+        {legs && (
+          <span className="mt-0.5 flex items-baseline gap-2 text-[11px] text-ink-faint">
+            <span className="num min-w-0 flex-1 truncate">
+              {legs.map((l, i) => (
+                <span key={l.symbol + i} className={l.zero ? "opacity-45" : undefined}>
+                  {i > 0 && <span className="mx-1.5 opacity-45">+</span>}
+                  {amount(l.value, hidden)} {l.symbol}
+                </span>
+              ))}
+            </span>
+          </span>
         )}
-        <span className="num">
-          {p.notionalValue != null ? usd(p.notionalValue, hidden) : "—"}
-        </span>
       </button>
       {open && meta.length > 0 && (
-        <dl className="mt-1 grid grid-cols-2 gap-x-3 gap-y-0.5 border-l border-stroke pl-2">
+        <dl className="mt-1.5 grid grid-cols-2 gap-x-3 gap-y-0.5 border-l border-stroke pl-2">
           {meta.map(([k, v]) => (
             <div key={k} className="contents">
               <dt className="eyebrow truncate">{k}</dt>
@@ -398,9 +436,29 @@ function PositionRow({ p, hidden }: { p: Position; hidden: boolean }) {
   );
 }
 
-/** On-chain strings can be junk. Only clean symbols reach the UI. */
+/** Token legs of an LP position, read from the venue metadata. */
+function lpLegs(p: Position): { symbol: string; value: number; zero: boolean }[] | null {
+  if (!p.kind.startsWith("lp")) return null;
+  const a0 = p.metadata?.amount0;
+  const a1 = p.metadata?.amount1;
+  if (typeof a0 !== "number" || typeof a1 !== "number") return null;
+  const [s0, s1] = [clean(p.symbols?.[0] ?? ""), clean(p.symbols?.[1] ?? "")];
+  return [
+    { symbol: s0, value: a0, zero: a0 === 0 },
+    { symbol: s1, value: a1, zero: a1 === 0 },
+  ];
+}
+
+/**
+ * On-chain strings can be junk. Only clean symbols reach the UI, and the
+ * common unicode tickers are folded to their plain ASCII spelling.
+ */
 function clean(symbol: string): string {
-  const s = (symbol ?? "").replace(/[^\w.\-/]/g, "").trim();
+  const s = (symbol ?? "")
+    .normalize("NFKC")
+    .replace(/₮/g, "T")
+    .replace(/[^\w.\-/]/g, "")
+    .trim();
   return s.slice(0, 12) || "?";
 }
 
@@ -408,6 +466,7 @@ function pairLabel(p: Position): string {
   if (p.symbols && p.symbols.length >= 2) return p.symbols.slice(0, 2).map(clean).join(" / ");
   return clean(p.symbol || p.label);
 }
+
 
 function rangeChip(p: Position): string | null {
   const state = p.metadata?.range ?? p.metadata?.inRange;
