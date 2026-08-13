@@ -174,8 +174,10 @@ export async function readVelodrome(
         pool: pool ?? null,
         amount0: a0,
         amount1: a1,
+        inRange,
         feesOwed0: Number(p.owed0) / 10 ** m0.decimals,
         feesOwed1: Number(p.owed1) / 10 ** m1.decimals,
+
       },
       fetchedAt: now,
       value: null,
