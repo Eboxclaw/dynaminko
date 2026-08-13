@@ -525,9 +525,11 @@ function ChatConsole({
     }
 
     await speak(
-      "You are the assistant inside a trading journal. Answer briefly. If a number is needed, say which tool would produce it instead of guessing.",
+      "You are the assistant inside a trading journal. Answer briefly. Use the records provided; if a number is needed and no record carries it, say which tool would produce it instead of guessing.",
       text,
+      true,
     );
+
   };
 
   const apply = (s: Suggestion) => {
