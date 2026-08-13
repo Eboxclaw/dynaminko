@@ -421,6 +421,15 @@ function ChatConsole({
       ),
     );
     if (!ok) return;
+    if (msg.approval.kind === "command") {
+      showCommandResult(
+        await runCommand(
+          msg.approval.toolId,
+          (msg.approval.input as Record<string, unknown>) ?? {},
+        ),
+      );
+      return;
+    }
     const tool = TOOL_BY_ID[msg.approval.toolId];
     if (!tool) return;
     try {
