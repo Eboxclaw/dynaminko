@@ -63,7 +63,7 @@ export function buildIndex(): JournalIndex {
       value: e.tradeId
         ? (doc.signals.find((s) => s.id === e.tradeId)?.value ?? null)
         : null,
-      record: [e.headline, e.body].filter(Boolean).join(" — "),
+      record: [e.headline, e.body].filter(Boolean).join(". "),
     })),
     ...doc.signals.map((s) => ({
       id: s.id,

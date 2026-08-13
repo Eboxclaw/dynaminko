@@ -64,7 +64,7 @@ export function runSkill(skillId: string, input: SkillInput = {}): SkillResult {
       const cards = filterCards({ thesisId: id, type: "entry", limit: 10 });
       data = { ...s, recent: cards.map((c) => ({ date: c.date, ticker: c.ticker, motive: c.motive, alignment: c.alignment, record: c.record })) };
       facts = [
-        `"${s.title}" — ${s.entries} entries, ${s.trades} trades.`,
+        `"${s.title}": ${s.entries} entries, ${s.trades} trades.`,
         s.alignmentRate != null
           ? `Aligned on ${Math.round(s.alignmentRate * 100)}% of answered entries.`
           : "No alignment answered against this thesis.",

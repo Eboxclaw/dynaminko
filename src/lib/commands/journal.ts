@@ -68,7 +68,7 @@ export function resolveInbox(args: Record<string, unknown>, ctx: CommandContext)
   };
 
   if (pending.length === 0 && Object.keys(missing).length === 0) {
-    return ok(id, data, "Nothing pending — the inbox is clear.");
+    return ok(id, data, "Nothing pending, the inbox is clear.");
   }
   return needsInput(
     id,
@@ -111,7 +111,7 @@ export function applyAnswer(args: Record<string, unknown>, ctx: CommandContext):
     addEntry({
       tradeId: card.id,
       thesisId,
-      headline: `${card.ticker ?? "trade"} — ${reason}`,
+      headline: `${card.ticker ?? "trade"}: ${reason}`,
       body: reason,
       sentiment: motive,
       alignment,
@@ -178,7 +178,7 @@ export function reviewThesis(args: Record<string, unknown>, ctx: CommandContext)
         record: c.record.slice(0, 120),
       })),
     },
-    `"${thesis.title}" — ${stats.entries} entries, ${stats.trades} trades.`,
+    `"${thesis.title}": ${stats.entries} entries, ${stats.trades} trades.`,
   );
 }
 
