@@ -2,7 +2,7 @@
 // and lets alerts show notifications when the tab is in the background.
 
 const CACHE = "pot-v1";
-const SHELL = ["/", "/manifest.webmanifest", "/dynaminko.svg"];
+const SHELL = ["/", "/manifest.webmanifest", "/pot-mark.svg"];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
