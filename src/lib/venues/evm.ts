@@ -41,15 +41,21 @@ export function toAddress(word: string | undefined): string {
   return word ? `0x${word.slice(24)}` : "0x";
 }
 
-/** Decodes an ABI-encoded dynamic string return value. */
+/**
+ * Decodes an ABI-encoded dynamic string return value.
+ * Bytes are UTF-8: decoding them one byte at a time turns symbols like
+ * USD₮0 into mojibake, so the whole buffer goes through TextDecoder.
+ */
 export function toStringValue(result: string): string {
   const w = words(result);
   const len = Number(toBigInt(w[1]));
   const hex = w.slice(2).join("").slice(0, len * 2);
-  let out = "";
-  for (let i = 0; i < hex.length; i += 2) out += String.fromCharCode(parseInt(hex.slice(i, i + 2), 16));
+  const bytes = new Uint8Array(hex.length / 2);
+  for (let i = 0; i < bytes.length; i += 1) bytes[i] = parseInt(hex.slice(i * 2, i * 2 + 2), 16);
+  const out = new TextDecoder("utf-8", { fatal: false }).decode(bytes);
   return out.replace(/\0+$/, "");
 }
+
 
 type RpcCall = { to: string; data: string };
 
