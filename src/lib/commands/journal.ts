@@ -166,11 +166,11 @@ export function reviewThesis(args: Record<string, unknown>, ctx: CommandContext)
   return ok(
     id,
     {
+      ...stats,
       id: thesis.id,
       title: thesis.title,
       status: thesis.status,
       symbols: thesis.symbols,
-      ...stats,
       recent: recent.map((c) => ({
         date: new Date(c.date).toISOString().slice(0, 10),
         ticker: c.ticker,
