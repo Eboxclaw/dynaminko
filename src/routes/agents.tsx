@@ -19,6 +19,8 @@ import { useDoc } from "@/hooks/useDoc";
 import { relativeTime } from "@/lib/format";
 import { MAX_CONTEXT_MESSAGES, MODELS, STATE_LABEL, splitThinking } from "@/lib/ai";
 import { encoderState } from "@/lib/ai/encoder";
+import { referenceIndex, retrieveContext, type Reference } from "@/lib/ai/retrieval";
+
 import { AGENTS, automationOn } from "@/lib/agents/registry";
 import { COMMANDS, parseCommand, suggestions, type Suggestion } from "@/lib/chat/commands";
 import { digestLine } from "@/lib/chat/context";
