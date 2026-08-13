@@ -12,9 +12,14 @@ import {
 import { useEffect, useMemo, useRef, useState } from "react";
 
 
+import { FlowStrip } from "@/components/pot/FlowStrip";
 import { ModelPanel } from "@/components/pot/ModelPanel";
+import { ModelSwitch } from "@/components/pot/ModelSwitch";
 import { Panel, Shell } from "@/components/pot/Shell";
 import { useAi } from "@/hooks/useAi";
+import { useTurn } from "@/hooks/useTurn";
+import { semanticLabel } from "@/lib/ai/capability";
+import { PHASE_LABEL } from "@/lib/chat/pipeline";
 import { useDoc } from "@/hooks/useDoc";
 import { relativeTime } from "@/lib/format";
 import { MAX_CONTEXT_MESSAGES, MODELS, STATE_LABEL, splitThinking } from "@/lib/ai";
@@ -227,20 +232,23 @@ function ChatConsole({
   const speak = async (system: string, user: string, ground = false) => {
     // Chatting is itself the request to download: the model loads on demand.
     // Cloud targets skip this entirely.
+    turn.stage("model", ai.target.label);
     if (ai.target.kind === "local" && ai.status.phase !== "ready") {
+      turn.move("selecting");
       push({
         role: "note",
         text: `${ai.spec?.label ?? "The model"} is not running yet, starting it now. First run downloads ~${ai.spec?.weightsGb ?? "?"} GB, then it stays on this device.`,
       });
+      turn.move("loading");
       const ok = await ai.ensure();
       if (!ok) {
-        push({
-          role: "note",
-          text: "The model could not start. The numbers above are still computed locally.",
-        });
+        turn.settle("model", "error");
+        turn.fail("The model could not start. The numbers above are still computed locally.");
         return;
       }
     }
+    turn.settle("model", "ok", ai.backend);
+    turn.move("ready");
     setBusy(true);
     try {
       // Retrieval before generation: a handful of records, never the journal.
@@ -262,6 +270,8 @@ function ChatConsole({
         }
       }
       const history = contextFor(messages, Math.floor(ai.ctx * 0.4), MAX_CONTEXT_MESSAGES);
+      turn.move("generating");
+      turn.stage("answer", ai.spec?.label ?? ai.target.label);
       const raw = await ai.ask(
         {
           system: `${system}\n\nContext: ${digestLine()}${grounding}`,
@@ -274,13 +284,20 @@ function ChatConsole({
       );
 
       const { thinking: think, answer } = splitThinking(raw);
-      push({ role: "assistant", text: answer || raw, thinking: think });
+      const text = (answer || raw || "").trim();
+      // Zero output is a failure, never a quiet success.
+      if (!text) {
+        turn.settle("answer", "error");
+        turn.fail("The model completed without producing a response.", "no_output");
+        return;
+      }
+      push({ role: "assistant", text, thinking: think });
+      turn.settle("answer", "ok");
+      turn.complete();
       setImage(null);
     } catch (err) {
-      push({
-        role: "note",
-        text: err instanceof Error ? err.message : "the assistant failed",
-      });
+      turn.settle("answer", "error");
+      turn.fail(err instanceof Error ? err.message : "the assistant failed");
     } finally {
       setBusy(false);
     }
