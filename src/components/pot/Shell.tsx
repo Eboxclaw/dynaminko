@@ -198,13 +198,14 @@ export function Panel({
 }) {
   return (
     <section
-      className={cn("card animate-rise tick", className)}
+      className={cn("card animate-rise tick min-w-0", className)}
       style={{ animationDelay: `${delay}ms` }}
     >
       {(eyebrow || title || action) && (
         <header className="flex items-center gap-3 border-b border-stroke px-4 py-2.5">
           <div className="min-w-0 flex-1">
-            {eyebrow && <p className="eyebrow">{eyebrow}</p>}
+            {eyebrow && <p className="eyebrow truncate">{eyebrow}</p>}
+
             {title && <h2 className="mt-1 text-[14px] font-semibold">{title}</h2>}
           </div>
           {action}
