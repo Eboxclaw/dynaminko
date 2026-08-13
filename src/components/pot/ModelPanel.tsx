@@ -69,7 +69,7 @@ function LocalModels({ ai }: { ai: ReturnType<typeof useAi> }) {
   return (
     <div>
       <p className="flex items-center gap-2 border-b border-stroke px-4 py-2.5 text-[12px] text-ink-soft">
-        <span className="flex-1">{rec.short ?? rec.reason}</span>
+        <span className="flex-1">{rec.reason}</span>
         {profile.probed && rec.id !== selected && (
           <button
             type="button"
