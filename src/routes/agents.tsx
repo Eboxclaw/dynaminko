@@ -930,16 +930,11 @@ function ChatConsole({
             >
               <HelpCircle className="h-3 w-3" /> Help
             </button>
-            <button
-              type="button"
-              onClick={() => onOpenRail("model")}
-              className="doodle-pill num inline-flex items-center gap-1 px-2.5 py-1 text-[11px] hover:border-ink"
-            >
-              <SquareStack className="h-3 w-3" />
-              {ai.target.kind === "cloud"
-                ? ai.target.label
-                : `${ai.spec?.label ?? "no model"} · ${STATE_LABEL[ai.states[ai.modelId]]}`}
-            </button>
+            <ModelSwitch
+              ai={ai}
+              onOpenPanel={() => onOpenRail("model")}
+              onBusyChange={setSwitchBusy}
+            />
 
             <input
               ref={fileRef}
@@ -957,6 +952,10 @@ function ChatConsole({
           </div>
 
           <p className="num eyebrow mt-2 flex flex-wrap gap-x-3">
+            <span>
+              semantic · {semanticLabel(ai.capability).toLowerCase()}
+            </span>
+            {turn.phase !== "idle" && <span>{PHASE_LABEL[turn.phase]}</span>}
             <span>ctx {ai.ctx}</span>
             <span>
               {ctxUsed.turns}/{MAX_CONTEXT_MESSAGES} turns
