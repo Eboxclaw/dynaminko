@@ -194,7 +194,9 @@ function VenueSection({
         {venues.map((id) => {
           const venue = VENUE_BY_ID[id];
           const report = reports.find((r) => r.venueId === id);
-          const value = report?.positions.reduce((s, p) => s + (p.value ?? 0), 0) ?? 0;
+          const equity = report?.accounts.reduce((s, a) => s + (a.equity ?? 0), 0) ?? 0;
+          const notional = report?.positions.reduce((s, p) => s + (p.notionalValue ?? 0), 0) ?? 0;
+          const headline = equity > 0 ? equity : notional;
           const state = loading && !report ? "reading…" : stateLabel(report?.status);
           return (
             <li key={id} className="border-b border-stroke px-4 py-3 last:border-0">
@@ -203,22 +205,52 @@ function VenueSection({
                   <VenueIcon id={id} />
                 </span>
                 <span className="min-w-0 flex-1">
-                  <span className="block text-[14px] font-medium">{venue?.label}</span>
+                  <span className="block text-[14px] font-medium">
+                    {venue?.label}
+                    {report?.stale && <span className="eyebrow ml-2">cached</span>}
+                  </span>
                   <span className="eyebrow">{venue?.blurb}</span>
                 </span>
                 <span className="num text-right text-[13px]">
-                  {value > 0 ? usd(value, hidden) : <span className="text-ink-faint">{state}</span>}
+                  {headline > 0 ? (
+                    usd(headline, hidden)
+                  ) : (
+                    <span className="text-ink-faint">{state}</span>
+                  )}
                 </span>
               </div>
+
+              {report && report.accounts.length > 0 && (
+                <ul className="mt-2 space-y-1 pl-7">
+                  {report.accounts.map((a) => (
+                    <li key={a.id} className="flex items-baseline gap-3 text-[13px]">
+                      <span className="flex-1 truncate text-ink-soft">
+                        {a.label}
+                        <span className="eyebrow ml-2">equity</span>
+                      </span>
+                      {a.detail && (
+                        <span className="num text-[11px] text-ink-faint">{a.detail}</span>
+                      )}
+                      <span className="num">{a.equity != null ? usd(a.equity, hidden) : "—"}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+
               {report && report.positions.length > 0 && (
                 <ul className="mt-2 space-y-1 pl-7">
                   {report.positions.map((p) => (
                     <li key={p.id} className="flex items-baseline gap-3 text-[13px]">
-                      <span className="flex-1 truncate">{p.label}</span>
+                      <span className="flex-1 truncate">
+                        {p.label}
+                        <span className="eyebrow ml-2">{kindLabel(p.kind)}</span>
+                      </span>
                       {p.detail && (
                         <span className="num text-[11px] text-ink-faint">{p.detail}</span>
                       )}
-                      <span className="num">{p.value != null ? usd(p.value, hidden) : "—"}</span>
+                      <span className="num">
+                        {p.notionalValue != null ? usd(p.notionalValue, hidden) : "—"}
+                      </span>
                     </li>
                   ))}
                 </ul>
@@ -232,7 +264,23 @@ function VenueSection({
   );
 }
 
+function kindLabel(kind: string) {
+  switch (kind) {
+    case "perp":
+      return "perp";
+    case "spot":
+      return "margin spot";
+    case "lp-concentrated":
+      return "CL pool";
+    case "lp-constant-product":
+      return "v2 pool";
+    default:
+      return kind;
+  }
+}
+
 function stateLabel(status?: string) {
+
   switch (status) {
     case "empty":
       return "no positions";
