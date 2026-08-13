@@ -293,7 +293,7 @@ function VenueCard({
   ].filter(Boolean) as string[];
 
   return (
-    <section className="doodle-inset min-w-0 px-3 py-3">
+    <section className="doodle-inset min-w-0 overflow-hidden px-3 py-3">
       <header className="flex items-center gap-3">
         <span className="shrink-0 text-ink-soft">
           <VenueIcon id={id} />
