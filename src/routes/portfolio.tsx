@@ -343,8 +343,10 @@ function pairLabel(p: Position): string {
 function rangeChip(p: Position): string | null {
   const state = p.metadata?.range ?? p.metadata?.inRange;
   if (state == null) return null;
-  if (state === true || state === "in" || state === "in-range") return "in range";
-  if (state === false || state === "out" || state === "out-of-range") return "out of range";
+  if (state === 1 || state === "in" || state === "in-range" || state === "true")
+    return "in range";
+  if (state === 0 || state === "out" || state === "out-of-range" || state === "false")
+    return "out of range";
   return typeof state === "string" ? state : null;
 }
 

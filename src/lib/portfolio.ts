@@ -119,7 +119,7 @@ export function tradesFromSnapshot(
         ts: t.ts,
         txHash: t.txHash,
         counterparty: t.counterparty,
-        sector: resolveSector(t.symbol, overrides),
+        sector: sectorFor(t.symbol),
       };
     })
     .sort((a, b) => b.ts - a.ts)
