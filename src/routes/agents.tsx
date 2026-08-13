@@ -163,6 +163,9 @@ function ChatConsole({
   const [reasoning, setReasoning] = useState(false);
   const [thinking, setThinking] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [help, setHelp] = useState(false);
+  const [helpQuery, setHelpQuery] = useState("");
+
   const boxRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
