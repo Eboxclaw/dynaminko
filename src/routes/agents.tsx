@@ -92,6 +92,8 @@ function AgentsPage() {
   const navigate = Route.useNavigate();
   const [railOpen, setRailOpen] = useState(false);
   const ai = useAi();
+  const turn = useTurn();
+  const [switchBusy, setSwitchBusy] = useState(false);
 
   const openRail = (next: RailTab) => {
     void navigate({ search: { tab: next } });
@@ -308,7 +310,9 @@ function ChatConsole({
     skillId: string,
     args: { motive?: never; thesisId?: string } = {},
   ) => {
+    turn.stage("skill", skillId);
     const result = runSkill(skillId, args);
+    turn.settle("skill", "ok", `${result.skill.tools.length} tools`);
     push({
       role: "tool",
       text: result.skill.label,
@@ -423,7 +427,10 @@ function ChatConsole({
         },
       });
     }
-    showCommandResult(await runCommand(def.id, args));
+    turn.stage("command", def.id);
+    const res = await runCommand(def.id, args);
+    turn.settle("command", res.status === "ok" ? "ok" : "error", res.summary ?? res.status);
+    showCommandResult(res);
   };
 
   const approve = async (id: string, ok: boolean) => {
@@ -462,8 +469,9 @@ function ChatConsole({
 
   const submit = async () => {
     const text = input.trim();
-    if (!text || busy) return;
+    if (!text || busy || switchBusy) return;
     setInput("");
+    turn.begin();
     push({ role: "user", text });
 
     const cmd = parseCommand(text);
@@ -600,8 +608,10 @@ function ChatConsole({
       return;
     }
 
+    turn.stage("route", "deterministic");
     const routed = routeMessage(text);
     if (routed.kind === "skill") {
+      turn.settle("route", "ok", routed.why);
       push({ role: "note", text: `Running ${routed.skillId}: ${routed.why}.` });
       return void runSkillTurn(routed.skillId, { thesisId: routed.thesisId });
     }
@@ -621,8 +631,16 @@ function ChatConsole({
       }
     }
     if (routed.kind === "none") {
-      // Second pass: the 230M encoder, not a generative model.
+      // Second pass: the 230M encoder, not a generative model. The encoder is
+      // an accelerator — when it is absent or fails the turn simply carries on.
+      turn.stage("semantic", ai.capability.routeFallback ? "keyword fallback" : "encoder");
       const semantic = await routeSemantic(text);
+      turn.settle(
+        "semantic",
+        ai.capability.routeFallback ? "skipped" : "ok",
+        semantic.kind === "skill" ? semantic.why : "no confident match",
+      );
+      turn.settle("route", "ok");
       if (semantic.kind === "skill") {
         push({ role: "note", text: `Running ${semantic.skillId}: ${semantic.why}.` });
         return void runSkillTurn(semantic.skillId);
