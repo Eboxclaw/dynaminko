@@ -7,6 +7,7 @@ import {
   deviceProfile,
   isReady,
   downloadModel,
+  deleteModel,
   loadedModelId,
   rotateToDownloadedModel,
   loadedContext,
