@@ -345,6 +345,8 @@ export function useAi() {
     spec,
     install,
     actionFor,
+    actionsFor,
+    remove,
     capability,
     activate,
     enabled: settings.aiEnabled,
