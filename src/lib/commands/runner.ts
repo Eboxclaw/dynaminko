@@ -52,6 +52,26 @@ export function commandNeedsApproval(id: string): boolean {
   return def ? needsApproval(def.access) : true;
 }
 
+export async function previewCommand(
+  id: string,
+  args: Record<string, unknown> = {},
+  opts: { signal?: AbortSignal; timeoutMs?: number } = {},
+): Promise<CommandResult> {
+  const def = COMMAND_BY_ID[id];
+  if (!def) return failed(id, "unsupported", `unknown command: ${id}`);
+  if (!def.preview) return failed(id, "unsupported", `no preview for command: ${id}`);
+  const invalid = validate(def, args);
+  if (invalid) return failed(id, "invalid_arguments", invalid);
+  const started = Date.now();
+  let tools = 0;
+  const ctx = { signal: opts.signal, count: (n = 1) => (tools += n) };
+  const result = await Promise.resolve(def.preview(args, ctx));
+  return {
+    ...result,
+    diagnostics: { durationMs: Date.now() - started, toolsUsed: tools, retried: false },
+  };
+}
+
 export async function runCommand(
   id: string,
   args: Record<string, unknown> = {},

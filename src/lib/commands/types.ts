@@ -12,6 +12,11 @@ export type ArgType = "string" | "string?" | "number" | "number?" | "boolean?";
 
 export type CommandStatus = "ok" | "needs_input" | "failed" | "partial";
 
+export type CommandPreview = {
+  count: number;
+  changes: { id: string; label: string; before: string; after: string }[];
+};
+
 export type CommandResult = {
   command: string;
   status: CommandStatus;
@@ -49,6 +54,7 @@ export type CommandDefinition = {
   batchMode: "single" | "batch" | "aggregate" | "workspace";
   capability: string[];
   access: Access;
+  preview?: CommandExecutor;
   execute: CommandExecutor;
 };
 

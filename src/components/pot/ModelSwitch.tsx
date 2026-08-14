@@ -70,9 +70,9 @@ export function ModelSwitch({
     onBusyChange?.(true);
     const action = ai.actionFor(modelId);
     if (action === "download" || action === "resume") {
-      await ai.load(modelId);
       setSwitching(null);
       onBusyChange?.(false);
+      onOpenPanel();
       return;
     }
     const res = await ai.activate(modelId);
@@ -139,7 +139,9 @@ export function ModelSwitch({
                       <span className="eyebrow shrink-0">
                         {active && ai.capability.generation === "loaded"
                           ? "Ready"
-                          : ACTION_LABEL[action]}
+                          : action === "download" || action === "resume"
+                            ? "Open panel"
+                            : ACTION_LABEL[action]}
                       </span>
                     </button>
                   </li>

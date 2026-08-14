@@ -18,6 +18,15 @@ export type SkillDef = {
 
 export const SKILLS: SkillDef[] = [
   {
+    id: "meta.help",
+    label: "Assistant help",
+    purpose: "List what Inko can do without calling a model.",
+    tools: [],
+    aiRequired: false,
+    aiRole: "No model needed; render the structured app manifest.",
+    askable: true,
+  },
+  {
     id: "motive.performance",
     label: "Performance by motive",
     purpose: "Every trade logged under one motive, with a discipline score.",

@@ -32,6 +32,7 @@ export const COMMAND_DEFS: CommandDefinition[] = [
     batchMode: "batch",
     capability: ["journal", "write"],
     access: "WRITE",
+    preview: journal.previewApplyAnswer,
     execute: journal.applyAnswer,
   },
   {

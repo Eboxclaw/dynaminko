@@ -46,7 +46,7 @@ import {
 import { SKILLS } from "@/lib/skills/registry";
 import { runSkill } from "@/lib/skills/run";
 import { COMMAND_BY_ID } from "@/lib/commands/registry";
-import { LIMITS, commandNeedsApproval, runCommand } from "@/lib/commands/runner";
+import { LIMITS, commandNeedsApproval, previewCommand, runCommand } from "@/lib/commands/runner";
 import type { CommandResult } from "@/lib/commands/types";
 import { searchCards } from "@/lib/tools/journal";
 import * as ind from "@/lib/tools/indicators";
@@ -240,9 +240,19 @@ function ChatConsole({
     turn.stage("model", ai.target.label);
     if (ai.target.kind === "local" && !ai.loadedModelId) {
       turn.settle("model", "skipped", "no loaded local model");
+      const localChoices = ai.models
+        .filter((m) => m.generative && ai.install[m.id] === "complete")
+        .map((m) => `• ${m.label} (downloaded) → use the model switch or /model ${m.id}`);
+      const cloudChoice = ai.cloud ? [`• ${ai.target.label} (cloud configured) → switch to Cloud in the model panel`] : [];
       push({
         role: "note",
-        text: "No local model is loaded. Load a downloaded model from the Model panel first; downloads are never started by chat.",
+        text: [
+          "Inko can route deterministically right now; semantic routing is allowed to use keyword fallback.",
+          "A prose answer needs an active generative backend. No local model is loaded, and chat will not auto-download weights.",
+          ...(localChoices.length ? ["Downloaded local models:", ...localChoices] : ["No downloaded local generative model was found on this device."]),
+          ...cloudChoice,
+          "Open the Model panel to Download, Load, Delete, or choose Cloud.",
+        ].join("\n"),
       });
       turn.complete();
       return;
@@ -271,7 +281,7 @@ function ChatConsole({
       }
       const history = contextFor(messages, Math.floor(ai.ctx * 0.4), MAX_CONTEXT_MESSAGES);
       turn.move("generating");
-      turn.stage("answer", ai.spec?.label ?? ai.target.label);
+      turn.stage("answer", ai.target.kind === "cloud" ? ai.target.label : ai.spec?.label ?? ai.target.label);
       const raw = await ai.ask(
         {
           system: `${inkoSystemPrompt({ capabilities: capabilityCatalogue().slice(0, 20), observations: observationsRef.current })}\n\n${system}\n\nContext: ${digestLine()}${grounding}`,
@@ -414,15 +424,20 @@ function ChatConsole({
     }
     const args = parseArgs(rest);
     if (commandNeedsApproval(def.id)) {
+      const preview = def.preview ? await previewCommand(def.id, args) : null;
+      const data = (preview?.data as { preview?: { count: number; changes: { id: string; label: string; before: string; after: string }[] } } | undefined)?.preview;
       return push({
         role: "tool",
-        text: `${def.id} needs your approval`,
+        text: data?.count
+          ? `${def.id} needs your approval · ${data.count} record${data.count === 1 ? "" : "s"} affected`
+          : `${def.id} needs your approval`,
         approval: {
           toolId: def.id,
           kind: "command",
           access: def.access,
           target: rest || "—",
           input: args,
+          preview: data,
           state: "pending",
         },
       });
@@ -790,6 +805,20 @@ function ChatConsole({
                         <p className="eyebrow mt-1">
                           access {m.approval.access} · approval required: YES
                         </p>
+                        {m.approval.preview && (
+                          <ul className="mt-2 grid gap-1 border-t border-stroke pt-2">
+                            {m.approval.preview.changes.map((c) => (
+                              <li key={c.id} className="text-[12px] leading-relaxed">
+                                <span className="font-medium">{c.label}</span>: {c.before} → {c.after}
+                              </li>
+                            ))}
+                            {m.approval.preview.count > m.approval.preview.changes.length && (
+                              <li className="eyebrow">
+                                +{m.approval.preview.count - m.approval.preview.changes.length} more records
+                              </li>
+                            )}
+                          </ul>
+                        )}
                         {m.approval.state === "pending" ? (
                           <div className="mt-2 flex gap-2">
                             <button

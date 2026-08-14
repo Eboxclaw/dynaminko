@@ -32,6 +32,7 @@ const PRE_EXECUTE: { commandId: string; aliases: string[] }[] = [
 ];
 
 const SKILL_ALIASES: { skillId: string; aliases: string[] }[] = [
+  { skillId: "meta.help", aliases: ["help", "what can you do", "list commands", "show capabilities"] },
   { skillId: "motive.performance", aliases: ["motive", "discipline", "why do i", "emotion"] },
   { skillId: "journal.review", aliases: ["review", "coverage", "how am i", "state", "pot"] },
   { skillId: "thesis.review", aliases: ["thesis", "conviction case", "stress test"] },

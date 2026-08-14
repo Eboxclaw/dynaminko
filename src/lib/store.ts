@@ -108,6 +108,11 @@ export type AssistantConfig = {
   modelId: string;
   skills: string[];
   tools: string[];
+  /** generation controls, persisted per browser */
+  temperature: number;
+  maxTokens: number;
+  contextWindow: number;
+  repetitionPenalty: number;
   /** which cloud provider is active when provider === "cloud" */
   cloudId?: string;
   /** provider id → credential, local to this browser */
@@ -169,6 +174,10 @@ export const EMPTY_DOC: PotDoc = {
       modelId: "lfm2-450-vl",
       skills: ["tidy", "reason", "review"],
       tools: ["read-portfolio", "read-signals"],
+      temperature: 0.4,
+      maxTokens: 320,
+      contextWindow: 4096,
+      repetitionPenalty: 1.05,
     },
   },
 };
@@ -189,7 +198,18 @@ function read(): PotDoc {
     return {
       ...EMPTY_DOC,
       ...parsed,
-      settings: { ...EMPTY_DOC.settings, ...(parsed.settings ?? {}) },
+      settings: {
+        ...EMPTY_DOC.settings,
+        ...(parsed.settings ?? {}),
+        assistant: {
+          ...EMPTY_DOC.settings.assistant,
+          ...((parsed.settings ?? {}).assistant ?? {}),
+          cloud: {
+            ...(EMPTY_DOC.settings.assistant.cloud ?? {}),
+            ...(((parsed.settings ?? {}).assistant ?? {}).cloud ?? {}),
+          },
+        },
+      },
     } as PotDoc;
   } catch {
     return EMPTY_DOC;

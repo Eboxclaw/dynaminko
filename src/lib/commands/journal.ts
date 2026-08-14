@@ -83,6 +83,37 @@ export function resolveInbox(args: Record<string, unknown>, ctx: CommandContext)
   );
 }
 
+
+export function previewApplyAnswer(args: Record<string, unknown>, ctx: CommandContext): CommandResult {
+  const id = "journal.apply_answer";
+  const reason = str(args.reason);
+  if (!reason) return failed(id, "invalid_arguments", "reason is required");
+  const ticker = str(args.ticker)?.toUpperCase() ?? null;
+  const limit = typeof args.limit === "number" ? args.limit : 50;
+  const index = buildIndex();
+  ctx.count();
+  const dismissed = new Set(getDoc().settings.dismissedTrades);
+  const pending = index.cards
+    .filter((c) => c.type === "signal" && c.state !== "linked" && !dismissed.has(c.id))
+    .filter((c) => !ticker || c.ticker === ticker)
+    .slice(0, limit);
+  return ok(
+    id,
+    {
+      preview: {
+        count: pending.length,
+        changes: pending.slice(0, 10).map((c) => ({
+          id: c.id,
+          label: `${c.ticker ?? "trade"} · ${c.record.slice(0, 48)}`,
+          before: "signal inbox",
+          after: `journal entry: ${reason.slice(0, 80)}`,
+        })),
+      },
+    },
+    pending.length ? `This will resolve ${pending.length} pending trade${pending.length === 1 ? "" : "s"}.` : "No pending trade matched.",
+  );
+}
+
 /**
  * Batch write: one answer applied to every matching pending trade. This is the
  * mutation path — the model proposes it, the executor performs it once.

@@ -7,7 +7,9 @@ import * as ind from "@/lib/tools/indicators";
 import { filterCards } from "@/lib/tools/journal";
 import { getDoc } from "@/lib/store";
 
-import { SKILL_BY_ID, type SkillDef } from "./registry";
+import { SKILL_BY_ID, SKILLS, type SkillDef } from "./registry";
+import { COMMAND_DEFS } from "@/lib/commands/registry";
+import { TOOLS } from "@/lib/tools/registry";
 
 export type SkillResult = {
   skill: SkillDef;
@@ -30,7 +32,18 @@ export function runSkill(skillId: string, input: SkillInput = {}): SkillResult {
   let data: Record<string, unknown> = {};
   let facts: string[] = [];
 
-  if (skill.id === "motive.performance") {
+  if (skill.id === "meta.help") {
+    data = {
+      commands: COMMAND_DEFS.map((c) => ({ id: c.id, access: c.access, description: c.description })),
+      skills: SKILLS.map((s) => ({ id: s.id, modelRequired: s.aiRequired, purpose: s.purpose })),
+      tools: TOOLS.filter((t) => t.live).map((t) => ({ id: t.id, access: t.access, purpose: t.purpose })),
+    };
+    facts = [
+      `${COMMAND_DEFS.length} deterministic commands are available.`,
+      `${SKILLS.length} skills are registered.`,
+      `${TOOLS.filter((t) => t.live).length} live tools can run without a model when access allows.`,
+    ];
+  } else if (skill.id === "motive.performance") {
     const motive = input.motive ?? "conviction";
     const s = ind.motiveStats(motive);
     data = { ...s };

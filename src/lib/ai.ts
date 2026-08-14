@@ -247,7 +247,7 @@ export type LifecycleResult =
   | { status: "already_loaded"; modelId: string }
   | { status: "install_required"; modelId: string; message: string }
   | { status: "unsupported"; modelId: string; message: string }
-  | { status: "error"; modelId: string; message: string };
+  | { status: "error"; modelId: string; message: string; previousRestored?: boolean };
 
 let instance: Wllama | null = null;
 let currentModel: string | null = null;
@@ -432,7 +432,7 @@ async function loadModelInternal(
   }
 }
 
-/** Explicit install path. This may fetch model assets and then unloads the runtime. */
+/** Explicit install path. This may fetch model assets, then unloads so install is not activation. */
 export async function downloadModel(
   modelId: string,
   onStatus: (s: AiStatus) => void,
@@ -442,6 +442,7 @@ export async function downloadModel(
   try {
     await loadModelInternal(spec.id, onStatus, { ...options, allowDownload: true });
     await unload();
+    onStatus({ phase: "idle", modelId: spec.id });
     return { status: "ready", modelId: spec.id };
   } catch (err) {
     return {
@@ -485,8 +486,27 @@ export async function rotateToDownloadedModel(
   options: LoadOptions = {},
 ): Promise<LifecycleResult> {
   const spec = MODEL_BY_ID[modelId] ?? MODEL_BY_ID[DEFAULT_MODEL_ID];
-  if (isReady(spec.id)) return { status: "already_loaded", modelId: spec.id };
-  return loadDownloadedModel(spec.id, onStatus, options);
+  const nCtx = Math.min(options.nCtx ?? DEFAULT_CTX, spec.maxCtx);
+  if (isReady(spec.id) && currentCtx === nCtx) return { status: "already_loaded", modelId: spec.id };
+
+  const cached = await cachedModels();
+  if (!cached.has(spec.id)) {
+    const message = `${spec.label} is not downloaded. Download it first.`;
+    onStatus({ phase: "error", message, modelId: spec.id });
+    return { status: "install_required", modelId: spec.id, message };
+  }
+
+  const previousModel = currentModel;
+  const previousCtx = currentCtx;
+  const result = await loadDownloadedModel(spec.id, onStatus, options);
+  if (result.status !== "error" || !previousModel || previousModel === spec.id) return result;
+
+  const restore = await loadDownloadedModel(previousModel, () => {}, { nCtx: previousCtx });
+  if (restore.status === "ready" || restore.status === "already_loaded") {
+    onStatus({ phase: "ready", modelId: previousModel });
+    return { ...result, previousRestored: true };
+  }
+  return { ...result, previousRestored: false };
 }
 
 /** Backwards-compatible name for explicit cached load. Never downloads. */
@@ -521,6 +541,8 @@ export type ChatOptions = {
   thinking?: boolean;
   /** data URLs of images, only used by a VL model */
   images?: string[];
+  /** repetition penalty for local llama.cpp compatible runtimes */
+  repetitionPenalty?: number;
   /** live generation speed, emitted while streaming */
   onSpeed?: (tokensPerSecond: number, tokens: number) => void;
 };
@@ -572,9 +594,10 @@ export async function chat(
     stream: true,
     max_tokens: options.maxTokens ?? 320,
     temperature: options.temperature ?? 0.4,
+    repeat_penalty: options.repetitionPenalty ?? 1.05,
     top_p: 0.9,
     abortSignal: abortController.signal,
-    onData: (chunk) => {
+    onData: (chunk: { choices?: { delta?: { content?: string | null }; finish_reason?: string | null }[] }) => {
       const piece = readDelta(chunk);
       if (!piece) return;
       out += piece;
@@ -584,7 +607,7 @@ export async function chat(
       if (secs > 0) options.onSpeed?.(tokens / secs, tokens);
       if (abortRun) abortController.abort();
     },
-  });
+  } as never);
   return out.trim();
 }
 

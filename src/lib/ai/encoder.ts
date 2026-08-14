@@ -8,7 +8,6 @@
 // working when nothing is downloaded, falling back to the keyword pass.
 
 import {
-  DEFAULT_EMBEDDING_ID,
   cosine as cosineOf,
   embed as embedWith,
   downloadProvider,
@@ -30,7 +29,7 @@ export type EncoderState = "missing" | "downloaded" | "loading" | "loaded" | "un
 
 /** Which provider the legacy encoder API drives. */
 function active(): EmbeddingProviderId {
-  return providerReady("lfm-encoder-230m") ? "lfm-encoder-230m" : DEFAULT_EMBEDDING_ID;
+  return "lfm-encoder-230m";
 }
 
 export const onEncoderChange = onEmbeddingChange;
@@ -52,9 +51,7 @@ export function encoderReady(): boolean {
 }
 
 export async function encoderCached(): Promise<boolean> {
-  return (
-    (await providerCached(DEFAULT_EMBEDDING_ID)) || (await providerCached("lfm-encoder-230m"))
-  );
+  return providerCached("lfm-encoder-230m");
 }
 
 export async function downloadSemanticProvider(onProgress?: (fraction: number) => void) {

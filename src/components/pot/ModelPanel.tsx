@@ -174,7 +174,7 @@ function LocalModels({ ai }: { ai: ReturnType<typeof useAi> }) {
                   : "optional · not downloaded"}
           </span>
           <span className="mt-1 block text-[12px] text-ink-soft">
-            ~23 MB. Sharper command matching. Optional.
+            ~180 MB. LFM 2.5 Encoder 230M for sharper command matching. Optional; keyword fallback still works.
           </span>
           {enc.error && <span className="mt-1 block text-[12px] text-loss">{enc.error}</span>}
         </span>
@@ -223,7 +223,7 @@ function LocalModels({ ai }: { ai: ReturnType<typeof useAi> }) {
         </p>
       </div>
 
-      <div className="grid gap-3 border-b border-stroke px-4 py-3 sm:grid-cols-2">
+      <div className="grid gap-3 border-b border-stroke px-4 py-3 sm:grid-cols-3">
         <label className="text-[12px]">
           <span className="eyebrow block">Temperature {ai.temperature.toFixed(2)}</span>
           <input
@@ -248,6 +248,18 @@ function LocalModels({ ai }: { ai: ReturnType<typeof useAi> }) {
             className="mt-2 w-full"
           />
         </label>
+        <label className="text-[12px]">
+          <span className="eyebrow block">Repeat penalty {ai.repetitionPenalty.toFixed(2)}</span>
+          <input
+            type="range"
+            min={1}
+            max={1.4}
+            step={0.01}
+            value={ai.repetitionPenalty}
+            onChange={(e) => ai.setRepetitionPenalty(Number(e.target.value))}
+            className="mt-2 w-full"
+          />
+        </label>
       </div>
 
       <div className="flex flex-wrap items-center gap-2 border-b border-stroke px-4 py-3">
@@ -264,6 +276,7 @@ function LocalModels({ ai }: { ai: ReturnType<typeof useAi> }) {
         >
           {action === "unload" && ai.loadedCtx !== ai.ctx ? "Reload" : action === "load" ? "Load" : ACTION_LABEL[action]}
         </button>
+        <span className="text-[12px] text-ink-soft">Download stores weights; Load activates chat.</span>
         {ai.status.phase === "downloading" && (
           <span className="num text-[12px] text-ink-faint">
             {Math.round(ai.status.progress * 100)}%
@@ -303,8 +316,8 @@ function CloudModels({ ai }: { ai: ReturnType<typeof useAi> }) {
       <ul>
         {CLOUD_PROVIDERS.map((p) => {
           const cred = creds[p.id];
-          const state = cloudState(cred ? { id: p.id, ...cred } : undefined);
           const active = assistant.provider === "cloud" && assistant.cloudId === p.id;
+          const state = cloudState(cred ? { id: p.id, ...cred } : undefined, active ? ai.cloudError : null, active);
           return (
             <li key={p.id} className="border-b border-stroke px-4 py-3">
               <div className="flex flex-wrap items-baseline gap-2">
@@ -312,8 +325,9 @@ function CloudModels({ ai }: { ai: ReturnType<typeof useAi> }) {
                 <span
                   className={cn(
                     "eyebrow",
-                    state === "configured" && "text-gain",
+                    (state === "configured" || state === "active") && "text-gain",
                     state === "unconfigured" && "text-ink-faint",
+                    (state === "blocked" || state === "error" || state === "rate_limited") && "text-loss",
                   )}
                 >
                   {state}

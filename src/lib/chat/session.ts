@@ -18,6 +18,7 @@ export type Approval = {
   access: string;
   target: string;
   input: unknown;
+  preview?: { count: number; changes: { id: string; label: string; before: string; after: string }[] };
   state: "pending" | "approved" | "rejected";
 };
 

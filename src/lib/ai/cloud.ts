@@ -82,17 +82,26 @@ export type CloudConfig = {
   model?: string;
 };
 
-export type CloudState = "unconfigured" | "configured" | "blocked" | "error";
+export type CloudState = "unconfigured" | "configured" | "active" | "rate_limited" | "blocked" | "error";
 
-export function cloudState(cfg: CloudConfig | undefined, lastError?: string | null): CloudState {
+export function cloudState(
+  cfg: CloudConfig | undefined,
+  lastError?: string | null,
+  active = false,
+): CloudState {
   if (!cfg?.apiKey) return "unconfigured";
-  if (lastError) return /cors|failed to fetch|network/i.test(lastError) ? "blocked" : "error";
-  return "configured";
+  if (lastError) {
+    if (/(?:429|rate.?limit)/i.test(lastError)) return "rate_limited";
+    if (/cors|failed to fetch|network/i.test(lastError)) return "blocked";
+    return "error";
+  }
+  return active ? "active" : "configured";
 }
 
 export type CloudChatOptions = {
   temperature?: number;
   maxTokens?: number;
+  repetitionPenalty?: number;
   onToken?: (partial: string) => void;
   signal?: AbortSignal;
 };
@@ -123,6 +132,7 @@ export async function cloudChat(
       stream: true,
       temperature: options.temperature ?? 0.4,
       max_tokens: options.maxTokens ?? 512,
+      ...(options.repetitionPenalty ? { repetition_penalty: options.repetitionPenalty } : {}),
       messages: [
         { role: "system", content: system },
         { role: "user", content: user },

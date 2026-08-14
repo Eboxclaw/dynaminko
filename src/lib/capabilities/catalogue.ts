@@ -95,6 +95,20 @@ export function capabilityCatalogue(): CapabilityDefinition[] {
     batchMode: "single",
   }));
 
+  const manifest: CapabilityDefinition = {
+    id: "app.manifest",
+    kind: "agent_capability",
+    label: "App manifest",
+    purpose: "Deterministic list of assistant commands, skills, tools, and model status.",
+    aliases: ["help", "what can you do", "list commands", "show capabilities", "commands"],
+    examples: ["what can you do", "help", "list commands"],
+    inputs: "none",
+    output: "capability catalogue card",
+    access: "NONE",
+    modelRequired: false,
+    batchMode: "workspace",
+  };
+
   const agent: CapabilityDefinition = {
     id: "agent.inko",
     kind: "agent_capability",
@@ -109,7 +123,7 @@ export function capabilityCatalogue(): CapabilityDefinition[] {
     batchMode: "workspace",
   };
 
-  return [agent, ...commands, ...skills, ...tools, ...concepts];
+  return [manifest, agent, ...commands, ...skills, ...tools, ...concepts];
 }
 
 export function capabilityPrompt(defs = capabilityCatalogue()): string {

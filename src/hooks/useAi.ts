@@ -82,10 +82,11 @@ export function useAi() {
   const [status, setStatus] = useState<AiStatus>({ phase: "idle" });
   const [output, setOutput] = useState("");
   const [running, setRunning] = useState(false);
-  const [ctx, setCtx] = useState(DEFAULT_CTX);
+  const [ctxState, setCtxState] = useState(settings.assistant.contextWindow ?? DEFAULT_CTX);
   const [loadedCtx, setLoadedCtx] = useState(DEFAULT_CTX);
-  const [temperature, setTemperature] = useState(0.4);
-  const [maxTokens, setMaxTokens] = useState(320);
+  const [temperatureState, setTemperatureState] = useState(settings.assistant.temperature ?? 0.4);
+  const [maxTokensState, setMaxTokensState] = useState(settings.assistant.maxTokens ?? 320);
+  const [repetitionPenaltyState, setRepetitionPenaltyState] = useState(settings.assistant.repetitionPenalty ?? 1.05);
   const [downloaded, setDownloaded] = useState<Set<string>>(new Set());
   const [speed, setSpeed] = useState<{ tps: number; tokens: number } | null>(null);
   // Probed after mount so the server and the first client render agree.
@@ -95,8 +96,13 @@ export function useAi() {
   const encoder = useEncoder();
   const mounted = useRef(true);
   const cloudAbort = useRef<AbortController | null>(null);
+  const [cloudError, setCloudError] = useState<string | null>(null);
 
   const assistant = doc.settings.assistant;
+  const ctx = ctxState;
+  const temperature = temperatureState;
+  const maxTokens = maxTokensState;
+  const repetitionPenalty = repetitionPenaltyState;
   const cloudId = assistant.cloudId;
   const cloudCfg: CloudConfig | null =
     assistant.provider === "cloud" && cloudId && assistant.cloud?.[cloudId]?.apiKey
@@ -149,12 +155,6 @@ export function useAi() {
     setSettings({ aiEnabled: false });
   }, [setSettings]);
 
-  /** Generation never installs implicitly. The caller must load a downloaded model first. */
-  const ensure = useCallback(async () => {
-    if (cloudCfg) return true;
-    return isReady(settings.aiModelId) && loadedContext() === ctx;
-  }, [cloudCfg, ctx, settings.aiModelId]);
-
   /**
    * The explicit activation boundary: select, verify, load, wait for ready,
    * then make it the answering target. Nothing "hopes the provider notices".
@@ -193,9 +193,11 @@ export function useAi() {
           const controller = new AbortController();
           cloudAbort.current = controller;
           const started = performance.now();
+          setCloudError(null);
           const text = await cloudChat(cloudCfg, prompt.system, prompt.user, {
             temperature,
             maxTokens,
+            repetitionPenalty,
             signal: controller.signal,
             onToken: (partial) => {
               if (!mounted.current) return;
@@ -219,18 +221,66 @@ export function useAi() {
           {
             temperature,
             maxTokens,
+            repetitionPenalty,
             onSpeed: (tps, tokens) => mounted.current && setSpeed({ tps, tokens }),
             ...options,
           },
         );
         return text;
+      } catch (err) {
+        if (cloudCfg) setCloudError(err instanceof Error ? err.message : String(err));
+        throw err;
       } finally {
         cloudAbort.current = null;
         if (mounted.current) setRunning(false);
       }
     },
-    [cloudCfg, maxTokens, settings.aiModelId, temperature],
+    [cloudCfg, maxTokens, repetitionPenalty, settings.aiModelId, temperature],
   );
+
+  const setCtx = useCallback((next: number) => {
+    setCtxState(next);
+    patchAssistant({ contextWindow: next });
+  }, []);
+
+  const setTemperature = useCallback((next: number) => {
+    setTemperatureState(next);
+    patchAssistant({ temperature: next });
+  }, []);
+
+  const setMaxTokens = useCallback((next: number) => {
+    setMaxTokensState(next);
+    patchAssistant({ maxTokens: next });
+  }, []);
+
+  const setRepetitionPenalty = useCallback((next: number) => {
+    setRepetitionPenaltyState(next);
+    patchAssistant({ repetitionPenalty: next });
+  }, []);
+
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    let timer: number | undefined;
+    const onVisibility = () => {
+      window.clearTimeout(timer);
+      if (document.visibilityState === "hidden" && profile.mobile && loadedModelId() && !running) {
+        timer = window.setTimeout(() => {
+          if (!running) {
+            void unload().then(() => {
+              if (!mounted.current) return;
+              setStatus({ phase: "idle" });
+              setBackend("unavailable");
+            });
+          }
+        }, 30_000);
+      }
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      window.clearTimeout(timer);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, [profile.mobile, running]);
 
   const abort = useCallback(() => {
     cloudAbort.current?.abort();
@@ -331,8 +381,10 @@ export function useAi() {
     setTemperature,
     maxTokens,
     setMaxTokens,
+    repetitionPenalty,
+    setRepetitionPenalty,
+    cloudError,
     load,
-    ensure,
     select,
     stop,
     abort,
