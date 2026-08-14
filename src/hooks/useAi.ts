@@ -301,6 +301,31 @@ export function useAi() {
     [install, states],
   );
 
+  const actionsFor = useCallback(
+    (modelId: string): ModelAction[] =>
+      modelActions(
+        install[modelId] ?? "missing",
+        isReady(modelId),
+        states[modelId] !== "unavailable",
+      ),
+    [install, states],
+  );
+
+  /** Removes cached weights. Unloads first when that model is resident. */
+  const remove = useCallback(
+    async (modelId: string) => {
+      await deleteModel(modelId);
+      if (!isReady(modelId) && mounted.current) {
+        setStatus({ phase: "idle" });
+        setBackend("unavailable");
+      }
+      void refreshDownloaded();
+    },
+    [refreshDownloaded],
+  );
+
+
+
   const capability = useMemo(
     () =>
       deriveCapability({
