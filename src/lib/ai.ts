@@ -328,6 +328,44 @@ export async function cachedModels(): Promise<Set<string>> {
   return out;
 }
 
+/**
+ * Removes one model's weights from the browser cache. If that model is the
+ * resident one it is unloaded first, so memory and disk agree afterwards.
+ */
+export async function deleteModel(modelId: string): Promise<void> {
+  const spec = MODEL_BY_ID[modelId];
+  if (!spec) return;
+  if (currentModel === spec.id) await unload();
+  const needle = (spec.repo.split("/")[1] ?? spec.repo).toLowerCase();
+  if (spec.runtime === "gguf") {
+    const runtime = instance ?? (await createRuntime());
+    const mgr = (
+      runtime as unknown as {
+        cacheManager?: {
+          list?: () => Promise<unknown[]>;
+          deleteMany?: (pred: (e: unknown) => boolean) => Promise<void>;
+59: 
+        };
+      }
+    ).cacheManager;
+    await mgr?.deleteMany?.((e) => {
+      const rec = e as { name?: string; url?: string };
+      return (rec.url ?? rec.name ?? "").toLowerCase().includes(needle);
+    });
+    return;
+  }
+  if (typeof caches === "undefined") return;
+  for (const key of await caches.keys()) {
+    if (!/transformers/i.test(key)) continue;
+    const cache = await caches.open(key);
+    for (const req of await cache.keys()) {
+      if (req.url.toLowerCase().includes(needle)) await cache.delete(req);
+    }
+  }
+}
+
+
+
 /** Resolve the six-state label for one model. */
 export function modelState(
   modelId: string,
