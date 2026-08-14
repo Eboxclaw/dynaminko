@@ -344,7 +344,7 @@ export async function deleteModel(modelId: string): Promise<void> {
         cacheManager?: {
           list?: () => Promise<unknown[]>;
           deleteMany?: (pred: (e: unknown) => boolean) => Promise<void>;
-59: 
+ 
         };
       }
     ).cacheManager;
