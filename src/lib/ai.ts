@@ -328,6 +328,44 @@ export async function cachedModels(): Promise<Set<string>> {
   return out;
 }
 
+/**
+ * Removes one model's weights from the browser cache. If that model is the
+ * resident one it is unloaded first, so memory and disk agree afterwards.
+ */
+export async function deleteModel(modelId: string): Promise<void> {
+  const spec = MODEL_BY_ID[modelId];
+  if (!spec) return;
+  if (currentModel === spec.id) await unload();
+  const needle = (spec.repo.split("/")[1] ?? spec.repo).toLowerCase();
+  if (spec.runtime === "gguf") {
+    const runtime = instance ?? (await createRuntime());
+    const mgr = (
+      runtime as unknown as {
+        cacheManager?: {
+          list?: () => Promise<unknown[]>;
+          deleteMany?: (pred: (e: unknown) => boolean) => Promise<void>;
+ 
+        };
+      }
+    ).cacheManager;
+    await mgr?.deleteMany?.((e) => {
+      const rec = e as { name?: string; url?: string };
+      return (rec.url ?? rec.name ?? "").toLowerCase().includes(needle);
+    });
+    return;
+  }
+  if (typeof caches === "undefined") return;
+  for (const key of await caches.keys()) {
+    if (!/transformers/i.test(key)) continue;
+    const cache = await caches.open(key);
+    for (const req of await cache.keys()) {
+      if (req.url.toLowerCase().includes(needle)) await cache.delete(req);
+    }
+  }
+}
+
+
+
 /** Resolve the six-state label for one model. */
 export function modelState(
   modelId: string,
@@ -432,7 +470,10 @@ async function loadModelInternal(
   }
 }
 
-/** Explicit install path. This may fetch model assets and then unloads the runtime. */
+/**
+ * Explicit install path. It may fetch model assets, and the model stays
+ * resident once the fetch completes, so a download ends ready to answer.
+ */
 export async function downloadModel(
   modelId: string,
   onStatus: (s: AiStatus) => void,
@@ -441,7 +482,6 @@ export async function downloadModel(
   const spec = MODEL_BY_ID[modelId] ?? MODEL_BY_ID[DEFAULT_MODEL_ID];
   try {
     await loadModelInternal(spec.id, onStatus, { ...options, allowDownload: true });
-    await unload();
     return { status: "ready", modelId: spec.id };
   } catch (err) {
     return {

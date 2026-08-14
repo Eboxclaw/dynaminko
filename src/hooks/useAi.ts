@@ -7,6 +7,7 @@ import {
   deviceProfile,
   isReady,
   downloadModel,
+  deleteModel,
   loadedModelId,
   rotateToDownloadedModel,
   loadedContext,
@@ -43,6 +44,7 @@ import { cloudChat, CLOUD_BY_ID, type CloudConfig } from "@/lib/ai/cloud";
 import {
   deriveCapability,
   modelAction,
+  modelActions,
   type InstallState,
   type ModelAction,
 } from "@/lib/ai/capability";
@@ -128,12 +130,21 @@ export function useAi() {
     void refreshDownloaded();
   }, [refreshDownloaded, status.phase]);
 
+  /** Download path. It may fetch weights, and it leaves the model loaded. */
   const load = useCallback(
     async (modelId = settings.aiModelId) => {
       try {
-        await downloadModel(modelId, (s) => mounted.current && setStatus(s), { nCtx: ctx });
-        setStatus({ phase: "idle" });
-        setSettings({ aiModelId: modelId });
+        const result = await downloadModel(modelId, (s) => mounted.current && setStatus(s), {
+          nCtx: ctx,
+        });
+        if (result.status !== "ready") return;
+        if (mounted.current) {
+          setStatus({ phase: "ready", modelId });
+          setLoadedCtx(loadedContext());
+          setBackend(activeBackend());
+        }
+        patchAssistant({ modelId, provider: "local" });
+        setSettings({ aiModelId: modelId, aiEnabled: true });
         void refreshDownloaded();
       } catch {
         /* status already carries the error */
@@ -290,6 +301,31 @@ export function useAi() {
     [install, states],
   );
 
+  const actionsFor = useCallback(
+    (modelId: string): ModelAction[] =>
+      modelActions(
+        install[modelId] ?? "missing",
+        isReady(modelId),
+        states[modelId] !== "unavailable",
+      ),
+    [install, states],
+  );
+
+  /** Removes cached weights. Unloads first when that model is resident. */
+  const remove = useCallback(
+    async (modelId: string) => {
+      await deleteModel(modelId);
+      if (!isReady(modelId) && mounted.current) {
+        setStatus({ phase: "idle" });
+        setBackend("unavailable");
+      }
+      void refreshDownloaded();
+    },
+    [refreshDownloaded],
+  );
+
+
+
   const capability = useMemo(
     () =>
       deriveCapability({
@@ -309,6 +345,8 @@ export function useAi() {
     spec,
     install,
     actionFor,
+    actionsFor,
+    remove,
     capability,
     activate,
     enabled: settings.aiEnabled,
