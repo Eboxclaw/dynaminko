@@ -1,10 +1,10 @@
-// The model harness: what a llama.cpp front end is expected to expose and
-// nothing more — role, state, backend, context window, a RAM-aware
-// recommendation, and the generation basics. Local models are the product;
-// cloud endpoints are an opt-in second tab.
+// The model harness as three sequential cards: provider, models, generation.
+// Every model row carries its own download / load / unload / delete controls,
+// so no single button ever relabels itself into a different meaning.
 
 import { useState } from "react";
 
+import { HelpDot } from "@/components/pot/HelpDot";
 import { useAi } from "@/hooks/useAi";
 import { useDoc } from "@/hooks/useDoc";
 import {
@@ -14,7 +14,7 @@ import {
   memoryEstimateGb,
   recommendModel,
 } from "@/lib/ai";
-import { ACTION_LABEL, semanticLabel } from "@/lib/ai/capability";
+import { semanticLabel, type ModelAction } from "@/lib/ai/capability";
 import { CLOUD_PROVIDERS, cloudState, type CloudProviderId } from "@/lib/ai/cloud";
 import { diagnosticsRows } from "@/lib/ai/runtime";
 import { patchAssistant, patchCloudCredential, patchSettings } from "@/lib/store";
@@ -26,6 +26,26 @@ const BACKEND_LABEL: Record<string, string> = {
   unavailable: "not running",
 };
 
+function Card({
+  title,
+  aside,
+  children,
+}: {
+  title: string;
+  aside?: React.ReactNode;
+  children: React.ReactNode;
+}) {
+  return (
+    <section className="overflow-hidden rounded-[4px] border border-stroke">
+      <header className="flex items-center gap-2 border-b border-stroke bg-ink/[0.02] px-3 py-2">
+        <h3 className="eyebrow flex-1">{title}</h3>
+        {aside}
+      </header>
+      {children}
+    </section>
+  );
+}
+
 export function ModelPanel({ ai }: { ai: ReturnType<typeof useAi> }) {
   const doc = useDoc();
   const [tab, setTab] = useState<"local" | "cloud">(
@@ -33,27 +53,140 @@ export function ModelPanel({ ai }: { ai: ReturnType<typeof useAi> }) {
   );
 
   return (
-    <div>
-      <div className="flex gap-1 border-b border-stroke px-4 py-2">
-        {(["local", "cloud"] as const).map((t) => (
-          <button
-            key={t}
-            type="button"
-            onClick={() => setTab(t)}
-            className={cn(
-              "doodle-pill px-3 py-1 text-[11px] capitalize",
-              tab === t ? "bg-ink text-paper" : "text-ink-faint hover:border-ink",
-            )}
-          >
-            {t}
-          </button>
-        ))}
-        <span className="ml-auto self-center eyebrow">
-          {ai.target.kind === "cloud" ? "cloud active" : BACKEND_LABEL[ai.backend]}
-        </span>
-      </div>
-      {tab === "local" ? <LocalModels ai={ai} /> : <CloudModels ai={ai} />}
+    <div className="grid gap-3">
+      <Card
+        title="Provider"
+        aside={
+          <span className="eyebrow">
+            {ai.target.kind === "cloud" ? "cloud active" : BACKEND_LABEL[ai.backend]}
+          </span>
+        }
+      >
+        <div className="flex items-center gap-2 px-3 py-2.5">
+          <div className="flex gap-1">
+            {(["local", "cloud"] as const).map((t) => (
+              <button
+                key={t}
+                type="button"
+                onClick={() => setTab(t)}
+                className={cn(
+                  "doodle-pill px-3 py-1 text-[11px] capitalize",
+                  tab === t ? "bg-ink text-paper" : "text-ink-faint hover:border-ink",
+                )}
+              >
+                {t}
+              </button>
+            ))}
+          </div>
+          <span className="min-w-0 flex-1 truncate text-right text-[12px] text-ink-soft">
+            {ai.target.label}
+          </span>
+        </div>
+      </Card>
+      {tab === "local" ? <LocalModels ai={ai} /> : <Card title="Cloud endpoints"><CloudModels ai={ai} /></Card>}
     </div>
+  );
+}
+
+const ACTION_STYLE: Partial<Record<ModelAction, string>> = {
+  download: "bg-ink text-paper",
+  resume: "bg-ink text-paper",
+  load: "bg-ink text-paper",
+  unload: "hover:border-ink",
+  delete: "text-loss hover:border-loss",
+};
+
+function ModelRow({
+  ai,
+  id,
+  recommended,
+}: {
+  ai: ReturnType<typeof useAi>;
+  id: string;
+  recommended: boolean;
+}) {
+  const m = MODEL_BY_ID[id];
+  const doc = useDoc();
+  const selected = doc.settings.assistant.modelId === id;
+  const state = ai.states[id];
+  const actions = ai.actionsFor(id);
+  const busy = state === "loading";
+  const showProgress = busy && ai.status.modelId === id && ai.status.phase === "downloading";
+
+  const run = (a: ModelAction) => {
+    if (a === "download" || a === "resume") return void ai.load(id);
+    if (a === "load") return void ai.activate(id);
+    if (a === "unload") return void ai.stop();
+    if (a === "delete") return void ai.remove(id);
+  };
+
+  return (
+    <li className="border-b border-stroke px-3 py-2.5 last:border-b-0">
+      <div className="flex items-start gap-3">
+        <input
+          type="radio"
+          name="model"
+          className="mt-1"
+          disabled={state === "unavailable"}
+          checked={selected}
+          onChange={() => {
+            patchAssistant({ modelId: id, provider: "local" });
+            patchSettings({ aiModelId: id });
+          }}
+        />
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+            <span className="text-[13px] font-medium">{m.label}</span>
+            <span
+              className={cn(
+                "eyebrow",
+                state === "loaded" && "text-gain",
+                state === "downloaded" && "text-ink-soft",
+                (state === "error" || state === "unavailable") && "text-loss",
+                state === "missing" && "text-ink-faint",
+              )}
+            >
+              {STATE_LABEL[state]}
+              {state === "loaded" ? ` · ${BACKEND_LABEL[ai.backend]}` : ""}
+            </span>
+            {recommended && <span className="eyebrow">recommended</span>}
+          </div>
+          <p className="num eyebrow mt-0.5">
+            {m.quant} · ~{m.weightsGb} GB
+            {showProgress && ai.status.phase === "downloading"
+              ? ` · ${Math.round(ai.status.progress * 100)}%`
+              : ""}
+          </p>
+          {ai.status.phase === "error" && ai.status.modelId === id && (
+            <p className="mt-1 text-[12px] text-loss">{ai.status.message}</p>
+          )}
+        </div>
+        <div className="flex shrink-0 flex-wrap justify-end gap-1">
+          {actions.map((a) =>
+            a === "unavailable" ? (
+              <span key={a} className="eyebrow self-center text-ink-faint">
+                unavailable here
+              </span>
+            ) : (
+              <button
+                key={a}
+                type="button"
+                disabled={busy}
+                onClick={() => run(a)}
+                className={cn(
+                  "doodle-pill px-2.5 py-1 text-[11px] disabled:opacity-40",
+                  ACTION_STYLE[a],
+                )}
+              >
+                {busy && (a === "download" || a === "resume" || a === "load")
+                  ? "Working"
+                  : a[0].toUpperCase() + a.slice(1)}
+              </button>
+            ),
+          )}
+        </div>
+      </div>
+    </li>
   );
 }
 
@@ -66,226 +199,164 @@ function LocalModels({ ai }: { ai: ReturnType<typeof useAi> }) {
   const budget = profile.ramGb ?? (profile.mobile ? 2 : 4);
   const estimate = memoryEstimateGb(selected, ai.ctx);
   const enc = ai.encoder;
-  const action = ai.actionFor(selected);
 
   return (
-    <div>
-      <p className="flex items-center gap-2 border-b border-stroke px-4 py-2.5 text-[12px] text-ink-soft">
-        <span className="flex-1">{rec.reason}</span>
-        {profile.probed && rec.id !== selected && (
-          <button
-            type="button"
-            onClick={() => {
-              patchAssistant({ modelId: rec.id, provider: "local" });
-              patchSettings({ aiModelId: rec.id });
-            }}
-            className="doodle-pill ml-2 px-2.5 py-0.5 text-[11px] hover:border-ink"
-          >
-            Use {MODEL_BY_ID[rec.id]?.label}
-          </button>
-        )}
-      </p>
-
-      {/* Two independent capabilities. The encoder never gates generation. */}
-      <dl className="grid grid-cols-2 gap-x-4 border-b border-stroke px-4 py-3">
-        <div>
-          <dt className="eyebrow">Model</dt>
-          <dd className="text-[13px] font-medium">{spec?.label ?? "no model"}</dd>
-          <dd className="num eyebrow">
-            {ai.capability.generation === "loaded"
-              ? `READY · ${BACKEND_LABEL[ai.backend]}`
-              : ai.capability.generation === "downloaded"
-                ? "ON DEVICE · not loaded"
-                : ai.capability.generation === "error"
-                  ? "ERROR"
-                  : "NOT INSTALLED"}
-          </dd>
-        </div>
-        <div>
-          <dt className="eyebrow">Semantic</dt>
-          <dd className="text-[13px] font-medium">Encoder 230M</dd>
-          <dd
-            className={cn("num eyebrow", ai.capability.routeFallback && "text-ink-faint")}
-          >
-            {semanticLabel(ai.capability)}
-          </dd>
-        </div>
-      </dl>
-
-      <ul>
-        {ai.models
-          .filter((m) => m.generative)
-          .map((m) => {
-            const active = selected === m.id;
-            const state = ai.states[m.id];
-            return (
-              <li key={m.id} className="border-b border-stroke px-4 py-3">
-                <label className="flex items-start gap-3">
-                  <input
-                    type="radio"
-                    name="model"
-                    className="mt-1"
-                    disabled={state === "unavailable"}
-                    checked={active}
-                    onChange={() => {
-                      patchAssistant({ modelId: m.id, provider: "local" });
-                      patchSettings({ aiModelId: m.id });
-                    }}
-                  />
-                  <span className="min-w-0 flex-1">
-                    <span className="flex flex-wrap items-baseline gap-2">
-                      <span className="text-[13px] font-medium">{m.label}</span>
-                      <span className="num text-[11px] text-ink-faint">{m.quant}</span>
-                      <span
-                        className={cn(
-                          "eyebrow",
-                          state === "loaded" && "text-gain",
-                          state === "downloaded" && "text-ink-soft",
-                          (state === "error" || state === "unavailable") && "text-loss",
-                          state === "missing" && "text-ink-faint",
-                        )}
-                      >
-                        {STATE_LABEL[state]}
-                        {state === "loaded" ? ` · ${BACKEND_LABEL[ai.backend]}` : ""}
-                      </span>
-                      {profile.probed && m.id === rec.id && (
-                        <span className="eyebrow">recommended</span>
-                      )}
-                    </span>
-                    <span className="eyebrow mt-1 block">~{m.weightsGb} GB</span>
-                  </span>
-                </label>
-              </li>
-            );
-          })}
-      </ul>
-
-      {/* Encoder: optional, recommended. Routing works without it. */}
-      <div className="flex flex-wrap items-center gap-2 border-b border-stroke px-4 py-3">
-        <span className="min-w-0 flex-1">
-          <span className="text-[13px] font-medium">Router encoder</span>
-          <span className="eyebrow ml-2">
-            {enc.state === "loaded"
-              ? `running · ${enc.backend ?? "wasm"}`
-              : enc.state === "loading"
-                ? `downloading ${Math.round(enc.progress * 100)}%`
-                : enc.cached
-                  ? "on device"
-                  : "optional · not downloaded"}
-          </span>
-          <span className="mt-1 block text-[12px] text-ink-soft">
-            ~23 MB. Sharper command matching. Optional.
-          </span>
-          {enc.error && <span className="mt-1 block text-[12px] text-loss">{enc.error}</span>}
-        </span>
-        {enc.state === "loaded" ? (
-          <button
-            type="button"
-            onClick={() => enc.unload()}
-            className="doodle-pill px-3 py-1 text-[11px]"
-          >
-            Unload
-          </button>
-        ) : (
-          <button
-            type="button"
-            onClick={() => void (enc.cached ? enc.load() : enc.download())}
-            className="doodle-pill px-3 py-1 text-[11px] hover:border-ink"
-          >
-            {enc.cached ? "Load" : "Download"}
-          </button>
-        )}
-      </div>
-
-      <div className="border-b border-stroke px-4 py-3">
-        <p className="eyebrow">Context window</p>
-        <div className="mt-2 flex flex-wrap gap-1.5">
-          {CTX_CHOICES.map((c) => (
+    <>
+      <Card
+        title="Models // on this device"
+        aside={
+          <HelpDot label="About local models">
+            Weights are cached in this browser. Download fetches once and leaves the model warm.
+            Load brings a cached model back into memory, Unload frees it, Delete removes the
+            cached weights.
+          </HelpDot>
+        }
+      >
+        <div className="flex items-center gap-2 border-b border-stroke px-3 py-2 text-[12px] text-ink-soft">
+          <span className="min-w-0 flex-1">{rec.reason}</span>
+          {profile.probed && rec.id !== selected && (
             <button
-              key={c}
               type="button"
-              disabled={spec ? c > spec.maxCtx : false}
-              onClick={() => ai.setCtx(c)}
-              className={cn(
-                "doodle-pill num px-3 py-1 text-[11px]",
-                ai.ctx === c ? "bg-ink text-paper" : "text-ink-faint hover:border-ink",
-                spec && c > spec.maxCtx && "opacity-40",
-              )}
+              onClick={() => {
+                patchAssistant({ modelId: rec.id, provider: "local" });
+                patchSettings({ aiModelId: rec.id });
+              }}
+              className="doodle-pill shrink-0 px-2.5 py-0.5 text-[11px] hover:border-ink"
             >
-              {c}
+              Use {MODEL_BY_ID[rec.id]?.label}
             </button>
-          ))}
+          )}
         </div>
-        <p className={cn("eyebrow mt-2", estimate > budget && "text-loss")}>
-          ~{estimate} GB working set
-          {estimate > budget ? " · above what this device reports" : " · fits"}
-          {ai.status.phase === "ready" && ai.loadedCtx !== ai.ctx ? " · reload to apply" : ""}
-        </p>
-      </div>
 
-      <div className="grid gap-3 border-b border-stroke px-4 py-3 sm:grid-cols-2">
-        <label className="text-[12px]">
-          <span className="eyebrow block">Temperature {ai.temperature.toFixed(2)}</span>
-          <input
-            type="range"
-            min={0}
-            max={1}
-            step={0.05}
-            value={ai.temperature}
-            onChange={(e) => ai.setTemperature(Number(e.target.value))}
-            className="mt-2 w-full"
-          />
-        </label>
-        <label className="text-[12px]">
-          <span className="eyebrow block">Max tokens {ai.maxTokens}</span>
-          <input
-            type="range"
-            min={64}
-            max={1024}
-            step={32}
-            value={ai.maxTokens}
-            onChange={(e) => ai.setMaxTokens(Number(e.target.value))}
-            className="mt-2 w-full"
-          />
-        </label>
-      </div>
+        <ul>
+          {ai.models
+            .filter((m) => m.generative)
+            .map((m) => (
+              <ModelRow
+                key={m.id}
+                ai={ai}
+                id={m.id}
+                recommended={profile.probed && m.id === rec.id}
+              />
+            ))}
+        </ul>
 
-      <div className="flex flex-wrap items-center gap-2 border-b border-stroke px-4 py-3">
-        {/* Derived from the cache, never from which model is the default. */}
-        <button
-          type="button"
-          disabled={action === "unavailable"}
-          onClick={() => {
-            if (action === "unload") return void ai.stop();
-            if (action === "download" || action === "resume") return void ai.load(selected);
-            return void ai.activate(selected);
-          }}
-          className="doodle-pill bg-ink px-4 py-1.5 text-[12px] font-medium text-paper disabled:opacity-40"
-        >
-          {action === "unload" && ai.loadedCtx !== ai.ctx ? "Reload" : action === "load" ? "Load" : ACTION_LABEL[action]}
-        </button>
-        {ai.status.phase === "downloading" && (
-          <span className="num text-[12px] text-ink-faint">
-            {Math.round(ai.status.progress * 100)}%
+        <div className="flex flex-wrap items-center gap-2 border-t border-stroke px-3 py-2.5">
+          <span className="min-w-0 flex-1">
+            <span className="text-[13px] font-medium">Router encoder</span>
+            <span className="eyebrow ml-2">
+              {enc.state === "loaded"
+                ? `running · ${enc.backend ?? "wasm"}`
+                : enc.state === "loading"
+                  ? `downloading ${Math.round(enc.progress * 100)}%`
+                  : enc.cached
+                    ? "on device"
+                    : "optional · not downloaded"}
+            </span>
+            {enc.error && <span className="mt-1 block text-[12px] text-loss">{enc.error}</span>}
           </span>
-        )}
-        {ai.speed && (
-          <span className="num text-[11px] text-ink-faint">{ai.speed.tps.toFixed(1)} tok/s</span>
-        )}
-        {ai.status.phase === "error" && (
-          <span className="text-[12px] text-loss">{ai.status.message}</span>
-        )}
-      </div>
+          <HelpDot label="About the encoder">
+            ~23 MB. Sharper command matching. Optional: routing falls back to keywords without it.
+          </HelpDot>
+          {enc.state === "loaded" ? (
+            <button
+              type="button"
+              onClick={() => enc.unload()}
+              className="doodle-pill px-2.5 py-1 text-[11px] hover:border-ink"
+            >
+              Unload
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={() => void (enc.cached ? enc.load() : enc.download())}
+              className="doodle-pill bg-ink px-2.5 py-1 text-[11px] text-paper"
+            >
+              {enc.cached ? "Load" : "Download"}
+            </button>
+          )}
+        </div>
+      </Card>
 
-      <dl className="grid grid-cols-2 gap-x-4 gap-y-1 px-4 py-3">
-        {diagnosticsRows(ai.caps).map((row) => (
-          <div key={row.label} className="contents">
-            <dt className="eyebrow">{row.label}</dt>
-            <dd className="num text-[11px] text-ink-soft">{row.detail}</dd>
+      <Card
+        title="Generation"
+        aside={
+          <span className={cn("num eyebrow", ai.capability.routeFallback && "text-ink-faint")}>
+            semantic {semanticLabel(ai.capability).toLowerCase()}
+          </span>
+        }
+      >
+        <div className="border-b border-stroke px-3 py-2.5">
+          <p className="eyebrow">Context window</p>
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            {CTX_CHOICES.map((c) => (
+              <button
+                key={c}
+                type="button"
+                disabled={spec ? c > spec.maxCtx : false}
+                onClick={() => ai.setCtx(c)}
+                className={cn(
+                  "doodle-pill num px-3 py-1 text-[11px]",
+                  ai.ctx === c ? "bg-ink text-paper" : "text-ink-faint hover:border-ink",
+                  spec && c > spec.maxCtx && "opacity-40",
+                )}
+              >
+                {c}
+              </button>
+            ))}
           </div>
-        ))}
-      </dl>
-    </div>
+          <p className={cn("eyebrow mt-2", estimate > budget && "text-loss")}>
+            ~{estimate} GB working set
+            {estimate > budget ? " · above what this device reports" : " · fits"}
+            {ai.status.phase === "ready" && ai.loadedCtx !== ai.ctx ? " · reload to apply" : ""}
+          </p>
+        </div>
+
+        <div className="grid gap-3 px-3 py-2.5 sm:grid-cols-2">
+          <label className="text-[12px]">
+            <span className="eyebrow block">Temperature {ai.temperature.toFixed(2)}</span>
+            <input
+              type="range"
+              min={0}
+              max={1}
+              step={0.05}
+              value={ai.temperature}
+              onChange={(e) => ai.setTemperature(Number(e.target.value))}
+              className="mt-2 w-full"
+            />
+          </label>
+          <label className="text-[12px]">
+            <span className="eyebrow block">Max tokens {ai.maxTokens}</span>
+            <input
+              type="range"
+              min={64}
+              max={1024}
+              step={32}
+              value={ai.maxTokens}
+              onChange={(e) => ai.setMaxTokens(Number(e.target.value))}
+              className="mt-2 w-full"
+            />
+          </label>
+        </div>
+
+        <div className="flex items-center gap-2 border-t border-stroke px-3 py-2">
+          <span className="eyebrow flex-1">Runtime</span>
+          {ai.speed && (
+            <span className="num text-[11px] text-ink-faint">{ai.speed.tps.toFixed(1)} tok/s</span>
+          )}
+          <HelpDot label="Runtime diagnostics">
+            <span className="grid gap-0.5">
+              {diagnosticsRows(ai.caps).map((row) => (
+                <span key={row.label} className="flex justify-between gap-3">
+                  <span className="eyebrow">{row.label}</span>
+                  <span className="num">{row.detail}</span>
+                </span>
+              ))}
+            </span>
+          </HelpDot>
+        </div>
+      </Card>
+    </>
   );
 }
 
