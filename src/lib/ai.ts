@@ -432,7 +432,10 @@ async function loadModelInternal(
   }
 }
 
-/** Explicit install path. This may fetch model assets and then unloads the runtime. */
+/**
+ * Explicit install path. It may fetch model assets, and the model stays
+ * resident once the fetch completes, so a download ends ready to answer.
+ */
 export async function downloadModel(
   modelId: string,
   onStatus: (s: AiStatus) => void,
@@ -441,7 +444,6 @@ export async function downloadModel(
   const spec = MODEL_BY_ID[modelId] ?? MODEL_BY_ID[DEFAULT_MODEL_ID];
   try {
     await loadModelInternal(spec.id, onStatus, { ...options, allowDownload: true });
-    await unload();
     return { status: "ready", modelId: spec.id };
   } catch (err) {
     return {
