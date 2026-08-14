@@ -44,6 +44,7 @@ import { cloudChat, CLOUD_BY_ID, type CloudConfig } from "@/lib/ai/cloud";
 import {
   deriveCapability,
   modelAction,
+  modelActions,
   type InstallState,
   type ModelAction,
 } from "@/lib/ai/capability";
