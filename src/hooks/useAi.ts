@@ -128,12 +128,21 @@ export function useAi() {
     void refreshDownloaded();
   }, [refreshDownloaded, status.phase]);
 
+  /** Download path. It may fetch weights, and it leaves the model loaded. */
   const load = useCallback(
     async (modelId = settings.aiModelId) => {
       try {
-        await downloadModel(modelId, (s) => mounted.current && setStatus(s), { nCtx: ctx });
-        setStatus({ phase: "idle" });
-        setSettings({ aiModelId: modelId });
+        const result = await downloadModel(modelId, (s) => mounted.current && setStatus(s), {
+          nCtx: ctx,
+        });
+        if (result.status !== "ready") return;
+        if (mounted.current) {
+          setStatus({ phase: "ready", modelId });
+          setLoadedCtx(loadedContext());
+          setBackend(activeBackend());
+        }
+        patchAssistant({ modelId, provider: "local" });
+        setSettings({ aiModelId: modelId, aiEnabled: true });
         void refreshDownloaded();
       } catch {
         /* status already carries the error */
