@@ -53,16 +53,16 @@ const MODEL_LIST: Omit<ModelSpec, "backend">[] = [
     quant: "Q4_K_M",
     runtime: "gguf",
     serve: "llama serve -hf LiquidAI/LFM2.5-2.6B-GGUF:Q4_K_M",
-    blurb: "Strongest and slowest. Desktop with plenty of memory.",
-    role: "Heavier reasoning and generation, when it is actually needed",
+    blurb: "Strongest and slowest. Desktop standard.",
+    role: "Complex reasoning and generation, when it is actually needed",
     capabilities: ["assist", "reason", "extract"],
     desktopOnly: true,
     weightsGb: 1.8,
-    minRamGb: 8,
+    minRamGb: 6,
     vision: false,
     reasoning: true,
     generative: true,
-    maxCtx: 8192,
+    maxCtx: 128192,
   },
   {
     id: "lfm2-1_2-instruct",
@@ -79,7 +79,7 @@ const MODEL_LIST: Omit<ModelSpec, "backend">[] = [
     vision: false,
     reasoning: true,
     generative: true,
-    maxCtx: 8192,
+    maxCtx: 32128,
   },
   {
     id: "lfm2-450-vl",
@@ -97,7 +97,7 @@ const MODEL_LIST: Omit<ModelSpec, "backend">[] = [
     mmprojQuant: "F16",
     reasoning: false,
     generative: true,
-    maxCtx: 4096,
+    maxCtx: 32128,
   },
   {
     id: "lfm2-230-encoder",
@@ -114,7 +114,7 @@ const MODEL_LIST: Omit<ModelSpec, "backend">[] = [
     vision: false,
     reasoning: false,
     generative: false,
-    maxCtx: 2048,
+    maxCtx: 8192,
   },
 ];
 
@@ -146,7 +146,7 @@ export function modelFor(cap: Capability, downloaded?: Set<string>): ModelSpec |
 }
 
 export const CTX_CHOICES = [1024, 2048, 4096, 8192] as const;
-export const DEFAULT_CTX = 4096;
+export const DEFAULT_CTX = 8192;
 /** Never send more than this many turns of the active session to a model. */
 export const MAX_CONTEXT_MESSAGES = 5;
 
