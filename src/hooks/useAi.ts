@@ -130,11 +130,27 @@ export function useAi() {
     void refreshDownloaded();
   }, [refreshDownloaded, status.phase]);
 
+  /**
+   * Progress only ever moves forward for the same model. wllama reports per
+   * file, so a naive assignment can visibly jump back to 0 mid-download.
+   */
+  const applyStatus = useCallback((s: AiStatus) => {
+    if (!mounted.current) return;
+    setStatus((prev) =>
+      s.phase === "downloading" &&
+      prev.phase === "downloading" &&
+      prev.modelId === s.modelId &&
+      prev.progress > s.progress
+        ? prev
+        : s,
+    );
+  }, []);
+
   /** Download path. It may fetch weights, and it leaves the model loaded. */
   const load = useCallback(
     async (modelId = settings.aiModelId) => {
       try {
-        const result = await downloadModel(modelId, (s) => mounted.current && setStatus(s), {
+        const result = await downloadModel(modelId, applyStatus, {
           nCtx: ctx,
         });
         if (result.status !== "ready") return;
@@ -150,8 +166,9 @@ export function useAi() {
         /* status already carries the error */
       }
     },
-    [ctx, refreshDownloaded, settings.aiModelId, setSettings],
+    [applyStatus, ctx, refreshDownloaded, settings.aiModelId, setSettings],
   );
+
 
   const stop = useCallback(async () => {
     await unload();
@@ -175,7 +192,7 @@ export function useAi() {
       patchAssistant({ modelId, provider: "local" });
       setSettings({ aiModelId: modelId });
       try {
-        const result = await rotateToDownloadedModel(modelId, (s) => mounted.current && setStatus(s), { nCtx: ctx });
+        const result = await rotateToDownloadedModel(modelId, applyStatus, { nCtx: ctx });
         if (result.status === "install_required" || result.status === "unsupported" || result.status === "error") {
           throw new Error(result.message);
         }
@@ -191,8 +208,22 @@ export function useAi() {
       void refreshDownloaded();
       return { ok: true };
     },
-    [ctx, refreshDownloaded, setSettings],
+    [applyStatus, ctx, refreshDownloaded, setSettings],
   );
+
+  /**
+   * Chat calls this before answering. A model already on this device is woken
+   * up automatically; weights are never fetched without an explicit download.
+   */
+  const wake = useCallback(async (): Promise<{ ok: boolean; error?: string }> => {
+    if (cloudCfg) return { ok: true };
+    const id = settings.aiModelId;
+    if (isReady(id)) return { ok: true };
+    const cached = await cachedModels();
+    if (!cached.has(id)) return { ok: false, error: "not_downloaded" };
+    return activate(id);
+  }, [activate, cloudCfg, settings.aiModelId]);
+
 
   const ask = useCallback(
     async (prompt: { system: string; user: string }, options: ChatOptions = {}) => {
@@ -370,7 +401,11 @@ export function useAi() {
     maxTokens,
     setMaxTokens,
     load,
+    wake,
+    /** 0..1 while the active download runs, null otherwise */
+    progress: status.phase === "downloading" ? status.progress : null,
     ensure,
+
     select,
     stop,
     abort,
