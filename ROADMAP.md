@@ -38,7 +38,7 @@ Pre-rebuild plans live in `docs/archive/` and describe a product that was replac
 1. `/goal` as a bounded mode of the same command registry (2 cycles local, unbounded call count on
    cloud but always deadline-capped and cancellable).
 2. Journal-specific benchmark of MiniLM vs LFM 2.5 Encoder-230M before changing the default;
-   evaluate LFM2.5-Embedding-350M (Q4_K_M, ~229 MB) as the production bi-encoder.
+   evaluate LFM2.5-Embedding-230M (Q4_K_M, ~229 MB) as the production bi-encoder.
 3. Persist the flow trace per turn so a finished answer can be re-inspected from the log tab.
 4. Search providers (Tavily, DuckDuckGo) behind the EXTERNAL access level.
 5. Approval previews rendered for every WRITE/EDIT/DELETE tool call from a skill.
