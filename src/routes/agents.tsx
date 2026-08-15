@@ -235,20 +235,29 @@ function ChatConsole({
   };
 
   const speak = async (system: string, user: string, ground = false) => {
-    // Generation never downloads or loads implicitly. Deterministic facts can
-    // still render, but prose needs an explicitly loaded local model or cloud.
+    // Chat never downloads weights, but a model already on this device is
+    // woken up here so the first message does not need a manual Load.
     turn.stage("model", ai.target.label);
     if (ai.target.kind === "local" && !ai.loadedModelId) {
-      turn.settle("model", "skipped", "no loaded local model");
-      push({
-        role: "note",
-        text: "No local model is loaded. Load a downloaded model from the Model panel first; downloads are never started by chat.",
-      });
-      turn.complete();
-      return;
+      setSwitchBusy(true);
+      const woke = await ai.wake();
+      setSwitchBusy(false);
+      if (!woke.ok) {
+        turn.settle("model", "skipped", "no local model on this device");
+        push({
+          role: "note",
+          text:
+            woke.error === "not_downloaded"
+              ? `${ai.spec?.label ?? "This model"} is not downloaded yet. Download it once from the model menu and it will stay on this device.`
+              : woke.error ?? "the model failed to load",
+        });
+        turn.complete();
+        return;
+      }
     }
     turn.settle("model", "ok", ai.backend);
     turn.move("ready");
+
     setBusy(true);
     try {
       // Retrieval before generation: a handful of records, never the journal.
