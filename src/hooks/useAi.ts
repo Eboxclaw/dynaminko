@@ -130,11 +130,27 @@ export function useAi() {
     void refreshDownloaded();
   }, [refreshDownloaded, status.phase]);
 
+  /**
+   * Progress only ever moves forward for the same model. wllama reports per
+   * file, so a naive assignment can visibly jump back to 0 mid-download.
+   */
+  const applyStatus = useCallback((s: AiStatus) => {
+    if (!mounted.current) return;
+    setStatus((prev) =>
+      s.phase === "downloading" &&
+      prev.phase === "downloading" &&
+      prev.modelId === s.modelId &&
+      prev.progress > s.progress
+        ? prev
+        : s,
+    );
+  }, []);
+
   /** Download path. It may fetch weights, and it leaves the model loaded. */
   const load = useCallback(
     async (modelId = settings.aiModelId) => {
       try {
-        const result = await downloadModel(modelId, (s) => mounted.current && setStatus(s), {
+        const result = await downloadModel(modelId, applyStatus, {
           nCtx: ctx,
         });
         if (result.status !== "ready") return;
@@ -150,8 +166,9 @@ export function useAi() {
         /* status already carries the error */
       }
     },
-    [ctx, refreshDownloaded, settings.aiModelId, setSettings],
+    [applyStatus, ctx, refreshDownloaded, settings.aiModelId, setSettings],
   );
+
 
   const stop = useCallback(async () => {
     await unload();
