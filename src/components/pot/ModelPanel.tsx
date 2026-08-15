@@ -96,6 +96,15 @@ const ACTION_STYLE: Partial<Record<ModelAction, string>> = {
   delete: "text-loss hover:border-loss",
 };
 
+const STATE_TEXT: Record<string, string> = {
+  missing: "not downloaded",
+  downloaded: "on device",
+  loading: "working",
+  loaded: "active",
+  unavailable: "unavailable here",
+  error: "error",
+};
+
 function ModelRow({
   ai,
   id,
@@ -111,7 +120,15 @@ function ModelRow({
   const state = ai.states[id];
   const actions = ai.actionsFor(id);
   const busy = state === "loading";
-  const showProgress = busy && ai.status.modelId === id && ai.status.phase === "downloading";
+  const mine = ai.status.modelId === id;
+  const pct =
+    mine && ai.status.phase === "downloading" ? Math.round(ai.status.progress * 100) : null;
+  const workLabel =
+    busy && mine
+      ? ai.status.phase === "downloading"
+        ? `downloading ${pct}%`
+        : "loading into memory"
+      : null;
 
   const run = (a: ModelAction) => {
     if (a === "download" || a === "resume") return void ai.load(id);
@@ -146,18 +163,26 @@ function ModelRow({
                 state === "missing" && "text-ink-faint",
               )}
             >
-              {STATE_LABEL[state]}
+              {workLabel ?? STATE_TEXT[state] ?? STATE_LABEL[state]}
               {state === "loaded" ? ` · ${BACKEND_LABEL[ai.backend]}` : ""}
             </span>
             {recommended && <span className="eyebrow">recommended</span>}
           </div>
           <p className="num eyebrow mt-0.5">
             {m.quant} · ~{m.weightsGb} GB
-            {showProgress && ai.status.phase === "downloading"
-              ? ` · ${Math.round(ai.status.progress * 100)}%`
-              : ""}
           </p>
-          {ai.status.phase === "error" && ai.status.modelId === id && (
+          {busy && mine && (
+            <div className="mt-1.5 h-1 w-full overflow-hidden rounded-full bg-ink/10">
+              <div
+                className={cn(
+                  "h-full bg-ink transition-[width] duration-200",
+                  pct === null && "w-1/3 animate-pulse",
+                )}
+                style={pct === null ? undefined : { width: `${Math.max(pct, 2)}%` }}
+              />
+            </div>
+          )}
+          {ai.status.phase === "error" && mine && (
             <p className="mt-1 text-[12px] text-loss">{ai.status.message}</p>
           )}
         </div>
@@ -178,8 +203,10 @@ function ModelRow({
                   ACTION_STYLE[a],
                 )}
               >
-                {busy && (a === "download" || a === "resume" || a === "load")
-                  ? "Working"
+                {busy && mine && (a === "download" || a === "resume" || a === "load")
+                  ? pct === null
+                    ? "…"
+                    : `${pct}%`
                   : a[0].toUpperCase() + a.slice(1)}
               </button>
             ),
@@ -189,6 +216,7 @@ function ModelRow({
     </li>
   );
 }
+
 
 function LocalModels({ ai }: { ai: ReturnType<typeof useAi> }) {
   const doc = useDoc();
