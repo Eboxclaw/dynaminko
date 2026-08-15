@@ -192,7 +192,7 @@ export function useAi() {
       patchAssistant({ modelId, provider: "local" });
       setSettings({ aiModelId: modelId });
       try {
-        const result = await rotateToDownloadedModel(modelId, (s) => mounted.current && setStatus(s), { nCtx: ctx });
+        const result = await rotateToDownloadedModel(modelId, applyStatus, { nCtx: ctx });
         if (result.status === "install_required" || result.status === "unsupported" || result.status === "error") {
           throw new Error(result.message);
         }
@@ -208,8 +208,22 @@ export function useAi() {
       void refreshDownloaded();
       return { ok: true };
     },
-    [ctx, refreshDownloaded, setSettings],
+    [applyStatus, ctx, refreshDownloaded, setSettings],
   );
+
+  /**
+   * Chat calls this before answering. A model already on this device is woken
+   * up automatically; weights are never fetched without an explicit download.
+   */
+  const wake = useCallback(async (): Promise<{ ok: boolean; error?: string }> => {
+    if (cloudCfg) return { ok: true };
+    const id = settings.aiModelId;
+    if (isReady(id)) return { ok: true };
+    const cached = await cachedModels();
+    if (!cached.has(id)) return { ok: false, error: "not_downloaded" };
+    return activate(id);
+  }, [activate, cloudCfg, settings.aiModelId]);
+
 
   const ask = useCallback(
     async (prompt: { system: string; user: string }, options: ChatOptions = {}) => {
