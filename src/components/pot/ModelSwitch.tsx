@@ -181,17 +181,19 @@ export function ModelSwitch({
               );
             })}
           </ul>
+          </div>
           <button
             type="button"
             onClick={() => {
               setOpen(false);
               onOpenPanel();
             }}
-            className="w-full border-t border-stroke px-3 py-2 text-left text-[12px] text-ink-faint hover:bg-ink/5"
+            className="w-full shrink-0 border-t border-stroke px-3 py-2 text-left text-[12px] text-ink-faint hover:bg-ink/5"
           >
             Model settings
           </button>
         </div>
+
       )}
     </div>
   );
