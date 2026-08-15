@@ -610,7 +610,7 @@ export async function chat(
       { role: "user", content },
     ],
     stream: true,
-    max_tokens: options.maxTokens ?? 320,
+    max_tokens: options.maxTokens ?? 8192,
     temperature: options.temperature ?? 0.4,
     top_p: 0.9,
     abortSignal: abortController.signal,
