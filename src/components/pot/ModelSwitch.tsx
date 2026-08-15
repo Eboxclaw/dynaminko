@@ -49,19 +49,25 @@ export function ModelSwitch({
   const cloud = ai.target.kind === "cloud";
   const cap = ai.capability;
 
-  const state = switching
-    ? "Loading…"
-    : error
-      ? "Load failed"
-      : cloud
-        ? "Cloud · Ready"
-        : cap.generation === "loaded"
-          ? `Local · Ready · ${BACKEND_LABEL[ai.backend] ?? ai.backend}`
-          : cap.generation === "downloaded"
-            ? "Local · On device"
-            : cap.generation === "error"
-              ? "Load failed"
-              : "Local · Not installed";
+  const pct =
+    ai.status.phase === "downloading" ? `${Math.round(ai.status.progress * 100)}%` : null;
+
+  const state = pct
+    ? `Downloading ${pct}`
+    : switching || ai.status.phase === "loading"
+      ? "Loading…"
+      : error
+        ? "Load failed"
+        : cloud
+          ? "Cloud · Ready"
+          : cap.generation === "loaded"
+            ? `Local · Ready · ${BACKEND_LABEL[ai.backend] ?? ai.backend}`
+            : cap.generation === "downloaded"
+              ? "Local · On device"
+              : cap.generation === "error"
+                ? "Load failed"
+                : "Local · Not installed";
+
 
   const pick = async (modelId: string) => {
     setOpen(false);
