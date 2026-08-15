@@ -401,7 +401,11 @@ export function useAi() {
     maxTokens,
     setMaxTokens,
     load,
+    wake,
+    /** 0..1 while the active download runs, null otherwise */
+    progress: status.phase === "downloading" ? status.progress : null,
     ensure,
+
     select,
     stop,
     abort,
