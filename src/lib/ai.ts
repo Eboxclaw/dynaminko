@@ -217,7 +217,7 @@ export function recommendModel(profile = deviceProfile()): { id: string; reason:
 export function memoryEstimateGb(modelId: string, nCtx: number): number {
   const spec = MODEL_BY_ID[modelId];
   if (!spec) return 0;
-  const kv = (nCtx / 1024) * spec.weightsGb * 0.25;
+  const kv = (nCtx / 8192) * spec.weightsGb * 0.25;
   return Math.round((spec.weightsGb + kv) * 10) / 10;
 }
 
