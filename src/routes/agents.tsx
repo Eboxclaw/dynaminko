@@ -215,6 +215,17 @@ function ChatConsole({
   const canSee = Boolean(ai.spec?.vision);
   const canReason = Boolean(ai.spec?.reasoning);
 
+  // Whatever the active model supports is on by default, and resets to that
+  // default whenever the active model changes. No click needed for normal use.
+  const activeSpecId = ai.spec?.id;
+  useEffect(() => {
+    setVision(canSee);
+    setReasoning(true);
+    setThinking(canReason);
+  }, [activeSpecId, canReason, canSee]);
+
+
+
 
   const push = (m: Omit<ChatMessage, "id" | "ts">) => {
     const msg = newMessage(m);
