@@ -22,12 +22,7 @@ import {
   type ChatOptions,
   type ModelState,
 } from "@/lib/ai";
-import {
-  detectRuntime,
-  runtimeSnapshot,
-  type Backend,
-  type RuntimeCapabilities,
-} from "@/lib/ai/runtime";
+import { detectRuntime, runtimeSnapshot, type Backend, type RuntimeCapabilities } from "@/lib/ai/runtime";
 import {
   encoderBackend,
   encoderCached,
@@ -41,13 +36,7 @@ import {
   type EncoderState,
 } from "@/lib/ai/encoder";
 import { cloudChat, CLOUD_BY_ID, type CloudConfig } from "@/lib/ai/cloud";
-import {
-  deriveCapability,
-  modelAction,
-  modelActions,
-  type InstallState,
-  type ModelAction,
-} from "@/lib/ai/capability";
+import { deriveCapability, modelAction, modelActions, type InstallState, type ModelAction } from "@/lib/ai/capability";
 import { patchAssistant } from "@/lib/store";
 import { useSettings } from "./useDoc";
 import { useDoc } from "./useDoc";
@@ -87,7 +76,7 @@ export function useAi() {
   const [ctx, setCtx] = useState(DEFAULT_CTX);
   const [loadedCtx, setLoadedCtx] = useState(DEFAULT_CTX);
   const [temperature, setTemperature] = useState(0.4);
-  const [maxTokens, setMaxTokens] = useState(320);
+  const [maxTokens, setMaxTokens] = useState(8192);
   const [downloaded, setDownloaded] = useState<Set<string>>(new Set());
   const [speed, setSpeed] = useState<{ tps: number; tokens: number } | null>(null);
   // Probed after mount so the server and the first client render agree.
@@ -169,7 +158,6 @@ export function useAi() {
     [applyStatus, ctx, refreshDownloaded, settings.aiModelId, setSettings],
   );
 
-
   const stop = useCallback(async () => {
     await unload();
     setStatus({ phase: "idle" });
@@ -223,7 +211,6 @@ export function useAi() {
     if (!cached.has(id)) return { ok: false, error: "not_downloaded" };
     return activate(id);
   }, [activate, cloudCfg, settings.aiModelId]);
-
 
   const ask = useCallback(
     async (prompt: { system: string; user: string }, options: ChatOptions = {}) => {
@@ -294,10 +281,7 @@ export function useAi() {
     return out;
   }, [downloaded, profile.mobile, settings.aiModelId, status]);
 
-  const select = useCallback(
-    (modelId: string) => setSettings({ aiModelId: modelId }),
-    [setSettings],
-  );
+  const select = useCallback((modelId: string) => setSettings({ aiModelId: modelId }), [setSettings]);
 
   /** What is actually answering: the local model or a configured cloud model. */
   const target = cloudCfg
@@ -324,21 +308,13 @@ export function useAi() {
 
   const actionFor = useCallback(
     (modelId: string): ModelAction =>
-      modelAction(
-        install[modelId] ?? "missing",
-        isReady(modelId),
-        states[modelId] !== "unavailable",
-      ),
+      modelAction(install[modelId] ?? "missing", isReady(modelId), states[modelId] !== "unavailable"),
     [install, states],
   );
 
   const actionsFor = useCallback(
     (modelId: string): ModelAction[] =>
-      modelActions(
-        install[modelId] ?? "missing",
-        isReady(modelId),
-        states[modelId] !== "unavailable",
-      ),
+      modelActions(install[modelId] ?? "missing", isReady(modelId), states[modelId] !== "unavailable"),
     [install, states],
   );
 
@@ -354,8 +330,6 @@ export function useAi() {
     },
     [refreshDownloaded],
   );
-
-
 
   const capability = useMemo(
     () =>
