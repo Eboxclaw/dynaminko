@@ -94,11 +94,19 @@ function AgentsPage() {
   const navigate = Route.useNavigate();
   const [railOpen, setRailOpen] = useState(false);
   const ai = useAi();
+  const railRef = useRef<HTMLElement>(null);
+
+  // Opening a panel scrolls it into view instead of leaving it below the fold.
+  useEffect(() => {
+    if (!railOpen) return;
+    railRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  }, [railOpen, tab]);
 
   const openRail = (next: RailTab) => {
     void navigate({ search: { tab: next } });
     setRailOpen(true);
   };
+
 
   return (
     <Shell
