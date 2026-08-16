@@ -106,8 +106,8 @@ export function Shell({
                   {item.label}
                 </span>
                 {item.to === "/journal" && inbox > 0 && (
-                  <span className="num absolute right-2 top-1.5 text-[10px] text-ink-faint group-hover:static group-hover:ml-auto">
-                    {inbox}
+                  <span className="num absolute right-1.5 top-1 rounded-[999px] bg-sunken px-1.5 text-[10px] leading-4 text-ink-soft tabular-nums group-hover:static group-hover:ml-auto">
+                    {inbox > 999 ? "999+" : inbox}
                   </span>
                 )}
               </Link>
@@ -136,9 +136,7 @@ export function Shell({
             <Mark className="h-6 w-6" />
           </Link>
           <div className="min-w-0 flex-1">
-            {title && (
-              <h1 className="truncate text-[15px] font-semibold leading-tight">{title}</h1>
-            )}
+            {title && <h1 className="truncate text-[15px] font-semibold leading-tight">{title}</h1>}
             {subtitle && <p className="eyebrow mt-1 truncate">{subtitle}</p>}
           </div>
           {action}
@@ -152,7 +150,6 @@ export function Shell({
       <main className="pb-28 pt-5 lg:pb-14 lg:pl-[68px]">
         <div className="mx-auto w-full max-w-5xl px-4 md:px-8">{children}</div>
       </main>
-
 
       <nav className="fixed inset-x-0 bottom-0 z-30 border-t border-stroke bg-paper/95 pb-[env(safe-area-inset-bottom)] backdrop-blur-xl lg:hidden">
         <div className="mx-auto flex max-w-md items-stretch justify-between px-2 py-1.5">

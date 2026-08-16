@@ -6,11 +6,7 @@
 
 export type VenueId = "velodrome" | "inkyswap" | "nado" | "hyperliquid";
 
-export type PositionKind =
-  | "perp"
-  | "spot"
-  | "lp-concentrated"
-  | "lp-constant-product";
+export type PositionKind = "perp" | "spot" | "lp-concentrated" | "lp-constant-product";
 
 export type Position = {
   id: string;
@@ -31,6 +27,8 @@ export type Position = {
   unrealizedPnl?: number | null;
   liquidationPrice?: number | null;
   leverage?: number | null;
+  /** margin allocated to this position, when the venue reports one */
+  marginUsed?: number | null;
   /** venue account this belongs to (subaccount id, NFT id, …) */
   accountId?: string | null;
   parentAddress: string;

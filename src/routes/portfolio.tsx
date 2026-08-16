@@ -1,16 +1,18 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
-
+import { TradeDetail } from "@/components/pot/TradeDetail";
 import { HelpDot } from "@/components/pot/HelpDot";
 import { Panel, Shell } from "@/components/pot/Shell";
 import { VenueIcon } from "@/components/pot/VenueIcon";
 
 import { useDoc } from "@/hooks/useDoc";
+import { useBaskets } from "@/hooks/useBaskets";
 import { usePortfolio } from "@/hooks/usePortfolio";
 import { useVenues } from "@/hooks/useVenues";
-import { amount, pct, usd } from "@/lib/format";
+import type { ActiveTrade } from "@/lib/exposure";
+import { amount, pct, relativeTime, usd } from "@/lib/format";
 import {
   SECTOR_BY_ID,
   SECTOR_ORDER,
@@ -46,27 +48,42 @@ export const Route = createFileRoute("/portfolio")({
 function PortfolioPage() {
   const doc = useDoc();
   const hidden = doc.settings.hideBalances;
-  const { portfolio, status, refresh, isFetching } = usePortfolio();
-  const { reports, equity, isFetching: venuesFetching } = useVenues();
+  const { status, refresh, isFetching } = usePortfolio();
+  const { reports, isFetching: venuesFetching } = useVenues();
+  const { baskets, netWorth, trades } = useBaskets();
   const [sort, setSort] = useState<"basket" | "asset">("basket");
+  const [openTrade, setOpenTrade] = useState<ActiveTrade | null>(null);
+
+  // Perp position id → its trade card; LP rows keep their metadata toggle.
+  const tradeById = new Map(trades.map((t) => [t.id, t]));
 
   const grouped = SECTOR_ORDER.map((id: SectorId) => {
-    const holdings = portfolio.holdings.filter((h) => h.sector === id);
+    const holdings = baskets.holdings.filter((h) => h.sector === id);
     const value = holdings.reduce((sum, h) => sum + (h.value ?? 0), 0);
-    return { id, holdings, value, share: portfolio.total > 0 ? value / portfolio.total : 0 };
+    return { id, holdings, value, share: baskets.total > 0 ? value / baskets.total : 0 };
   }).filter((g) => g.holdings.length > 0);
 
   const lpVenues = VENUES.filter((v) => v.kind === "lp");
   const tradingVenues = VENUES.filter((v) => v.kind === "trading");
-  // Net worth = wallet balances + trading-account equity. Perp notional is
-  // exposure, not money, so it never enters this sum.
-  const net = portfolio.total + equity;
 
+  // Quiet activity line per venue, from the same signals the inbox holds.
+  const activity = new Map<string, { count: number; last: number }>();
+  for (const s of doc.signals) {
+    if (!s.venue) continue;
+    const a = activity.get(s.venue) ?? { count: 0, last: 0 };
+    a.count += 1;
+    a.last = Math.max(a.last, s.ts);
+    activity.set(s.venue, a);
+  }
 
   return (
     <Shell
       title="Portfolio"
-      subtitle={portfolio.priced ? usd(net, hidden) : "not priced yet"}
+      subtitle={
+        baskets.priced
+          ? `${usd(netWorth.net, hidden)}${netWorth.venueEquity > 0 ? ` · ${usd(netWorth.venueEquity, hidden)} on venues` : ""}`
+          : "not priced yet"
+      }
       action={
         <button
           type="button"
@@ -81,153 +98,139 @@ function PortfolioPage() {
         <p className="font-hand text-xl text-ink-faint">reading the chain…</p>
       )}
 
-      <div className="grid gap-4 lg:grid-cols-[1.1fr_1fr]">
-        <Panel eyebrow="Exposure // Baskets">
-          {grouped.length === 0 ? (
-            <p className="p-4 text-[13px] text-ink-faint">Nothing priced on this wallet yet.</p>
-          ) : (
-            <div className="p-4">
-              <div className="flex h-3 w-full overflow-hidden rounded-full bg-sunken">
-                {grouped.map((g) => (
+      <Panel
+        eyebrow="Holdings // Detail"
+        delay={60}
+        action={
+          <div className="flex items-center gap-1">
+            {(["basket", "asset"] as const).map((mode) => (
+              <button
+                key={mode}
+                type="button"
+                onClick={() => setSort(mode)}
+                aria-pressed={sort === mode}
+                className={`doodle-pill px-2.5 py-1 text-[11px] ${
+                  sort === mode ? "bg-ink text-paper" : "text-ink-soft"
+                }`}
+              >
+                by {mode}
+              </button>
+            ))}
+          </div>
+        }
+      >
+        {grouped.length === 0 ? (
+          <p className="p-4 text-[13px] text-ink-soft">No balances found on this wallet yet.</p>
+        ) : sort === "asset" ? (
+          <ul className="grid gap-x-6 sm:grid-cols-2 lg:grid-cols-3">
+            {[...baskets.holdings]
+              .sort((a, b) => (b.value ?? 0) - (a.value ?? 0))
+              .map((h) => (
+                <HoldingRow
+                  key={h.key}
+                  h={h}
+                  hidden={hidden}
+                  overrides={doc.settings.basketOverrides ?? {}}
+                  showBasket
+                />
+              ))}
+          </ul>
+        ) : (
+          <div>
+            {grouped.map((g) => (
+              <section key={g.id}>
+                <header className="flex items-baseline gap-3 border-y border-stroke bg-sunken px-4 py-1.5 first:border-t-0">
                   <span
-                    key={g.id}
-                    style={{ width: `${g.share * 100}%`, background: sectorColor(g.id) }}
-                    title={SECTOR_BY_ID[g.id]?.label}
+                    className="h-2.5 w-2.5 shrink-0 rounded-full"
+                    style={{ background: sectorColor(g.id) }}
                   />
-                ))}
-              </div>
-              <ul className="mt-4 space-y-3">
-                {grouped.map((g) => (
-                  <li key={g.id}>
-                    <div className="flex items-baseline gap-3 text-[14px]">
-                      <span
-                        className="h-2.5 w-2.5 shrink-0 rounded-full"
-                        style={{ background: sectorColor(g.id) }}
-                      />
-                      <span className="flex-1 font-medium">{SECTOR_BY_ID[g.id]?.label}</span>
-                      <span className="num text-[12px] text-ink-faint">
-                        {Math.round(g.share * 100)}%
+                  <span className="flex-1 text-[13px] font-medium">
+                    {SECTOR_BY_ID[g.id]?.label}
+                    {g.id === "unsorted" && (
+                      <span className="ml-2 text-[11px] font-normal normal-case text-ink-faint">
+                        tap a dot to sort
                       </span>
-                      <span className="num w-24 text-right">{usd(g.value, hidden)}</span>
-                    </div>
-                    <p className="eyebrow mt-1 pl-[22px]">
-                      {g.holdings.map((h) => h.symbol).join(" · ")}
-                    </p>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
-        </Panel>
+                    )}
+                  </span>
+                  <span className="num text-[13px] font-medium">{usd(g.value, hidden)}</span>
+                  <span className="num w-10 text-right text-[11px] text-ink-faint">
+                    {Math.round(g.share * 100)}%
+                  </span>
+                </header>
+                <ul className="grid gap-x-6 sm:grid-cols-2 lg:grid-cols-3">
+                  {g.holdings.map((h) => (
+                    <HoldingRow
+                      key={h.key}
+                      h={h}
+                      hidden={hidden}
+                      overrides={doc.settings.basketOverrides ?? {}}
+                    />
+                  ))}
+                </ul>
+              </section>
+            ))}
+          </div>
+        )}
+      </Panel>
 
-        <Panel
-          eyebrow="Holdings // Detail"
-          delay={60}
-          action={
-            <div className="flex items-center gap-1">
-              {(["basket", "asset"] as const).map((mode) => (
-                <button
-                  key={mode}
-                  type="button"
-                  onClick={() => setSort(mode)}
-                  aria-pressed={sort === mode}
-                  className={`doodle-pill px-2.5 py-1 text-[11px] ${
-                    sort === mode ? "bg-ink text-paper" : "text-ink-soft"
-                  }`}
-                >
-                  by {mode}
-                </button>
-              ))}
-            </div>
-          }
-        >
-          {grouped.length === 0 ? (
-            <p className="p-4 text-[13px] text-ink-soft">No balances found on this wallet yet.</p>
-          ) : sort === "asset" ? (
-            <ul>
-              {[...portfolio.holdings]
-                .sort((a, b) => (b.value ?? 0) - (a.value ?? 0))
-                .map((h) => (
-                  <HoldingRow
-                    key={h.key}
-                    h={h}
-                    hidden={hidden}
-                    overrides={doc.settings.basketOverrides ?? {}}
-                    showBasket
-                  />
-                ))}
-            </ul>
-          ) : (
-            <div>
-              {grouped.map((g) => (
-                <section key={g.id}>
-                  <header className="flex items-baseline gap-2 border-y border-stroke bg-sunken px-4 py-1.5 first:border-t-0">
-                    <span className="eyebrow flex-1">
-                      {SECTOR_BY_ID[g.id]?.label}
-                      {g.id === "unsorted" && (
-                        <span className="ml-2 normal-case text-ink-faint">
-                          tap a dot to sort
-                        </span>
-                      )}
-                    </span>
-                    <span className="num text-[12px]">{usd(g.value, hidden)}</span>
-                    <span className="num text-[11px] text-ink-faint">
-                      {Math.round(g.share * 100)}%
-                    </span>
-                  </header>
-                  <ul>
-                    {g.holdings.map((h) => (
-                      <HoldingRow
-                        key={h.key}
-                        h={h}
-                        hidden={hidden}
-                        overrides={doc.settings.basketOverrides ?? {}}
-                      />
-                    ))}
-                  </ul>
-                </section>
-              ))}
-            </div>
-          )}
+      <div className="mt-4">
+        <Panel eyebrow="Venues // Positions & accounts" delay={100}>
+          <div className="grid gap-5 p-3 lg:grid-cols-2 lg:gap-4">
+            <VenueGroup
+              title="Liquidity // Positions"
+              venues={lpVenues.map((v) => v.id)}
+              reports={reports}
+              hidden={hidden}
+              loading={venuesFetching}
+              activity={activity}
+              tradeById={tradeById}
+              onOpenTrade={setOpenTrade}
+            />
+            <VenueGroup
+              title="Trading // Accounts"
+              venues={tradingVenues.map((v) => v.id)}
+              reports={reports}
+              hidden={hidden}
+              loading={venuesFetching}
+              activity={activity}
+              tradeById={tradeById}
+              onOpenTrade={setOpenTrade}
+            />
+          </div>
         </Panel>
       </div>
 
-      <div className="mt-4 grid gap-4 lg:grid-cols-2">
-        <VenueSection
-          eyebrow="Liquidity // Positions"
-          venues={lpVenues.map((v) => v.id)}
-          reports={reports}
-          hidden={hidden}
-          loading={venuesFetching}
-        />
-        <VenueSection
-          eyebrow="Trading // Accounts"
-          venues={tradingVenues.map((v) => v.id)}
-          reports={reports}
-          hidden={hidden}
-          loading={venuesFetching}
-        />
-      </div>
+      {openTrade && (
+        <TradeDetail trade={openTrade} hidden={hidden} onClose={() => setOpenTrade(null)} />
+      )}
     </Shell>
   );
 }
 
-function VenueSection({
-  eyebrow,
+/** One titled group of venue cards inside the shared venues panel. */
+function VenueGroup({
+  title,
   venues,
   reports,
   hidden,
   loading,
+  activity,
+  tradeById,
+  onOpenTrade,
 }: {
-  eyebrow: string;
+  title: string;
   venues: string[];
   reports: VenueReport[];
   hidden: boolean;
   loading: boolean;
+  activity: Map<string, { count: number; last: number }>;
+  tradeById: Map<string, ActiveTrade>;
+  onOpenTrade: (t: ActiveTrade) => void;
 }) {
   return (
-    <Panel eyebrow={eyebrow} delay={100}>
-      <div className="grid min-w-0 content-start gap-3 p-3">
+    <section className="min-w-0">
+      <p className="eyebrow border-b border-stroke pb-1.5">{title}</p>
+      <div className="mt-3 grid min-w-0 content-start gap-3">
         {venues.map((id) => (
           <VenueCard
             key={id}
@@ -235,13 +238,15 @@ function VenueSection({
             report={reports.find((r) => r.venueId === id)}
             hidden={hidden}
             loading={loading}
+            activity={activity.get(id)}
+            tradeById={tradeById}
+            onOpenTrade={onOpenTrade}
           />
         ))}
       </div>
-    </Panel>
+    </section>
   );
 }
-
 
 const GROUPS: { kind: Position["kind"][]; label: string }[] = [
   { kind: ["perp"], label: "Perps" },
@@ -254,11 +259,17 @@ function VenueCard({
   report,
   hidden,
   loading,
+  activity,
+  tradeById,
+  onOpenTrade,
 }: {
   id: string;
   report?: VenueReport;
   hidden: boolean;
   loading: boolean;
+  activity?: { count: number; last: number };
+  tradeById: Map<string, ActiveTrade>;
+  onOpenTrade: (t: ActiveTrade) => void;
 }) {
   const [showEmpty, setShowEmpty] = useState(false);
   const venue = VENUE_BY_ID[id];
@@ -326,12 +337,26 @@ function VenueCard({
       {chips.length > 0 && (
         <ul className="mt-2.5 flex flex-wrap gap-1">
           {chips.map((c) => (
-            <li key={c.label} className="doodle-pill num px-2 py-0.5 text-[10px] uppercase tracking-[0.14em] text-ink-soft">
+            <li
+              key={c.label}
+              className="doodle-pill num px-2 py-0.5 text-[10px] uppercase tracking-[0.14em] text-ink-soft"
+            >
               {c.label}
               <span className="ml-1 text-ink">{c.value}</span>
             </li>
           ))}
         </ul>
+      )}
+
+      {activity && activity.count > 0 && (
+        <Link
+          to="/journal"
+          search={{ tab: "inbox" as const, filter: "all", venue: id as "nado" | "hyperliquid" }}
+          className="eyebrow mt-2 inline-block hover:text-ink"
+        >
+          {activity.count} extracted action{activity.count === 1 ? "" : "s"} · last{" "}
+          {relativeTime(activity.last)} →
+        </Link>
       )}
 
       {!quiet && (
@@ -372,7 +397,13 @@ function VenueCard({
                 <p className="eyebrow border-b border-stroke pb-1">{group.label}</p>
                 <ul className="mt-1.5 grid gap-2">
                   {rows.map((p) => (
-                    <PositionRow key={p.id} p={p} hidden={hidden} />
+                    <PositionRow
+                      key={p.id}
+                      p={p}
+                      hidden={hidden}
+                      trade={tradeById.get(p.id)}
+                      onOpenTrade={onOpenTrade}
+                    />
                   ))}
                 </ul>
               </div>
@@ -384,12 +415,67 @@ function VenueCard({
   );
 }
 
-/** One position, with the raw venue payload one tap away. */
-function PositionRow({ p, hidden }: { p: Position; hidden: boolean }) {
+/** One position. Perps get the two-line trading layout (leverage, size, PnL)
+ *  and open the trade card on tap; LP rows keep the raw payload one tap away. */
+function PositionRow({
+  p,
+  hidden,
+  trade,
+  onOpenTrade,
+}: {
+  p: Position;
+  hidden: boolean;
+  trade?: ActiveTrade;
+  onOpenTrade: (t: ActiveTrade) => void;
+}) {
   const [open, setOpen] = useState(false);
   const meta = Object.entries(p.metadata ?? {}).filter(
     ([, v]) => v != null && typeof v !== "object",
   );
+
+  if (trade) {
+    const pnl = trade.unrealizedPnl;
+    return (
+      <li>
+        <button
+          type="button"
+          onClick={() => onOpenTrade(trade)}
+          className="w-full border border-stroke bg-paper px-3 py-2.5 text-left transition hover:border-stroke-strong"
+        >
+          <span className="flex items-center gap-2.5">
+            <span className="min-w-0 flex-1 truncate text-[13px] font-medium">
+              {clean(p.symbol)}
+            </span>
+            <span className="doodle-pill shrink-0 px-2 py-0.5 text-[10px] uppercase tracking-[0.12em] text-ink-soft">
+              {trade.side}
+              {trade.leverage != null && ` · ${trade.leverage}x`}
+            </span>
+            <span className="num w-24 shrink-0 text-right text-[13px] font-medium">
+              {trade.notional != null ? usd(trade.notional, hidden) : "—"}
+            </span>
+          </span>
+          <span className="mt-1.5 flex items-center gap-2.5">
+            <span className="num min-w-0 flex-1 truncate text-[11px] text-ink-faint">
+              {trade.size.toLocaleString()}
+              {trade.entryPrice != null &&
+                ` @ ${trade.entryPrice.toLocaleString(undefined, { maximumFractionDigits: trade.entryPrice >= 1000 ? 0 : 4 })}`}
+              {trade.markPrice != null &&
+                ` → ${trade.markPrice.toLocaleString(undefined, { maximumFractionDigits: trade.markPrice >= 1000 ? 0 : 4 })}`}
+              {trade.margin != null && ` · ${usd(trade.margin, hidden)} margin`}
+            </span>
+            <span
+              className={`num w-24 shrink-0 text-right text-[12px] ${
+                (pnl ?? 0) >= 0 ? "text-gain" : "text-loss"
+              }`}
+            >
+              {pnl != null ? usd(pnl, hidden) : "—"}
+            </span>
+          </span>
+        </button>
+      </li>
+    );
+  }
+
   const legs = lpLegs(p);
   const range = rangeChip(p);
   return (
@@ -471,12 +557,10 @@ function pairLabel(p: Position): string {
   return clean(p.symbol || p.label);
 }
 
-
 function rangeChip(p: Position): string | null {
   const state = p.metadata?.range ?? p.metadata?.inRange;
   if (state == null) return null;
-  if (state === 1 || state === "in" || state === "in-range" || state === "true")
-    return "in range";
+  if (state === 1 || state === "in" || state === "in-range" || state === "true") return "in range";
   if (state === 0 || state === "out" || state === "out-of-range" || state === "false")
     return "out of range";
   return typeof state === "string" ? state : null;
@@ -488,7 +572,15 @@ function HoldingRow({
   overrides,
   showBasket = false,
 }: {
-  h: { key: string; symbol: string; name: string; amount: number; value: number | null; change24h?: number | null; sector: SectorId };
+  h: {
+    key: string;
+    symbol: string;
+    name: string;
+    amount: number;
+    value: number | null;
+    change24h?: number | null;
+    sector: SectorId;
+  };
   hidden: boolean;
   overrides: Record<string, string>;
   showBasket?: boolean;
@@ -592,9 +684,7 @@ function BasketPicker({
           ? "fixed inset-x-0 bottom-0 z-50 max-h-[70dvh] overflow-y-auto rounded-t-2xl border-t border-stroke bg-paper p-2 pb-[calc(env(safe-area-inset-bottom)+12px)] shadow-2xl"
           : "fixed z-50 w-56 overflow-y-auto rounded-[3px] border border-stroke bg-paper p-1 shadow-xl"
       }
-      style={
-        sheet || !pos ? undefined : { top: pos.top, left: pos.left, maxHeight: pos.height }
-      }
+      style={sheet || !pos ? undefined : { top: pos.top, left: pos.left, maxHeight: pos.height }}
     >
       <p className="eyebrow flex items-center justify-between px-2 py-1.5">
         <span className="truncate">{symbol}</span>
@@ -640,10 +730,7 @@ function BasketPicker({
         }}
         className="flex h-7 w-7 items-center justify-center rounded-full border border-stroke hover:border-ink"
       >
-        <span
-          className="h-2.5 w-2.5 rounded-full"
-          style={{ background: sectorColor(current) }}
-        />
+        <span className="h-2.5 w-2.5 rounded-full" style={{ background: sectorColor(current) }} />
       </button>
       {overridden && (
         <span className="pointer-events-none absolute -right-0.5 -top-0.5 h-1.5 w-1.5 rounded-full bg-ink" />
@@ -662,7 +749,6 @@ function BasketPicker({
     </div>
   );
 }
-
 
 function stateLabel(status?: string) {
   switch (status) {

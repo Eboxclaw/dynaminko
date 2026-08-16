@@ -1,7 +1,25 @@
-// Lightweight inline marks for each venue. Pure geometry, currentColor only —
-// no external logo assets, no network cost.
+// Venue marks. Real local logos where we have them (see src/lib/logos.ts),
+// rendered on a fixed obsidian tile so every mark reads in both themes;
+// pure-geometry fallbacks in currentColor for everything else.
+
+import { venueLogo } from "@/lib/logos";
+import { cn } from "@/lib/utils";
 
 export function VenueIcon({ id, className }: { id: string; className?: string }) {
+  const src = venueLogo(id);
+  if (src) {
+    return (
+      <span
+        className={cn(
+          "grid shrink-0 place-items-center rounded-[3px] border border-white/15 bg-[#0c0c0d] p-[2px]",
+          className ?? "h-4 w-4",
+        )}
+      >
+        <img src={src} alt="" draggable={false} className="h-full w-full object-contain" />
+      </span>
+    );
+  }
+
   const common = {
     className: className ?? "h-4 w-4",
     viewBox: "0 0 16 16",

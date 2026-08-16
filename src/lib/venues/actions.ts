@@ -344,6 +344,7 @@ export async function readHyperliquidActions(
           pnl: pnl !== 0 ? pnl : null,
           direction: hlDirection(last.dir),
           trigger: hlTrigger(ordersByOid.get(oid)),
+          oid: String(oid),
         },
       });
     }

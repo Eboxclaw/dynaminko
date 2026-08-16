@@ -36,8 +36,10 @@ export type SignalMeta = {
   direction?: "long" | "short";
   /** order annotation: "TP/SL", "trigger ≥ 2,400", "reduce-only", … */
   trigger?: string | null;
-  /** venue order reference (Nado digest) */
+  /** venue order reference (Nado order digest) */
   digest?: string;
+  /** venue order reference (Hyperliquid order id) */
+  oid?: string;
 };
 
 /** An agent-extracted on-chain moment waiting for the user to complete it. */

@@ -8,11 +8,14 @@ import { Panel, Shell } from "@/components/pot/Shell";
 import { VenueIcon } from "@/components/pot/VenueIcon";
 import { WalletPanel } from "@/components/pot/WalletChip";
 import { useAgent } from "@/hooks/useAgent";
+import { useBaskets } from "@/hooks/useBaskets";
 import { useDoc } from "@/hooks/useDoc";
 import { useActiveWallet, usePortfolio } from "@/hooks/usePortfolio";
+import { useVenues } from "@/hooks/useVenues";
 import { relativeTime, usd } from "@/lib/format";
 import { SECTOR_BY_ID } from "@/lib/sectors";
 import { patchSettings } from "@/lib/store";
+import { VENUE_BY_ID } from "@/lib/venues";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/")({
@@ -38,9 +41,20 @@ function Dashboard() {
   const doc = useDoc();
   const { wallets } = useActiveWallet();
   const { portfolio, isFetching, fetchedAt, refresh } = usePortfolio();
+  const { baskets, netWorth } = useBaskets();
+  const { reports } = useVenues();
   const { inbox } = useAgent();
   const [composing, setComposing] = useState(false);
   const hidden = doc.settings.hideBalances;
+
+  // Per-venue account totals: "on Ink · on Nado · on Hyperliquid", only the
+  // venues that hold anything.
+  const venueTotals = reports
+    .map((r) => ({
+      label: VENUE_BY_ID[r.venueId]?.label ?? r.venueId,
+      equity: (r.accounts ?? []).reduce((s, a) => s + (a.equity ?? 0), 0),
+    }))
+    .filter((v) => v.equity > 0);
 
   if (wallets.length === 0) {
     return (
@@ -60,7 +74,7 @@ function Dashboard() {
     );
   }
 
-  const top = portfolio.slices[0];
+  const top = baskets.slices[0];
 
   return (
     <Shell
@@ -80,11 +94,14 @@ function Dashboard() {
       }
     >
       <div className="grid gap-4 lg:grid-cols-[1.15fr_1fr]">
-        <Panel eyebrow="Net worth // Ink" className={cn(isFetching && "scan overflow-hidden")}>
+        <Panel
+          eyebrow="Net worth // Wallet + venues"
+          className={cn(isFetching && "scan overflow-hidden")}
+        >
           <div className="p-4">
             <div className="flex items-start gap-3">
               <p className="num text-[30px] font-semibold leading-none tracking-tight sm:text-[38px]">
-                {portfolio.priced ? usd(portfolio.total, hidden) : "—"}
+                {baskets.priced ? usd(netWorth.net, hidden) : "—"}
               </p>
               <button
                 type="button"
@@ -96,13 +113,16 @@ function Dashboard() {
               </button>
             </div>
             <p className="eyebrow mt-3">
-              {portfolio.holdings.length} assets · {portfolio.slices.length} baskets
-              {top &&
-                ` · ${SECTOR_BY_ID[top.sector]?.label} leads at ${Math.round(top.share * 100)}%`}
+              {usd(netWorth.wallet, hidden)} on Ink
+              {venueTotals.map((v) => ` · ${usd(v.equity, hidden)} on ${v.label}`).join("")}
+              {` · ${baskets.holdings.length} assets · ${baskets.slices.length} baskets`}
+            </p>
+            <p className="eyebrow mt-1">
+              {top && `${SECTOR_BY_ID[top.sector]?.label} leads at ${Math.round(top.share * 100)}%`}
             </p>
             <div className="mt-2">
               <BasketOrb
-                slices={portfolio.slices.map((s) => ({
+                slices={baskets.slices.map((s) => ({
                   label: SECTOR_BY_ID[s.sector]?.label ?? s.sector,
                   share: s.share,
                 }))}
@@ -112,11 +132,11 @@ function Dashboard() {
         </Panel>
 
         <Panel eyebrow="Exposure // Baskets" delay={60}>
-          {portfolio.slices.length === 0 ? (
+          {baskets.slices.length === 0 ? (
             <p className="p-4 text-[13px] text-ink-faint">Nothing priced on this wallet yet.</p>
           ) : (
             <ul>
-              {portfolio.slices.map((s) => {
+              {baskets.slices.map((s) => {
                 const sector = SECTOR_BY_ID[s.sector];
                 return (
                   <li key={s.sector} className="border-b border-stroke px-4 py-3 last:border-0">
@@ -191,13 +211,20 @@ function Dashboard() {
 
         <Panel eyebrow="Holdings // Detail" delay={140}>
           <ul className="max-h-[300px] overflow-y-auto overscroll-contain sm:max-h-[260px]">
-            {portfolio.holdings.slice(0, 12).map((h) => (
+            {baskets.holdings.slice(0, 12).map((h) => (
               <li
                 key={h.key}
                 className="flex items-center gap-3 border-b border-stroke px-4 py-3 last:border-0 sm:py-2.5"
               >
                 <span className="min-w-0 flex-1">
-                  <span className="block text-[13px] font-medium">{h.symbol}</span>
+                  <span className="flex items-center gap-1.5 text-[13px] font-medium">
+                    <span className="truncate">{h.symbol}</span>
+                    {h.sources
+                      .filter((src) => src !== "wallet")
+                      .map((src) => (
+                        <VenueIcon key={src} id={src} className="h-3 w-3 shrink-0 text-ink-faint" />
+                      ))}
+                  </span>
                   <span className="eyebrow">{SECTOR_BY_ID[h.sector]?.label}</span>
                 </span>
                 <span className="num text-right text-[13px]">
@@ -210,7 +237,7 @@ function Dashboard() {
                 </span>
               </li>
             ))}
-            {portfolio.holdings.length === 0 && (
+            {baskets.holdings.length === 0 && (
               <li className="px-4 py-6 text-center text-[13px] text-ink-faint">No balances.</li>
             )}
           </ul>

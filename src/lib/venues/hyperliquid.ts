@@ -3,12 +3,7 @@
 // One public endpoint, no auth. Account equity is returned as an account
 // summary, never as a position: mixing the two inflates the venue total.
 
-import {
-  emptyReport,
-  type AccountSummary,
-  type Position,
-  type VenueReport,
-} from "./types";
+import { emptyReport, type AccountSummary, type Position, type VenueReport } from "./types";
 
 const INFO = "https://api.hyperliquid.xyz/info";
 
@@ -87,6 +82,7 @@ function perpPositions(
         unrealizedPnl: pnl,
         liquidationPrice: num(p.liquidationPx ?? null),
         leverage: p.leverage?.value ?? null,
+        marginUsed: num(p.marginUsed),
         accountId,
         parentAddress,
         detail: `${long ? "long" : "short"} ${Math.abs(size)}${

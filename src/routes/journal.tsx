@@ -306,18 +306,20 @@ function JournalHub() {
                     <Field label="Value" value={s.value != null ? usd(s.value, hidden) : "—"} />
                     <Field label="When" value={relativeTime(s.ts)} />
                     <div>
-                      <dt className="eyebrow">Tx</dt>
+                      <dt className="eyebrow">{s.venue ? "ID" : "Tx"}</dt>
                       <dd className="mt-1 flex items-center gap-1.5">
-                        <span className="num text-[13px]">
-                          {`${s.txHash.slice(0, 6)}…${s.txHash.slice(-4)}`}
+                        <span className="num text-[13px]" title={s.venue ? s.id : s.txHash}>
+                          {s.venue
+                            ? `${s.id.slice(0, 14)}${s.id.length > 14 ? `…${s.id.slice(-4)}` : ""}`
+                            : `${s.txHash.slice(0, 6)}…${s.txHash.slice(-4)}`}
                         </span>
                         <button
                           type="button"
-                          onClick={() => void copyHash(s.txHash)}
-                          aria-label="Copy transaction hash"
+                          onClick={() => void copyHash(s.venue ? s.id : s.txHash)}
+                          aria-label={s.venue ? "Copy card id" : "Copy transaction hash"}
                           className="grid h-6 w-6 place-items-center text-ink-faint transition hover:text-ink"
                         >
-                          {copied === s.txHash ? (
+                          {copied === (s.venue ? s.id : s.txHash) ? (
                             <Check className="h-3.5 w-3.5" />
                           ) : (
                             <Copy className="h-3.5 w-3.5" />
@@ -386,6 +388,11 @@ function JournalHub() {
                     {e.health && <Tag>{e.health}</Tag>}
                     {e.finances && <Tag>{e.finances}</Tag>}
                   </div>
+                  {e.tradeId && (
+                    <p className="num mt-2 truncate text-[10px] text-ink-faint" title={e.tradeId}>
+                      trade {e.tradeId}
+                    </p>
+                  )}
                 </div>
               </Panel>
             );

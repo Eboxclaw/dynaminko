@@ -70,10 +70,7 @@ function Options<T extends string>({
             <span className="block text-[14px] font-medium">{o.label}</span>
             {o.hint && (
               <span
-                className={cn(
-                  "mt-0.5 block text-[12px]",
-                  active ? "opacity-70" : "text-ink-faint",
-                )}
+                className={cn("mt-0.5 block text-[12px]", active ? "opacity-70" : "text-ink-faint")}
               >
                 {o.hint}
               </span>
@@ -312,10 +309,15 @@ export function Reconcile({
             <p className="eyebrow">{steps[step].eyebrow}</p>
             <h2 className="mt-1 text-[16px] font-semibold leading-snug">{steps[step].title}</h2>
             {signal && (
-              <p className="num mt-1 truncate text-[12px] text-ink-faint">
+              <p className="num mt-1 truncate text-[12px] text-ink-faint" title={signal.id}>
                 {bulk ? `${signals.length} trades selected` : describeSignal(signal)}
                 {!bulk && signal.value != null && ` · ${usd(signal.value, hidden)}`}
                 {!bulk && ` · ${relativeTime(signal.ts)}`}
+              </p>
+            )}
+            {signal && (
+              <p className="num mt-0.5 truncate text-[10px] text-ink-faint" title={signal.id}>
+                {!bulk && `id ${signal.id}`}
               </p>
             )}
           </div>

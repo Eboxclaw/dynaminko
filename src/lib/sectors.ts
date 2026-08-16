@@ -160,18 +160,31 @@ const SYMBOL_SECTOR: Record<string, SectorId> = {
   MSTR: "stocks",
 };
 
+/**
+ * Canonical base-symbol normalization, shared by every consumer: NFKC + ₮→T
+ * folding, venue suffixes (-PERP / -SPOT), wrapped-equity spellings (wAAPLx →
+ * AAPL) and the classic t/x wrapper prefixes/suffixes. Display-only cleaners
+ * live elsewhere; this one decides classification and matching.
+ */
+export function baseSymbol(symbol: string): string {
+  return (symbol ?? "")
+    .normalize("NFKC")
+    .replace(/₮/g, "T")
+    .toUpperCase()
+    .replace(/-(PERP|SPOT)$/, "")
+    .replace(/^W(.+)X$/, "$1")
+    .replace(/^[TX]/, "")
+    .replace(/X$/, "")
+    .trim();
+}
+
 export function sectorFor(symbol: string): SectorId {
   const upper = symbol.trim().toUpperCase();
-  // tokenized equities are commonly prefixed (tLMT, xTSM, TSMx)
-  const stripped = upper.replace(/^[TX]/, "").replace(/X$/, "");
-  return SYMBOL_SECTOR[upper] ?? SYMBOL_SECTOR[stripped] ?? "unsorted";
+  return SYMBOL_SECTOR[upper] ?? SYMBOL_SECTOR[baseSymbol(symbol)] ?? "unsorted";
 }
 
 /** User override first, then the registry. */
-export function resolveSector(
-  symbol: string,
-  overrides?: Record<string, string> | null,
-): SectorId {
+export function resolveSector(symbol: string, overrides?: Record<string, string> | null): SectorId {
   return classifyAsset(symbol, overrides).basket;
 }
 
@@ -201,10 +214,31 @@ export function classifyAsset(
     return { assetId, basket: chosen as SectorId, source: "user", confidence: 1, updatedAt: now };
 
   const stripped = assetId.replace(/^[TX]/, "").replace(/X$/, "");
+  const base = baseSymbol(assetId);
   if (SYMBOL_SECTOR[assetId])
-    return { assetId, basket: SYMBOL_SECTOR[assetId], source: "registry", confidence: 0.95, updatedAt: now };
+    return {
+      assetId,
+      basket: SYMBOL_SECTOR[assetId],
+      source: "registry",
+      confidence: 0.95,
+      updatedAt: now,
+    };
   if (SYMBOL_SECTOR[stripped])
-    return { assetId, basket: SYMBOL_SECTOR[stripped], source: "registry", confidence: 0.8, updatedAt: now };
+    return {
+      assetId,
+      basket: SYMBOL_SECTOR[stripped],
+      source: "registry",
+      confidence: 0.8,
+      updatedAt: now,
+    };
+  if (SYMBOL_SECTOR[base])
+    return {
+      assetId,
+      basket: SYMBOL_SECTOR[base],
+      source: "registry",
+      confidence: 0.8,
+      updatedAt: now,
+    };
   if (/^(USD|EUR)[A-Z0-9]{0,3}$/.test(assetId) || assetId.endsWith("USD"))
     return { assetId, basket: "stables", source: "heuristic", confidence: 0.6, updatedAt: now };
   if (STOCK_SHAPE.test(assetId))

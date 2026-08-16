@@ -28,8 +28,35 @@ export type JournalCard = {
   thesisId: string | null;
   tradeId: string | null;
   value: number | null;
+  /** where the moment came from; null = plain wallet transfer */
+  venue: Signal["venue"] | null;
+  /** what kind of moment it is; null = plain transfer */
+  action: Signal["action"] | null;
   record: string;
 };
+
+/**
+ * The one-line context the agent reads per card. Everything the venue
+ * reported rides along — source, kind, id, price, fee, pnl, trigger — so a
+ * tool result answers without a second lookup.
+ */
+function recordOf(s: Signal): string {
+  const m = s.meta;
+  const detail = [
+    s.venue
+      ? `source ${s.venue}${s.action && s.action !== "transfer" ? ` ${s.action}` : ""}`
+      : null,
+    m?.price != null ? `px ${m.price}` : null,
+    m?.feeUsd != null ? `fee $${m.feeUsd.toFixed(4)}` : null,
+    m?.pnl != null ? `pnl $${m.pnl.toFixed(2)}` : null,
+    m?.direction ?? null,
+    m?.trigger ?? null,
+    `id ${s.id}`,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+  return `${describeSignal(s)} (${detail})`;
+}
 
 export type JournalIndex = {
   cards: JournalCard[];
@@ -62,6 +89,8 @@ export function buildIndex(): JournalIndex {
       thesisId: e.thesisId,
       tradeId: e.tradeId,
       value: e.tradeId ? (doc.signals.find((s) => s.id === e.tradeId)?.value ?? null) : null,
+      venue: null,
+      action: null,
       record: [e.headline, e.body].filter(Boolean).join(". "),
     })),
     ...doc.signals.map((s) => ({
@@ -76,7 +105,9 @@ export function buildIndex(): JournalIndex {
       thesisId: null,
       tradeId: s.id,
       value: s.value,
-      record: describeSignal(s),
+      venue: s.venue ?? null,
+      action: s.action ?? null,
+      record: recordOf(s),
     })),
   ].sort((a, b) => b.date - a.date);
 
@@ -101,6 +132,8 @@ export type JournalFilter = {
   state?: string | null;
   thesisId?: string | null;
   type?: JournalCard["type"] | null;
+  /** narrow to one source: "nado", "hyperliquid", … (null = plain transfers) */
+  venue?: string | null;
   from?: number | null;
   to?: number | null;
   query?: string | null;
@@ -117,6 +150,7 @@ export function filterCards(filter: JournalFilter, index = buildIndex()): Journa
     if (filter.state && c.state !== filter.state) return false;
     if (filter.thesisId && c.thesisId !== filter.thesisId) return false;
     if (filter.type && c.type !== filter.type) return false;
+    if (filter.venue != null && (c.venue ?? "") !== filter.venue) return false;
     if (filter.from && c.date < filter.from) return false;
     if (filter.to && c.date > filter.to) return false;
     if (q && !(c.record.toLowerCase().includes(q) || (c.ticker ?? "").toLowerCase().includes(q)))
