@@ -118,12 +118,13 @@ function AgentsPage() {
         <ChatConsole ai={ai} onOpenRail={openRail} />
 
         <aside
+          ref={railRef}
           className={cn(
-            "grid max-h-[70vh] content-start gap-3 overflow-y-auto overscroll-contain rounded-2xl border border-stroke bg-paper p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]",
+            "grid scroll-mt-20 content-start gap-3 rounded-2xl border border-stroke bg-paper p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]",
             !railOpen && "hidden",
           )}
         >
-          <nav className="sticky top-0 z-10 -mx-3 -mt-3 flex gap-1 overflow-x-auto bg-paper px-3 py-2">
+          <nav className="-mx-3 -mt-3 flex gap-1 overflow-x-auto border-b border-stroke bg-paper px-3 py-2">
             {RAIL.map((t) => (
               <button
                 key={t.id}
@@ -138,6 +139,7 @@ function AgentsPage() {
               </button>
             ))}
           </nav>
+
 
           {tab === "model" && (
             <Panel eyebrow="Model // On this device">
