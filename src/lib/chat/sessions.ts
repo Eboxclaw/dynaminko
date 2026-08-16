@@ -108,13 +108,13 @@ export function bootstrapSessions(): { sessions: SessionMeta[]; activeId: string
 }
 
 /**
- * What the model actually sees. Hard-capped at MAX_CONTEXT_MESSAGES turns and
- * then again by the token budget — newest first, flipped back into order.
+ * What the model actually sees. There is no fixed turn cap: history is replayed
+ * newest first until the session's token budget runs out, then flipped back.
  */
 export function contextFor(
   messages: ChatMessage[],
   budgetTokens: number,
-  maxMessages = MAX_CONTEXT_MESSAGES,
+  maxMessages = Number.POSITIVE_INFINITY,
 ): { text: string; used: number; turns: number } {
   const lines: string[] = [];
   let used = 0;
