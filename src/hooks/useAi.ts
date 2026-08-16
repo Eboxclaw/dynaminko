@@ -298,13 +298,15 @@ export function useAi() {
 
   /**
    * Cache state per model, kept separate from "which model is the default".
-   * A downloaded model must never be offered as a download again.
+   * A model that is resident in memory is by definition on this device, even
+   * when the cache index has not caught up, so Download never reappears for it.
    */
   const install = useMemo(() => {
     const out: Record<string, InstallState> = {};
-    for (const m of MODELS) out[m.id] = downloaded.has(m.id) ? "complete" : "missing";
+    for (const m of MODELS)
+      out[m.id] = downloaded.has(m.id) || isReady(m.id) ? "complete" : "missing";
     return out;
-  }, [downloaded]);
+  }, [downloaded, status]);
 
   const actionFor = useCallback(
     (modelId: string): ModelAction =>
