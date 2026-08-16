@@ -2,7 +2,6 @@
 // always loaded; each transcript is stored under its own key and only read when
 // that session is opened.
 
-import { MAX_CONTEXT_MESSAGES } from "@/lib/ai";
 import { estimateTokens } from "./context";
 import type { ChatMessage } from "./session";
 
