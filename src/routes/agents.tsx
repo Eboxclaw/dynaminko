@@ -24,7 +24,7 @@ import { capabilityCatalogue } from "@/lib/capabilities/catalogue";
 import { PHASE_LABEL } from "@/lib/chat/pipeline";
 import { useDoc } from "@/hooks/useDoc";
 import { relativeTime } from "@/lib/format";
-import { MAX_CONTEXT_MESSAGES, MODELS, STATE_LABEL, splitThinking } from "@/lib/ai";
+import { MODELS, STATE_LABEL, splitThinking } from "@/lib/ai";
 import { referenceIndex, retrieveContext, type Reference } from "@/lib/ai/retrieval";
 
 import { AGENTS, automationOn } from "@/lib/agents/registry";
@@ -299,7 +299,7 @@ function ChatConsole({
           });
         }
       }
-      const history = contextFor(messages, Math.floor(ai.ctx * 0.4), MAX_CONTEXT_MESSAGES);
+      const history = contextFor(messages, Math.floor(ai.ctx * 0.4));
       turn.move("generating");
       turn.stage("answer", ai.spec?.label ?? ai.target.label);
       const raw = await ai.ask(
@@ -572,10 +572,10 @@ function ChatConsole({
           ai.setCtx(n);
           push({ role: "note", text: `Context window set to ${n} tokens. Reload to apply.` });
         } else {
-          const used = contextFor(messages, Math.floor(ai.ctx * 0.4), MAX_CONTEXT_MESSAGES);
+          const used = contextFor(messages, Math.floor(ai.ctx * 0.4));
           push({
             role: "note",
-            text: `ctx ${ai.ctx} · last ${used.turns} turns replayed · ~${used.used} tokens of history · cap ${MAX_CONTEXT_MESSAGES} messages.`,
+            text: `ctx ${ai.ctx} · ${used.turns} turns replayed · ~${used.used} of ${Math.floor(ai.ctx * 0.4)} history tokens.`,
           });
         }
         return;
@@ -719,7 +719,7 @@ function ChatConsole({
 
 
   const active = sessions.find((s) => s.id === activeId);
-  const ctxUsed = contextFor(messages, Math.floor(ai.ctx * 0.4), MAX_CONTEXT_MESSAGES);
+  const ctxUsed = contextFor(messages, Math.floor(ai.ctx * 0.4));
 
   return (
     <div className="grid content-start gap-3">
@@ -1028,7 +1028,7 @@ function ChatConsole({
             {turn.phase !== "idle" && <span>{PHASE_LABEL[turn.phase]}</span>}
             <span>ctx {ai.ctx}</span>
             <span>
-              {ctxUsed.turns}/{MAX_CONTEXT_MESSAGES} turns
+              {ctxUsed.turns} turns · {Math.round((ctxUsed.used / Math.max(1, Math.floor(ai.ctx * 0.4))) * 100)}% history
             </span>
             <span>
               {ai.target.kind === "cloud" ? "cloud" : ai.backend === "webgpu" ? "WebGPU" : "WASM"}
