@@ -64,12 +64,15 @@ async function postJson<T>(url: string, body: unknown, signal?: AbortSignal): Pr
 let symbolCache: { at: number; spot: Map<number, string>; perp: Map<number, string> } | null = null;
 
 /** product_id → ticker, for both books. Cached for the session. */
-async function symbols(signal?: AbortSignal) {
+export async function symbols(signal?: AbortSignal) {
   if (symbolCache && Date.now() - symbolCache.at < 10 * 60_000) return symbolCache;
   const spot = new Map<number, string>();
   const perp = new Map<number, string>();
   try {
-    const res = await fetch(`${GATEWAY}?type=symbols`, { headers: { accept: "application/json" }, signal });
+    const res = await fetch(`${GATEWAY}?type=symbols`, {
+      headers: { accept: "application/json" },
+      signal,
+    });
     if (res.ok) {
       const json = (await res.json()) as { data?: { symbols?: Record<string, SymbolRow> } };
       for (const row of Object.values(json.data?.symbols ?? {})) {
@@ -83,7 +86,7 @@ async function symbols(signal?: AbortSignal) {
   return symbolCache;
 }
 
-function readSubaccounts(address: string, signal?: AbortSignal) {
+export function readSubaccounts(address: string, signal?: AbortSignal) {
   return postJson<{ subaccounts?: Subaccount[] }>(
     ARCHIVE,
     { subaccounts: { address: address.toLowerCase() } },

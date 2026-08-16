@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 
 import { Reconcile } from "@/components/pot/Reconcile";
 import { Panel, Shell } from "@/components/pot/Shell";
+import { VenueIcon } from "@/components/pot/VenueIcon";
 import { useAgent } from "@/hooks/useAgent";
 import { useDoc } from "@/hooks/useDoc";
 import { describeSignal, suggestThesis } from "@/lib/agent/extract";
@@ -18,6 +19,28 @@ const TABS: { id: Tab; label: string; icon: typeof Inbox }[] = [
   { id: "theses", label: "Theses", icon: Lightbulb },
   { id: "ghosts", label: "Ghosts", icon: Ghost },
 ];
+
+const VENUE_FILTERS = [
+  { id: "all", label: "All sources" },
+  { id: "ink", label: "Ink wallet" },
+  { id: "nado", label: "Nado" },
+  { id: "hyperliquid", label: "Hyperliquid" },
+] as const;
+type VenueFilter = (typeof VENUE_FILTERS)[number]["id"];
+
+/** Eyebrow line for one inbox card, source-aware. */
+function eyebrowFor(s: Signal): string {
+  const src = s.venue === "nado" ? "Nado" : s.venue === "hyperliquid" ? "Hyperliquid" : "Ink";
+  if (s.action === "deposit") return `${src} · DEPOSIT`;
+  if (s.action === "withdraw") return `${src} · WITHDRAW`;
+  if (s.action === "trade") return `${src} · ${s.side === "in" ? "BUY" : "SELL"} · FILLED`;
+  return `Trade // ${s.side === "in" ? "INBOUND" : "OUTBOUND"} · EXECUTED`;
+}
+
+function priceLabel(price: number): string {
+  const digits = price >= 1000 ? 2 : 6;
+  return price.toLocaleString("en-US", { maximumFractionDigits: digits });
+}
 
 /** Per-tab sub-filters. Each one narrows the same data, never invents rows. */
 const FILTERS: Record<Tab, { id: string; label: string }[]> = {
@@ -55,9 +78,14 @@ export const Route = createFileRoute("/journal")({
   validateSearch: (s: Record<string, unknown>) => {
     const tab = (TABS.some((t) => t.id === s.tab) ? s.tab : "inbox") as Tab;
     const filter = typeof s.filter === "string" ? s.filter : "all";
+    const venue =
+      typeof s.venue === "string" && VENUE_FILTERS.some((v) => v.id === s.venue)
+        ? (s.venue as VenueFilter)
+        : "all";
     return {
       tab,
       filter: FILTERS[tab].some((f) => f.id === filter) ? filter : "all",
+      venue,
     };
   },
   head: () => ({
@@ -79,7 +107,7 @@ export const Route = createFileRoute("/journal")({
 });
 
 function JournalHub() {
-  const { tab, filter } = Route.useSearch();
+  const { tab, filter, venue } = Route.useSearch();
   const navigate = Route.useNavigate();
   const doc = useDoc();
   const { inbox } = useAgent();
@@ -103,17 +131,15 @@ function JournalHub() {
   const ghostTheses = doc.theses.filter((t) => !executedThesisIds.has(t.id));
 
   const startOfDay = new Date().setHours(0, 0, 0, 0);
-  const visibleInbox = inbox.filter((s) =>
-    filter === "in"
-      ? s.side === "in"
-      : filter === "out"
-        ? s.side === "out"
-        : filter === "valued"
-          ? s.value != null
-          : filter === "today"
-            ? s.ts >= startOfDay
-            : true,
-  );
+  const visibleInbox = inbox.filter((s) => {
+    if (venue === "ink" && s.venue && s.venue !== "evm") return false;
+    if ((venue === "nado" || venue === "hyperliquid") && s.venue !== venue) return false;
+    if (filter === "in") return s.side === "in";
+    if (filter === "out") return s.side === "out";
+    if (filter === "valued") return s.value != null;
+    if (filter === "today") return s.ts >= startOfDay;
+    return true;
+  });
   const visibleEntries = entries.filter((e) =>
     filter === "reactive"
       ? e.sentiment === "reactive" || e.sentiment === "fomo"
@@ -168,7 +194,7 @@ function JournalHub() {
           <Link
             key={t.id}
             to="/journal"
-            search={{ tab: t.id, filter: "all" }}
+            search={{ tab: t.id, filter: "all", venue }}
             className={cn(
               "-mb-px flex items-center gap-2 border-b-2 px-3 py-2 text-[13px] transition",
               tab === t.id
@@ -190,7 +216,7 @@ function JournalHub() {
           <button
             key={f.id}
             type="button"
-            onClick={() => void navigate({ search: { tab, filter: f.id } })}
+            onClick={() => void navigate({ search: { tab, filter: f.id, venue } })}
             className={cn(
               "doodle-pill shrink-0 px-3 py-1 text-[11px] transition",
               filter === f.id ? "bg-ink text-paper" : "text-ink-soft hover:border-ink",
@@ -200,6 +226,27 @@ function JournalHub() {
           </button>
         ))}
       </div>
+
+      {tab === "inbox" && (
+        <div className="-mt-2 mb-4 flex items-center gap-1 overflow-x-auto pb-1">
+          {VENUE_FILTERS.map((v) => (
+            <button
+              key={v.id}
+              type="button"
+              onClick={() => void navigate({ search: { tab, filter, venue: v.id } })}
+              className={cn(
+                "doodle-pill flex shrink-0 items-center gap-1.5 px-3 py-1 text-[11px] transition",
+                venue === v.id ? "bg-ink text-paper" : "text-ink-soft hover:border-ink",
+              )}
+            >
+              {(v.id === "nado" || v.id === "hyperliquid") && (
+                <VenueIcon id={v.id} className="h-3 w-3" />
+              )}
+              {v.label}
+            </button>
+          ))}
+        </div>
+      )}
 
       {tab === "inbox" && (
         <div className="space-y-3">
@@ -238,11 +285,7 @@ function JournalHub() {
             const hint = suggestThesis(s, doc.theses);
             const checked = selected.includes(s.id);
             return (
-              <Panel
-                key={s.id}
-                eyebrow={`Trade // ${s.side === "in" ? "INBOUND" : "OUTBOUND"} · EXECUTED`}
-                delay={i * 40}
-              >
+              <Panel key={s.id} eyebrow={eyebrowFor(s)} delay={i * 40}>
                 <div className="p-4">
                   <div className="flex items-start gap-3">
                     <input
@@ -252,7 +295,12 @@ function JournalHub() {
                       aria-label="Select trade"
                       className="mt-1 h-4 w-4 accent-current"
                     />
-                    <p className="flex-1 text-[15px] font-medium">{describeSignal(s)}</p>
+                    <p className="flex flex-1 items-center gap-2 text-[15px] font-medium">
+                      {s.venue && s.venue !== "evm" && (
+                        <VenueIcon id={s.venue} className="h-3.5 w-3.5 shrink-0" />
+                      )}
+                      <span>{describeSignal(s)}</span>
+                    </p>
                   </div>
                   <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2 sm:grid-cols-4">
                     <Field label="Value" value={s.value != null ? usd(s.value, hidden) : "—"} />
@@ -277,7 +325,20 @@ function JournalHub() {
                         </button>
                       </dd>
                     </div>
-                    <Field label="Gas" value={s.gasUsd != null ? usd(s.gasUsd, hidden) : "—"} />
+                    <Field
+                      label={s.meta?.feeUsd != null ? "Fee" : "Gas"}
+                      value={
+                        s.meta?.feeUsd != null
+                          ? usd(s.meta.feeUsd, hidden)
+                          : s.gasUsd != null
+                            ? usd(s.gasUsd, hidden)
+                            : "—"
+                      }
+                    />
+                    {s.meta?.price != null && (
+                      <Field label="Price" value={priceLabel(s.meta.price)} />
+                    )}
+                    {s.meta?.pnl != null && <Field label="PnL" value={usd(s.meta.pnl, hidden)} />}
                   </dl>
                   {hint && <p className="eyebrow mt-3">Agent suggests: {hint.title}</p>}
                   <div className="mt-4">
@@ -300,9 +361,7 @@ function JournalHub() {
         <div className="space-y-3">
           {visibleEntries.length === 0 && (
             <Panel eyebrow="Journal // Empty">
-              <p className="p-6 text-center text-[13px] text-ink-faint">
-                No entries yet.
-              </p>
+              <p className="p-6 text-center text-[13px] text-ink-faint">No entries yet.</p>
             </Panel>
           )}
           {visibleEntries.map((e, i) => {
@@ -382,8 +441,8 @@ function JournalHub() {
         <div className="space-y-3">
           <Panel eyebrow="Ghosts // Never executed">
             <p className="p-4 text-[13px] text-ink-soft">
-              Theses and intents with no trade behind them. They still count against the index,
-              a conviction you never acted on is a result too.
+              Theses and intents with no trade behind them. They still count against the index, a
+              conviction you never acted on is a result too.
             </p>
           </Panel>
           {(filter === "entry" ? [] : ghostTheses).map((t, i) => (

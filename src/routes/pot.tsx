@@ -43,22 +43,14 @@ function AxisRow({ axis }: { axis: Axis }) {
         <div className="flex items-baseline gap-3">
           <span className="flex-1 text-[13px] font-medium">{axis.label}</span>
           {axis.delta != null && axis.delta !== 0 && (
-            <span
-              className={cn(
-                "num text-[11px]",
-                axis.delta > 0 ? "text-gain" : "text-loss",
-              )}
-            >
+            <span className={cn("num text-[11px]", axis.delta > 0 ? "text-gain" : "text-loss")}>
               {axis.delta > 0 ? "+" : ""}
               {Math.round(axis.delta * 100)} pts / 30d
             </span>
           )}
           <span className="num text-[13px]">{pct(axis.score)}</span>
           <ChevronDown
-            className={cn(
-              "h-3.5 w-3.5 text-ink-faint transition-transform",
-              open && "rotate-180",
-            )}
+            className={cn("h-3.5 w-3.5 text-ink-faint transition-transform", open && "rotate-180")}
           />
         </div>
         <div className="mt-2 h-[3px] w-full bg-sunken">
@@ -151,9 +143,7 @@ function PotPage() {
                     index.delta != null && index.delta < 0 && "text-loss",
                   )}
                 >
-                  {index.delta == null
-                    ? "—"
-                    : `${index.delta > 0 ? "+" : ""}${index.delta}`}
+                  {index.delta == null ? "—" : `${index.delta > 0 ? "+" : ""}${index.delta}`}
                 </dd>
               </div>
               <div>
@@ -180,7 +170,7 @@ function PotPage() {
         action={
           <Link
             to="/journal"
-            search={{ tab: "ghosts" as const, filter: "all" }}
+            search={{ tab: "ghosts" as const, filter: "all", venue: "all" as const }}
             className="doodle-pill px-3 py-1 text-[12px] hover:border-ink"
           >
             View all
@@ -207,4 +197,3 @@ function PotPage() {
     </Shell>
   );
 }
-

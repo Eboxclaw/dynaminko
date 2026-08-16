@@ -32,12 +32,32 @@ export function extractSignals({ trades, chainId }: ExtractInput): Signal[] {
   }));
 }
 
+function venueLabel(s: Signal): string {
+  if (s.venue === "hyperliquid") return "Hyperliquid";
+  if (s.venue === "nado") return "Nado";
+  return "Ink";
+}
+
+function priceLabel(price: number): string {
+  const digits = price >= 1000 ? 2 : 6;
+  return price.toLocaleString("en-US", { maximumFractionDigits: digits });
+}
+
 /** One-line summary the inbox card shows before the user opens it. */
 export function describeSignal(s: Signal): string {
+  const amount =
+    s.amount < 0.001
+      ? s.amount.toExponential(2)
+      : s.amount.toLocaleString(undefined, { maximumFractionDigits: 6 });
+  if (s.action === "deposit") return `Deposited ${amount} ${s.symbol} · ${venueLabel(s)}`;
+  if (s.action === "withdraw") return `Withdrew ${amount} ${s.symbol} · ${venueLabel(s)}`;
+  if (s.action === "trade") {
+    const verb = s.side === "in" ? "Bought" : "Sold";
+    const price = s.meta?.price != null ? ` @ ${priceLabel(s.meta.price)}` : "";
+    const trigger = s.meta?.trigger ? ` · ${s.meta.trigger}` : "";
+    return `${verb} ${amount} ${s.symbol}${price} · ${venueLabel(s)}${trigger}`;
+  }
   const verb = s.side === "in" ? "Received" : "Sent";
-  const amount = s.amount < 0.001 ? s.amount.toExponential(2) : s.amount.toLocaleString(undefined, {
-    maximumFractionDigits: 6,
-  });
   return `${verb} ${amount} ${s.symbol}`;
 }
 

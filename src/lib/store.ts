@@ -22,9 +22,27 @@ export type Thesis = {
   updatedAt: number;
 };
 
+/** Where a signal came from. Plain wallet transfers carry no venue. */
+export type SignalVenue = "evm" | "nado" | "hyperliquid";
+
+/** What kind of moment it is. Plain transfers carry no action. */
+export type SignalAction = "transfer" | "trade" | "deposit" | "withdraw";
+
+/** Venue-reported detail a card can argue with. All optional, all nullable. */
+export type SignalMeta = {
+  price?: number | null;
+  feeUsd?: number | null;
+  pnl?: number | null;
+  direction?: "long" | "short";
+  /** order annotation: "TP/SL", "trigger ≥ 2,400", "reduce-only", … */
+  trigger?: string | null;
+  /** venue order reference (Nado digest) */
+  digest?: string;
+};
+
 /** An agent-extracted on-chain moment waiting for the user to complete it. */
 export type Signal = {
-  id: string; // txHash:logIndex
+  id: string; // txHash:logIndex, nado:{digest} or hl:{oid}
   txHash: string;
   symbol: string;
   side: "in" | "out";
@@ -33,10 +51,14 @@ export type Signal = {
   gasUsd: number | null;
   feeNative: number | null;
   counterparty: string;
-  chainId: number;
+  /** absent for non-EVM venues (Nado, Hyperliquid) */
+  chainId?: number;
   ts: number;
   extractedAt: number;
   state: "inbox" | "linked";
+  venue?: SignalVenue;
+  action?: SignalAction;
+  meta?: SignalMeta;
 };
 
 export type Entry = {
@@ -57,7 +79,6 @@ export type Entry = {
   confidence: number; // 1..5
   createdAt: number;
 };
-
 
 export type Alert = {
   id: string;
@@ -113,7 +134,6 @@ export type AssistantConfig = {
   /** provider id → credential, local to this browser */
   cloud?: Record<string, CloudCredential>;
 };
-
 
 export type Settings = {
   hideBalances: boolean;
@@ -172,7 +192,6 @@ export const EMPTY_DOC: PotDoc = {
     },
   },
 };
-
 
 const KEY = "pot.doc.v1";
 
@@ -331,11 +350,9 @@ export function removeEntry(id: string) {
   });
 }
 
-
 export function dismissTrade(tradeId: string) {
   update((d) => {
-    if (!d.settings.dismissedTrades.includes(tradeId))
-      d.settings.dismissedTrades.push(tradeId);
+    if (!d.settings.dismissedTrades.includes(tradeId)) d.settings.dismissedTrades.push(tradeId);
   });
 }
 
@@ -396,9 +413,7 @@ export function removeWallet(key: string) {
   update((d) => {
     d.wallets = d.wallets.filter((w) => walletKey(w.chainId, w.address) !== key);
     if (d.activeWallet === key)
-      d.activeWallet = d.wallets[0]
-        ? walletKey(d.wallets[0].chainId, d.wallets[0].address)
-        : null;
+      d.activeWallet = d.wallets[0] ? walletKey(d.wallets[0].chainId, d.wallets[0].address) : null;
   });
 }
 
@@ -469,7 +484,6 @@ export function patchCloudCredential(id: string, patch: Partial<CloudCredential>
     d.settings.assistant = { ...d.settings.assistant, cloud };
   });
 }
-
 
 export function toggleAssistantItem(field: "skills" | "tools", id: string) {
   update((d) => {

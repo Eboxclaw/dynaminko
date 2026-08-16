@@ -5,6 +5,7 @@
 // expensive parsing the app does.
 
 import { readWallet, type WalletSnapshot } from "@/lib/chain/blockscout";
+import { readVenueActions, type VenueAction } from "@/lib/venues/actions";
 import { readVenues, type VenueReport } from "@/lib/venues";
 
 export type ReaderRequest =
@@ -17,7 +18,7 @@ export type ReaderRequest =
 
 export type ReaderResponse =
   | { type: "snapshot"; snapshot: WalletSnapshot }
-  | { type: "venues"; reports: VenueReport[] }
+  | { type: "venues"; reports: VenueReport[]; actions: VenueAction[] }
   | { type: "error"; walletId: string; message: string }
   | { type: "done"; at: number };
 
@@ -28,8 +29,11 @@ ctx.addEventListener("message", async (event: MessageEvent<ReaderRequest>) => {
 
   if (msg?.type === "venues") {
     try {
-      const reports = await readVenues(msg.address, msg.chainId);
-      ctx.postMessage({ type: "venues", reports } satisfies ReaderResponse);
+      const [reports, actions] = await Promise.all([
+        readVenues(msg.address, msg.chainId),
+        readVenueActions(msg.address, msg.chainId),
+      ]);
+      ctx.postMessage({ type: "venues", reports, actions } satisfies ReaderResponse);
     } catch (err) {
       ctx.postMessage({
         type: "error",

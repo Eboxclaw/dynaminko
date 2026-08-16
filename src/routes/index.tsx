@@ -5,6 +5,7 @@ import { useState } from "react";
 import { BasketOrb } from "@/components/pot/BasketOrb";
 import { Reconcile } from "@/components/pot/Reconcile";
 import { Panel, Shell } from "@/components/pot/Shell";
+import { VenueIcon } from "@/components/pot/VenueIcon";
 import { WalletPanel } from "@/components/pot/WalletChip";
 import { useAgent } from "@/hooks/useAgent";
 import { useDoc } from "@/hooks/useDoc";
@@ -47,9 +48,8 @@ function Dashboard() {
         <Panel eyebrow="Step 01 // Context" title="Point it at a wallet">
           <div className="p-4">
             <p className="max-w-lg text-[14px] text-ink-soft">
-              Watch any address read-only, or connect one you control. From that moment the
-              agent extracts every swap, send and receive into your inbox, you only answer
-              why.
+              Watch any address read-only, or connect one you control. From that moment the agent
+              extracts every swap, send and receive into your inbox, you only answer why.
             </p>
             <div className="mt-4">
               <WalletPanel wallets={wallets} activeKey={null} />
@@ -65,7 +65,9 @@ function Dashboard() {
   return (
     <Shell
       title="Dashboard"
-      subtitle={isFetching ? "reading chain…" : fetchedAt ? `synced ${relativeTime(fetchedAt)}` : "—"}
+      subtitle={
+        isFetching ? "reading chain…" : fetchedAt ? `synced ${relativeTime(fetchedAt)}` : "—"
+      }
       action={
         <button
           type="button"
@@ -95,7 +97,8 @@ function Dashboard() {
             </div>
             <p className="eyebrow mt-3">
               {portfolio.holdings.length} assets · {portfolio.slices.length} baskets
-              {top && ` · ${SECTOR_BY_ID[top.sector]?.label} leads at ${Math.round(top.share * 100)}%`}
+              {top &&
+                ` · ${SECTOR_BY_ID[top.sector]?.label} leads at ${Math.round(top.share * 100)}%`}
             </p>
             <div className="mt-2">
               <BasketOrb
@@ -110,9 +113,7 @@ function Dashboard() {
 
         <Panel eyebrow="Exposure // Baskets" delay={60}>
           {portfolio.slices.length === 0 ? (
-            <p className="p-4 text-[13px] text-ink-faint">
-              Nothing priced on this wallet yet.
-            </p>
+            <p className="p-4 text-[13px] text-ink-faint">Nothing priced on this wallet yet.</p>
           ) : (
             <ul>
               {portfolio.slices.map((s) => {
@@ -151,7 +152,7 @@ function Dashboard() {
           action={
             <Link
               to="/journal"
-              search={{ tab: "inbox" as const, filter: "all" }}
+              search={{ tab: "inbox" as const, filter: "all", venue: "all" as const }}
               className="doodle-pill inline-flex items-center gap-1 px-3 py-1 text-[12px] hover:border-ink"
             >
               Open <ArrowUpRight className="h-3 w-3" />
@@ -164,9 +165,13 @@ function Dashboard() {
                 key={s.id}
                 className="flex items-center gap-3 border-b border-stroke px-4 py-3 last:border-0 sm:py-2.5"
               >
-                <span className="num text-[11px] text-ink-faint">
-                  {s.side === "in" ? "IN" : "OUT"}
-                </span>
+                {s.venue && s.venue !== "evm" ? (
+                  <VenueIcon id={s.venue} className="h-3.5 w-3.5 shrink-0 text-ink-faint" />
+                ) : (
+                  <span className="num text-[11px] text-ink-faint">
+                    {s.side === "in" ? "IN" : "OUT"}
+                  </span>
+                )}
                 <span className="min-w-0 flex-1 truncate text-[13px]">
                   {s.symbol}
                   <span className="num ml-2 text-ink-faint">
@@ -198,7 +203,9 @@ function Dashboard() {
                 <span className="num text-right text-[13px]">
                   {h.value != null ? usd(h.value, hidden) : "—"}
                   <span className="block text-[11px] text-ink-faint">
-                    {hidden ? "•••" : h.amount.toLocaleString(undefined, { maximumFractionDigits: 4 })}
+                    {hidden
+                      ? "•••"
+                      : h.amount.toLocaleString(undefined, { maximumFractionDigits: 4 })}
                   </span>
                 </span>
               </li>

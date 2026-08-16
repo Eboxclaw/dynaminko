@@ -19,6 +19,7 @@ import { readVelodrome } from "./velodrome";
 
 export type { AccountSummary, Position, VenuePosition, VenueReport };
 export { reportValue };
+export { readVenueActions, actionsToSignals, type VenueAction } from "./actions";
 
 export type VenueKind = "lp" | "trading";
 
@@ -79,9 +80,7 @@ export async function readVenues(
   chainId: number,
   signal?: AbortSignal,
 ): Promise<VenueReport[]> {
-  const settled = await Promise.allSettled(
-    VENUES.map((v) => v.read(address, chainId, signal)),
-  );
+  const settled = await Promise.allSettled(VENUES.map((v) => v.read(address, chainId, signal)));
   return settled.map((result, i) => {
     const venue = VENUES[i]!;
     if (result.status === "fulfilled") return result.value;

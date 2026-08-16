@@ -13,6 +13,7 @@ import {
   type Signal,
   type Thesis,
 } from "@/lib/store";
+import { describeSignal } from "@/lib/agent/extract";
 
 /** One flattened, searchable journal record. */
 export type JournalCard = {
@@ -60,9 +61,7 @@ export function buildIndex(): JournalIndex {
       state: e.ghost ? "ghost" : "logged",
       thesisId: e.thesisId,
       tradeId: e.tradeId,
-      value: e.tradeId
-        ? (doc.signals.find((s) => s.id === e.tradeId)?.value ?? null)
-        : null,
+      value: e.tradeId ? (doc.signals.find((s) => s.id === e.tradeId)?.value ?? null) : null,
       record: [e.headline, e.body].filter(Boolean).join(". "),
     })),
     ...doc.signals.map((s) => ({
@@ -77,7 +76,7 @@ export function buildIndex(): JournalIndex {
       thesisId: null,
       tradeId: s.id,
       value: s.value,
-      record: `${s.side === "in" ? "Received" : "Sent"} ${s.amount} ${s.symbol}`,
+      record: describeSignal(s),
     })),
   ].sort((a, b) => b.date - a.date);
 
