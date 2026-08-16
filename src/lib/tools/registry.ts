@@ -195,7 +195,7 @@ export const TOOLS: ToolDef[] = [
     group: "indicators",
     action: "potIndex",
     label: "POT index",
-    purpose: "The five-axis score with trends.",
+    purpose: "The six-axis, execution-weighted score with trends.",
     access: "COMPUTE",
     inputs: "none",
     output: "PotIndex",
@@ -238,8 +238,7 @@ export const TOOLS: ToolDef[] = [
     inputs: "{ id: string, patch: Partial<Alert> }",
     output: "void",
     live: true,
-    run: (i: { id: string; patch: Parameters<typeof patchAlert>[1] }) =>
-      patchAlert(i.id, i.patch),
+    run: (i: { id: string; patch: Parameters<typeof patchAlert>[1] }) => patchAlert(i.id, i.patch),
   }),
   def({
     id: "alerts.delete",
@@ -344,8 +343,6 @@ for (const venue of VENUES) {
   );
 }
 
-export const TOOL_BY_ID: Record<string, ToolDef> = Object.fromEntries(
-  TOOLS.map((t) => [t.id, t]),
-);
+export const TOOL_BY_ID: Record<string, ToolDef> = Object.fromEntries(TOOLS.map((t) => [t.id, t]));
 
 export const TOOL_GROUPS = [...new Set(TOOLS.map((t) => t.group))];

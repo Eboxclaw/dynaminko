@@ -4,8 +4,8 @@ import { useState } from "react";
 
 import { Panel, Shell } from "@/components/pot/Shell";
 import { useDoc } from "@/hooks/useDoc";
-import { relativeTime } from "@/lib/format";
-import { computeIndex, type Axis } from "@/lib/pot-index";
+import { relativeTime, usd } from "@/lib/format";
+import { computeIndex, type Axis, type MotivePnl } from "@/lib/pot-index";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/pot")({
@@ -15,7 +15,7 @@ export const Route = createFileRoute("/pot")({
       {
         name: "description",
         content:
-          "Sentiment times action over results: coverage, alignment, discipline, execution and steadiness, measured only from what you wrote.",
+          "Sentiment times action over results: coverage, alignment, discipline, execution, payoff and steadiness, weighted toward execution and measured only from what you wrote.",
       },
       { property: "og:title", content: "POT Index · Proof of Thesis" },
       {
@@ -72,6 +72,11 @@ function AxisRow({ axis }: { axis: Axis }) {
             {Math.round(axis.numerator * 10) / 10} ÷ {axis.denominator}
           </p>
 
+          <p className="eyebrow mt-3">Weight</p>
+          <p className="mt-1 text-[12px] text-ink-soft">
+            {Math.round(axis.weight * 100)}% of the composite · renormalised over measured axes
+          </p>
+
           {axis.parts.length > 0 && (
             <>
               <p className="eyebrow mt-3">Breakdown</p>
@@ -105,9 +110,40 @@ function AxisRow({ axis }: { axis: Axis }) {
   );
 }
 
+const MOTIVE_LABELS: Record<string, string> = {
+  conviction: "Conviction",
+  rebalance: "Rebalance",
+  hedge: "Hedge",
+  reactive: "Reactive",
+  fomo: "FOMO",
+};
+
+function MotiveRow({ m, hidden }: { m: MotivePnl; hidden: boolean }) {
+  const label = m.motive ? (MOTIVE_LABELS[m.motive] ?? m.motive) : "Unlabelled";
+  return (
+    <li className="flex items-baseline gap-3 border-b border-stroke px-4 py-2.5 last:border-0">
+      <span className="w-24 shrink-0 text-[13px] font-medium">{label}</span>
+      <span className="num flex-1 text-[12px] text-ink-soft">
+        {m.trades} {m.trades === 1 ? "trade" : "trades"} · {m.wins}W/{m.trades - m.wins}L
+      </span>
+      <span
+        className={cn("num text-[13px]", m.net > 0 ? "text-gain" : m.net < 0 ? "text-loss" : "")}
+      >
+        net {usd(m.net, hidden)}
+      </span>
+      <span className="num w-24 text-right text-[11px] text-ink-faint">
+        avg {usd(m.avg, hidden)}
+      </span>
+    </li>
+  );
+}
+
 function PotPage() {
   const doc = useDoc();
   const index = computeIndex(doc.entries, doc.theses, doc.signals);
+  const hidden = doc.settings.hideBalances;
+  const premium = index.payoff.intentPremium;
+  const signed = (v: number) => `${v < 0 ? "-" : "+"}${usd(Math.abs(v), hidden)}`;
 
   return (
     <Shell
@@ -121,7 +157,9 @@ function PotPage() {
               {index.score ?? "—"}
             </p>
             <p className="eyebrow mt-3">
-              {index.score == null ? "not enough written yet" : "sentiment × action ÷ result"}
+              {index.score == null
+                ? "not enough written yet"
+                : "execution-weighted sentiment × action ÷ result"}
             </p>
             <div className="mt-6 flex h-[6px] w-full overflow-hidden bg-sunken">
               <div
@@ -148,7 +186,7 @@ function PotPage() {
               </div>
               <div>
                 <dt className="eyebrow">Axes measured</dt>
-                <dd className="num text-[15px]">{index.measured}/5</dd>
+                <dd className="num text-[15px]">{index.measured}/6</dd>
               </div>
             </dl>
           </div>
@@ -162,6 +200,32 @@ function PotPage() {
           </ul>
         </Panel>
       </div>
+
+      <Panel eyebrow="Payoff // PnL vs motive" className="mt-4" delay={90}>
+        <ul>
+          {index.payoff.byMotive.map((m) => (
+            <MotiveRow key={m.motive ?? "unlabelled"} m={m} hidden={hidden} />
+          ))}
+          {index.payoff.byMotive.length === 0 && (
+            <li className="px-4 py-6 text-center text-[13px] text-ink-faint">
+              No closed trades with a venue-reported PnL yet. Reconciled Nado and Hyperliquid closes
+              feed this panel.
+            </li>
+          )}
+        </ul>
+        {premium != null && (
+          <p className="eyebrow border-t border-stroke px-4 py-2.5">
+            intent premium · conviction & co{" "}
+            <span className={cn("num", premium.intentionalNet >= 0 ? "text-gain" : "text-loss")}>
+              {signed(premium.intentionalNet)}
+            </span>{" "}
+            · reactive{" "}
+            <span className={cn("num", premium.reactiveNet >= 0 ? "text-gain" : "text-loss")}>
+              {signed(premium.reactiveNet)}
+            </span>
+          </p>
+        )}
+      </Panel>
 
       <Panel
         eyebrow="Ghosts // Unexecuted conviction"

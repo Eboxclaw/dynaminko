@@ -18,6 +18,10 @@ export type MotiveStats = {
   disciplineScore: number | null;
   withThesis: number;
   totalValue: number | null;
+  /** closes under this motive whose venue reported a PnL (Nado, Hyperliquid) */
+  measuredPnl: number;
+  wins: number;
+  netPnl: number | null;
   firstAt: number | null;
   lastAt: number | null;
   topTickers: { ticker: string; count: number }[];
@@ -36,6 +40,21 @@ export function motiveStats(motive: Sentiment): MotiveStats {
     if (c.ticker) byTicker.set(c.ticker, (byTicker.get(c.ticker) ?? 0) + 1);
   });
 
+  const pnlByTrade = new Map(
+    getDoc()
+      .signals.filter((s) => s.meta?.pnl != null)
+      .map((s) => [s.id, s.meta?.pnl as number]),
+  );
+  const seenTrades = new Set<string>();
+  const pnls: number[] = [];
+  cards.forEach((c) => {
+    if (!c.tradeId || seenTrades.has(c.tradeId)) return;
+    const pnl = pnlByTrade.get(c.tradeId);
+    if (pnl == null) return;
+    seenTrades.add(c.tradeId);
+    pnls.push(pnl);
+  });
+
   return {
     motive,
     trades: cards.filter((c) => c.tradeId).length,
@@ -48,6 +67,9 @@ export function motiveStats(motive: Sentiment): MotiveStats {
     disciplineScore: answered.length ? (aligned + partial * 0.5) / answered.length : null,
     withThesis: cards.filter((c) => c.thesisId).length,
     totalValue: values.length ? values.reduce((a, b) => a + b, 0) : null,
+    measuredPnl: pnls.length,
+    wins: pnls.filter((p) => p > 0).length,
+    netPnl: pnls.length ? pnls.reduce((a, b) => a + b, 0) : null,
     firstAt: cards.length ? Math.min(...cards.map((c) => c.date)) : null,
     lastAt: cards.length ? Math.max(...cards.map((c) => c.date)) : null,
     topTickers: [...byTicker.entries()]
@@ -81,7 +103,7 @@ export function coverageStats() {
   };
 }
 
-/** tool: indicators.potIndex — the five-axis score, already implemented. */
+/** tool: indicators.potIndex — the six-axis, execution-weighted score. */
 export function potIndex() {
   const doc = getDoc();
   return computeIndex(doc.entries, doc.theses, doc.signals);

@@ -43,16 +43,39 @@ export function runSkill(skillId: string, input: SkillInput = {}): SkillResult {
         ? `Most traded: ${s.topTickers.map((t) => `${t.ticker} ×${t.count}`).join(", ")}.`
         : "No ticker attached yet.",
       s.totalValue != null ? `Priced value ${Math.round(s.totalValue)} USD.` : "No priced value.",
+      s.netPnl != null
+        ? `Net PnL ${s.netPnl < 0 ? "-" : "+"}$${Math.abs(Math.round(s.netPnl))} across ${s.measuredPnl} venue closes (${s.wins} wins).`
+        : "No venue-reported PnL under this motive yet.",
     ];
   } else if (skill.id === "journal.review") {
     const cov = ind.coverageStats();
     const mix = ind.alignmentStats();
     const idx = ind.potIndex();
-    data = { coverage: cov, alignment: mix, potScore: idx.score, axes: idx.axes.map((a) => ({ id: a.id, score: a.score })) };
+    data = {
+      coverage: cov,
+      alignment: mix,
+      potScore: idx.score,
+      axes: idx.axes.map((a) => ({ id: a.id, score: a.score, weight: a.weight })),
+      payoff: idx.payoff,
+    };
+    const payoffAxis = idx.axes.find((a) => a.id === "payoff");
     facts = [
       `${cov.linked} of ${cov.signals} extracted trades answered, ${cov.inbox} waiting.`,
-      `Alignment mix: ${Object.entries(mix.buckets).map(([k, v]) => `${k} ${v}`).join(", ") || "nothing answered"}.`,
-      idx.score != null ? `POT index ${Math.round(idx.score * 100)}.` : "POT index not measurable yet.",
+      `Alignment mix: ${
+        Object.entries(mix.buckets)
+          .map(([k, v]) => `${k} ${v}`)
+          .join(", ") || "nothing answered"
+      }.`,
+      idx.score != null
+        ? `POT index ${idx.score}, execution-weighted.`
+        : "POT index not measurable yet.",
+      idx.payoff.measured > 0 && payoffAxis?.score != null
+        ? `Payoff ${Math.round(payoffAxis.score * 100)}% (50% is break-even) · net ${idx.payoff.net < 0 ? "-" : "+"}$${Math.abs(Math.round(idx.payoff.net))} on ${idx.payoff.measured} closes${
+            idx.payoff.intentPremium != null
+              ? `, intent premium ${idx.payoff.intentPremium.intentionalNet < 0 ? "-" : "+"}$${Math.abs(Math.round(idx.payoff.intentPremium.intentionalNet))} vs reactive ${idx.payoff.intentPremium.reactiveNet < 0 ? "-" : "+"}$${Math.abs(Math.round(idx.payoff.intentPremium.reactiveNet))}`
+              : ""
+          }.`
+        : "No venue-reported PnL to score payoff yet.",
     ];
   } else if (skill.id === "thesis.review") {
     const id = input.thesisId ?? getDoc().theses[0]?.id;
@@ -62,7 +85,16 @@ export function runSkill(skillId: string, input: SkillInput = {}): SkillResult {
     } else {
       const s = ind.thesisStats(id);
       const cards = filterCards({ thesisId: id, type: "entry", limit: 10 });
-      data = { ...s, recent: cards.map((c) => ({ date: c.date, ticker: c.ticker, motive: c.motive, alignment: c.alignment, record: c.record })) };
+      data = {
+        ...s,
+        recent: cards.map((c) => ({
+          date: c.date,
+          ticker: c.ticker,
+          motive: c.motive,
+          alignment: c.alignment,
+          record: c.record,
+        })),
+      };
       facts = [
         `"${s.title}": ${s.entries} entries, ${s.trades} trades.`,
         s.alignmentRate != null
@@ -75,7 +107,11 @@ export function runSkill(skillId: string, input: SkillInput = {}): SkillResult {
     const cov = ind.coverageStats();
     const theses = getDoc().theses;
     const stale = theses
-      .map((t) => ({ id: t.id, title: t.title, days: Math.floor((Date.now() - t.updatedAt) / 86_400_000) }))
+      .map((t) => ({
+        id: t.id,
+        title: t.title,
+        days: Math.floor((Date.now() - t.updatedAt) / 86_400_000),
+      }))
       .filter((t) => t.days >= 30);
     data = { coverage: cov, stale, openTheses: theses.filter((t) => t.status === "open").length };
     facts = [

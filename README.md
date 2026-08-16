@@ -14,7 +14,7 @@ Thesis — written any time, before or independent of a trade. Lives in a watchl
 Signal — an on-chain event (swap, send, receive) extracted from the connected wallet's transaction history. Lives in the inbox until answered or dismissed.
 Entry — the result of reconciling a signal against a thesis (or logging one standalone). Carries alignment, sizing, sentiment, emotion, and optional health/finance context, each answered by tapping one of four options, never free text unless the person chooses to add notes.
 
-The POT Index (src/lib/pot-index.ts, route /pot) is the score this produces: five axes — coverage, alignment, discipline, execution, steadiness — computed only from what the person actually wrote or the agent actually read. An empty journal shows every axis as null, not zero.
+The POT Index (src/lib/pot-index.ts, route /pot) is the score this produces: six axes (coverage, alignment, discipline, execution, payoff, steadiness) computed only from what the person actually wrote or the agent actually read, weighted toward execution (doing outweighs feeling). Payoff sets realized PnL against the declared motive; steadiness only counts a rough state of mind against you when the trade actually lost. An empty journal shows every axis as null, not zero.
 
 What's real right now
 
@@ -45,7 +45,7 @@ Five real routes plus one placeholder, per the Aug 5 rebuild:
 Home (/) — greeting, portfolio snapshot, what changed since last visit
 Journal (/journal) — the core surface: inbox of unanswered signals, entries timeline, and the theses watchlist, sharing one search/filter set
 Portfolio (/portfolio) — holdings from the connected wallet, grouped by sector
-POT Index (/pot) — the five-axis score described above
+POT Index (/pot): the six-axis, execution-weighted score described above
 Alerts (/alerts) — price, on-chain, and thesis-staleness triggers
 Settings (/settings) — wallet management, theme, AI model manager, data export/delete
 Trade (/trade) — placeholder only, describes what's coming next phase
