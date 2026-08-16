@@ -116,7 +116,7 @@ function ModelRow({ ai, id, recommended }: { ai: ReturnType<typeof useAi>; id: s
         <input
           type="radio"
           name="model"
-          className="mt-1"
+          className="mt-1 accent-[var(--ink)]"
           disabled={state === "unavailable"}
           checked={selected}
           onChange={() => {
@@ -308,7 +308,7 @@ function LocalModels({ ai }: { ai: ReturnType<typeof useAi> }) {
               step={0.05}
               value={ai.temperature}
               onChange={(e) => ai.setTemperature(Number(e.target.value))}
-              className="mt-2 w-full"
+              className="mt-2 w-full accent-[var(--ink)]"
             />
           </label>
           <label className="text-[12px]">
@@ -320,7 +320,7 @@ function LocalModels({ ai }: { ai: ReturnType<typeof useAi> }) {
               step={32}
               value={ai.maxTokens}
               onChange={(e) => ai.setMaxTokens(Number(e.target.value))}
-              className="mt-2 w-full"
+              className="mt-2 w-full accent-[var(--ink)]"
             />
           </label>
         </div>
