@@ -7,7 +7,6 @@ import type { Wllama } from "@wllama/wllama/esm/index.js";
 import { detectRuntime, type Backend } from "@/lib/ai/runtime";
 import { readDelta } from "@/lib/ai/stream";
 
-
 /** What a model is allowed to be used for. Cheapest capable model wins. */
 export type Capability = "encode" | "extract" | "vision" | "assist" | "reason";
 
@@ -45,7 +44,6 @@ export type ModelSpec = {
 const BROWSER_BACKEND = { preferred: "webgpu", fallback: "wasm" } as const;
 
 const MODEL_LIST: Omit<ModelSpec, "backend">[] = [
-
   {
     id: "lfm2-2_6",
     label: "LFM 2.5 2.6B",
@@ -105,7 +103,8 @@ const MODEL_LIST: Omit<ModelSpec, "backend">[] = [
     repo: "LiquidAI/LFM2.5-Encoder-230M",
     quant: "fp32",
     runtime: "transformers",
-    serve: 'AutoModelForMaskedLM.from_pretrained("LiquidAI/LFM2.5-Encoder-230M", trust_remote_code=True)',
+    serve:
+      'AutoModelForMaskedLM.from_pretrained("LiquidAI/LFM2.5-Encoder-230M", trust_remote_code=True)',
     blurb: "Semantic routing, retrieval and tagging. Never writes prose.",
     role: "Routing, retrieval, tool and skill discovery, light classification",
     capabilities: ["encode"],
@@ -124,7 +123,6 @@ export const MODELS: ModelSpec[] = MODEL_LIST.map((m) => ({ ...m, backend: BROWS
 export const MODEL_BY_ID: Record<string, ModelSpec> = Object.fromEntries(
   MODELS.map((m) => [m.id, m]),
 );
-
 
 export const DEFAULT_MODEL_ID = "lfm2-450-vl";
 export const ENCODER_ID = "lfm2-230-encoder";
@@ -145,7 +143,7 @@ export function modelFor(cap: Capability, downloaded?: Set<string>): ModelSpec |
   return MODEL_BY_ID[have ?? ids[0]];
 }
 
-export const CTX_CHOICES = [1024, 2048, 4096, 8192] as const;
+export const CTX_CHOICES = [1024, 2048, 4096, 8192, 16384, 32128] as const;
 export const DEFAULT_CTX = 8192;
 /** Never send more than this many turns of the active session to a model. */
 export const MAX_CONTEXT_MESSAGES = 5;
@@ -169,8 +167,7 @@ export const UNKNOWN_PROFILE: DeviceProfile = {
 export function deviceProfile(): DeviceProfile {
   if (typeof navigator === "undefined") return UNKNOWN_PROFILE;
   const nav = navigator as Navigator & { deviceMemory?: number };
-  const mobile =
-    typeof matchMedia === "function" ? matchMedia("(pointer: coarse)").matches : false;
+  const mobile = typeof matchMedia === "function" ? matchMedia("(pointer: coarse)").matches : false;
   return {
     ramGb: typeof nav.deviceMemory === "number" ? nav.deviceMemory : null,
     cores: nav.hardwareConcurrency ?? null,
@@ -203,15 +200,12 @@ export function recommendModel(profile = deviceProfile()): { id: string; reason:
     MODEL_BY_ID["lfm2-450-vl"] ??
     MODEL_BY_ID[DEFAULT_MODEL_ID];
   const seen =
-    profile.ramGb != null
-      ? `${profile.ramGb} GB reported`
-      : "memory not reported by the browser";
+    profile.ramGb != null ? `${profile.ramGb} GB reported` : "memory not reported by the browser";
   return {
     id: pick.id,
     reason: `${seen}${profile.mobile ? " · touch device" : ""} · ${pick.label} fits.`,
   };
 }
-
 
 /** Rough working-set estimate so the context slider can warn honestly. */
 export function memoryEstimateGb(modelId: string, nCtx: number): number {
@@ -227,13 +221,7 @@ export function memoryEstimateGb(modelId: string, nCtx: number): number {
  * The six states the UI is expected to distinguish. `required` means the app
  * wants it but the weights are not on the device yet.
  */
-export type ModelState =
-  | "missing"
-  | "downloaded"
-  | "loading"
-  | "loaded"
-  | "unavailable"
-  | "error";
+export type ModelState = "missing" | "downloaded" | "loading" | "loaded" | "unavailable" | "error";
 
 export type AiStatus =
   | { phase: "idle"; modelId?: string }
@@ -269,7 +257,6 @@ async function createRuntime(): Promise<Wllama> {
   return new Ctor(
     { default: "/wasm/wllama.wasm" },
     { allowOffline: true, suppressNativeLog: true, parallelDownloads: 2 },
-
   );
 }
 
@@ -344,7 +331,6 @@ export async function deleteModel(modelId: string): Promise<void> {
         cacheManager?: {
           list?: () => Promise<unknown[]>;
           deleteMany?: (pred: (e: unknown) => boolean) => Promise<void>;
- 
         };
       }
     ).cacheManager;
@@ -363,8 +349,6 @@ export async function deleteModel(modelId: string): Promise<void> {
     }
   }
 }
-
-
 
 /** Resolve the six-state label for one model. */
 export function modelState(
@@ -536,7 +520,11 @@ export async function loadModel(
   options: LoadOptions = {},
 ): Promise<void> {
   const result = await loadDownloadedModel(modelId, onStatus, options);
-  if (result.status === "install_required" || result.status === "unsupported" || result.status === "error") {
+  if (
+    result.status === "install_required" ||
+    result.status === "unsupported" ||
+    result.status === "error"
+  ) {
     throw new Error(result.message);
   }
 }
@@ -565,15 +553,21 @@ export type ChatOptions = {
   onSpeed?: (tokensPerSecond: number, tokens: number) => void;
 };
 
-
 async function dataUrlToArrayBuffer(dataUrl: string): Promise<ArrayBuffer> {
   const res = await fetch(dataUrl);
   return res.arrayBuffer();
 }
 
-export async function chat(
-  system: string,
-  user: string,
+export type ChatRole = "system" | "user" | "assistant";
+export type TurnMessage = { role: ChatRole; content: string };
+
+/**
+ * Multi-turn chat: the model's own chat template structures the whole
+ * conversation, which small models follow far better than history pasted into
+ * one user blob. Vision images attach to the final user turn.
+ */
+export async function chatMessages(
+  turns: TurnMessage[],
   onToken?: (text: string) => void,
   options: ChatOptions = {},
 ): Promise<string> {
@@ -582,13 +576,21 @@ export async function chat(
   if (spec && !spec.generative) {
     throw new Error(`${spec.label} makes embeddings, not prose. Load an instruct or VL model.`);
   }
+
+  const systemText = turns
+    .filter((t) => t.role === "system")
+    .map((t) => t.content)
+    .join("\n\n");
   const sys = options.thinking
-    ? `${system}\n\nThink step by step inside <think>…</think>, then give the answer after it.`
-    : system;
-  const content =
-    options.images?.length && spec?.vision
+    ? `${systemText}\n\nThink step by step inside <think>…</think>, then give the answer after it.`
+    : systemText;
+
+  const dialogue = turns.filter((t) => t.role !== "system");
+  const lastUser = [...dialogue].reverse().find((t) => t.role === "user");
+  const visionContent =
+    options.images?.length && spec?.vision && lastUser
       ? [
-          { type: "text" as const, text: user },
+          { type: "text" as const, text: lastUser.content },
           ...(await Promise.all(
             options.images.map(async (url) => ({
               type: "image" as const,
@@ -596,7 +598,16 @@ export async function chat(
             })),
           )),
         ]
-      : user;
+      : null;
+
+  const messages: Array<{ role: string; content: unknown }> = [
+    { role: "system", content: sys },
+    ...dialogue.map((t) => ({ role: t.role, content: t.content })),
+  ];
+  if (visionContent) {
+    const i = dialogue.indexOf(lastUser!) + 1;
+    if (messages[i]) messages[i].content = visionContent;
+  }
 
   abortRun = false;
   const abortController = new AbortController();
@@ -605,10 +616,7 @@ export async function chat(
   const started = performance.now();
 
   await instance.createChatCompletion({
-    messages: [
-      { role: "system", content: sys },
-      { role: "user", content },
-    ],
+    messages: messages as never,
     stream: true,
     max_tokens: options.maxTokens ?? 8192,
     temperature: options.temperature ?? 0.4,
@@ -626,6 +634,22 @@ export async function chat(
     },
   });
   return out.trim();
+}
+
+export async function chat(
+  system: string,
+  user: string,
+  onToken?: (text: string) => void,
+  options: ChatOptions = {},
+): Promise<string> {
+  return chatMessages(
+    [
+      { role: "system", content: system },
+      { role: "user", content: user },
+    ],
+    onToken,
+    options,
+  );
 }
 
 /** Splits a thinking model's reply into its hidden reasoning and the answer. */

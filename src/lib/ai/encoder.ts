@@ -14,7 +14,9 @@ import {
   downloadProvider,
   loadDownloadedProvider,
   ensureProviderIfCached,
+  lastRankStats,
   onEmbeddingChange,
+  prewarm,
   providerBackend,
   providerCached,
   providerError,
@@ -24,9 +26,13 @@ import {
   rankTiered,
   unloadProvider,
   type EmbeddingProviderId,
+  type RankStats,
 } from "@/lib/ai/embedding";
 
-export type EncoderState = "missing" | "downloaded" | "loading" | "loaded" | "unavailable" | "error";
+export type { RankStats };
+
+export type EncoderState =
+  "missing" | "downloaded" | "loading" | "loaded" | "unavailable" | "error";
 
 /** Which provider the legacy encoder API drives. */
 function active(): EmbeddingProviderId {
@@ -52,9 +58,7 @@ export function encoderReady(): boolean {
 }
 
 export async function encoderCached(): Promise<boolean> {
-  return (
-    (await providerCached(DEFAULT_EMBEDDING_ID)) || (await providerCached("lfm-encoder-230m"))
-  );
+  return (await providerCached(DEFAULT_EMBEDDING_ID)) || (await providerCached("lfm-encoder-230m"));
 }
 
 export async function downloadSemanticProvider(onProgress?: (fraction: number) => void) {
@@ -87,12 +91,32 @@ export async function embed(
 
 export type Ranked = { id: string; score: number };
 
-/** Ranks candidate targets (skills, tools, commands, journal cards). */
+/** Ranks candidate targets (skills, tools, commands, journal cards). Cached. */
 export async function rank(
   query: string,
   targets: { id: string; text: string }[],
   opts: { opportunistic?: boolean } = {},
 ): Promise<Ranked[] | null> {
   const res = await rankTiered(query, targets, opts);
-  return res?.ranked ?? null;
+  return (res?.ranked as Ranked[] | undefined) ?? null;
+}
+
+/** Same rank, with the cache/timing stats the turn trace shows. */
+export async function rankWithStats(
+  query: string,
+  targets: { id: string; text: string }[],
+  opts: { opportunistic?: boolean } = {},
+): Promise<{ ranked: Ranked[] | null; stats: RankStats | null }> {
+  const res = await rankTiered(query, targets, opts);
+  return { ranked: (res?.ranked as Ranked[] | undefined) ?? null, stats: res?.stats ?? null };
+}
+
+/** Embed texts ahead of a question. Only runs when a provider is resident. */
+export function prewarmTargets(texts: string[]): Promise<number> {
+  return prewarm(texts);
+}
+
+/** Stats of the last cached rank call, null when none ran. */
+export function rankStats(): RankStats | null {
+  return lastRankStats();
 }

@@ -4,6 +4,7 @@ import {
   activeBackend,
   cachedModels,
   chat,
+  chatMessages,
   deviceProfile,
   isReady,
   downloadModel,
@@ -21,8 +22,14 @@ import {
   type AiStatus,
   type ChatOptions,
   type ModelState,
+  type TurnMessage,
 } from "@/lib/ai";
-import { detectRuntime, runtimeSnapshot, type Backend, type RuntimeCapabilities } from "@/lib/ai/runtime";
+import {
+  detectRuntime,
+  runtimeSnapshot,
+  type Backend,
+  type RuntimeCapabilities,
+} from "@/lib/ai/runtime";
 import {
   encoderBackend,
   encoderCached,
@@ -35,8 +42,14 @@ import {
   unloadEncoder,
   type EncoderState,
 } from "@/lib/ai/encoder";
-import { cloudChat, CLOUD_BY_ID, type CloudConfig } from "@/lib/ai/cloud";
-import { deriveCapability, modelAction, modelActions, type InstallState, type ModelAction } from "@/lib/ai/capability";
+import { cloudChatMessages, CLOUD_BY_ID, type CloudConfig } from "@/lib/ai/cloud";
+import {
+  deriveCapability,
+  modelAction,
+  modelActions,
+  type InstallState,
+  type ModelAction,
+} from "@/lib/ai/capability";
 import { patchAssistant } from "@/lib/store";
 import { useSettings } from "./useDoc";
 import { useDoc } from "./useDoc";
@@ -181,7 +194,11 @@ export function useAi() {
       setSettings({ aiModelId: modelId });
       try {
         const result = await rotateToDownloadedModel(modelId, applyStatus, { nCtx: ctx });
-        if (result.status === "install_required" || result.status === "unsupported" || result.status === "error") {
+        if (
+          result.status === "install_required" ||
+          result.status === "unsupported" ||
+          result.status === "error"
+        ) {
           throw new Error(result.message);
         }
       } catch (err) {
@@ -212,8 +229,9 @@ export function useAi() {
     return activate(id);
   }, [activate, cloudCfg, settings.aiModelId]);
 
-  const ask = useCallback(
-    async (prompt: { system: string; user: string }, options: ChatOptions = {}) => {
+  /** Full multi-turn form: the model's own chat template structures history. */
+  const askMessages = useCallback(
+    async (messages: TurnMessage[], options: ChatOptions = {}) => {
       setRunning(true);
       setOutput("");
       setSpeed(null);
@@ -222,7 +240,7 @@ export function useAi() {
           const controller = new AbortController();
           cloudAbort.current = controller;
           const started = performance.now();
-          const text = await cloudChat(cloudCfg, prompt.system, prompt.user, {
+          const text = await cloudChatMessages(cloudCfg, messages, {
             temperature,
             maxTokens,
             signal: controller.signal,
@@ -237,11 +255,12 @@ export function useAi() {
           return text;
         }
         if (!isReady(settings.aiModelId)) {
-          throw new Error("No local model is loaded. Load a downloaded model from the Model panel first.");
+          throw new Error(
+            "No local model is loaded. Load a downloaded model from the Model panel first.",
+          );
         }
-        const text = await chat(
-          prompt.system,
-          prompt.user,
+        const text = await chatMessages(
+          messages,
           (partial) => {
             if (mounted.current) setOutput(partial);
           },
@@ -259,6 +278,19 @@ export function useAi() {
       }
     },
     [cloudCfg, maxTokens, settings.aiModelId, temperature],
+  );
+
+  const ask = useCallback(
+    async (prompt: { system: string; user: string }, options: ChatOptions = {}) => {
+      return askMessages(
+        [
+          { role: "system", content: prompt.system },
+          { role: "user", content: prompt.user },
+        ],
+        options,
+      );
+    },
+    [askMessages],
   );
 
   const abort = useCallback(() => {
@@ -281,7 +313,10 @@ export function useAi() {
     return out;
   }, [downloaded, profile.mobile, settings.aiModelId, status]);
 
-  const select = useCallback((modelId: string) => setSettings({ aiModelId: modelId }), [setSettings]);
+  const select = useCallback(
+    (modelId: string) => setSettings({ aiModelId: modelId }),
+    [setSettings],
+  );
 
   /** What is actually answering: the local model or a configured cloud model. */
   const target = cloudCfg
@@ -310,13 +345,21 @@ export function useAi() {
 
   const actionFor = useCallback(
     (modelId: string): ModelAction =>
-      modelAction(install[modelId] ?? "missing", isReady(modelId), states[modelId] !== "unavailable"),
+      modelAction(
+        install[modelId] ?? "missing",
+        isReady(modelId),
+        states[modelId] !== "unavailable",
+      ),
     [install, states],
   );
 
   const actionsFor = useCallback(
     (modelId: string): ModelAction[] =>
-      modelActions(install[modelId] ?? "missing", isReady(modelId), states[modelId] !== "unavailable"),
+      modelActions(
+        install[modelId] ?? "missing",
+        isReady(modelId),
+        states[modelId] !== "unavailable",
+      ),
     [install, states],
   );
 
@@ -386,6 +429,7 @@ export function useAi() {
     stop,
     abort,
     ask,
+    askMessages,
     setOutput,
     refreshDownloaded,
   };

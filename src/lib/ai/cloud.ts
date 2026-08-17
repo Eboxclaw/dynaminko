@@ -98,13 +98,13 @@ export type CloudChatOptions = {
 };
 
 /**
- * One streaming chat call against an OpenAI-compatible endpoint. No timeout is
- * imposed: generation takes as long as it takes, the user can stop it.
+ * One streaming chat call against an OpenAI-compatible endpoint, full message
+ * array. No timeout is imposed: generation takes as long as it takes, the user
+ * can stop it.
  */
-export async function cloudChat(
+export async function cloudChatMessages(
   cfg: CloudConfig,
-  system: string,
-  user: string,
+  messages: Array<{ role: "system" | "user" | "assistant"; content: string }>,
   options: CloudChatOptions = {},
 ): Promise<string> {
   const spec = CLOUD_BY_ID[cfg.id];
@@ -123,10 +123,7 @@ export async function cloudChat(
       stream: true,
       temperature: options.temperature ?? 0.4,
       max_tokens: options.maxTokens ?? 512,
-      messages: [
-        { role: "system", content: system },
-        { role: "user", content: user },
-      ],
+      messages,
     }),
   });
 
@@ -163,4 +160,21 @@ export async function cloudChat(
     }
   }
   return out.trim();
+}
+
+/** Single-turn wrapper kept for existing callers. */
+export async function cloudChat(
+  cfg: CloudConfig,
+  system: string,
+  user: string,
+  options: CloudChatOptions = {},
+): Promise<string> {
+  return cloudChatMessages(
+    cfg,
+    [
+      { role: "system", content: system },
+      { role: "user", content: user },
+    ],
+    options,
+  );
 }

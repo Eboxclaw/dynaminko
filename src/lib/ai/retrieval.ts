@@ -5,7 +5,7 @@
 // and only when a question actually needs them. Embeddings are computed lazily
 // and cached in memory for the session; they are never the source of truth.
 
-import { rank } from "@/lib/ai/encoder";
+import { prewarmTargets, rank } from "@/lib/ai/encoder";
 import { getDoc } from "@/lib/store";
 import { filterCards, searchCards, type JournalCard } from "@/lib/tools/journal";
 
@@ -57,13 +57,10 @@ export type Retrieved = {
   count: number;
 };
 
-/**
- * Records relevant to one question. Falls back to the deterministic search when
- * the encoder is not on the device — retrieval must never require a download.
- */
-export async function retrieveContext(query: string, limit = 8): Promise<Retrieved> {
+/** Everything a question could be ranked against: theses plus recent cards. */
+function referencePool(): Reference[] {
   const doc = getDoc();
-  const pool: Reference[] = [
+  return [
     ...doc.theses.map<Reference>((t) => ({
       kind: "thesis",
       id: t.id,
@@ -77,6 +74,22 @@ export async function retrieveContext(query: string, limit = 8): Promise<Retriev
       text: cardText(c),
     })),
   ];
+}
+
+/**
+ * Warm the vector cache in idle time so the first question of a session ranks
+ * against ready vectors. No-op when no encoder is resident; never downloads.
+ */
+export function prewarmRetrieval(): Promise<number> {
+  return prewarmTargets(referencePool().map((r) => r.text));
+}
+
+/**
+ * Records relevant to one question. Falls back to the deterministic search when
+ * the encoder is not on the device — retrieval must never require a download.
+ */
+export async function retrieveContext(query: string, limit = 8): Promise<Retrieved> {
+  const pool = referencePool();
   if (pool.length === 0) return { lines: [], how: "deterministic", count: 0 };
 
   const ranked = await rank(

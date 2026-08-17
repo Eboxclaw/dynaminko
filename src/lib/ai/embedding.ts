@@ -55,7 +55,8 @@ export const DEFAULT_EMBEDDING_ID: EmbeddingProviderId = "minilm";
 /** Below this the cheap tier is not trusted and the upgrade tier is consulted. */
 export const CONFIDENT = 0.55;
 
-export type ProviderState = "missing" | "downloaded" | "loading" | "loaded" | "unavailable" | "error";
+export type ProviderState =
+  "missing" | "downloaded" | "loading" | "loaded" | "unavailable" | "error";
 
 type Extractor = (
   input: string | string[],
@@ -205,9 +206,7 @@ export async function ensureProvider(
   return loadDownloadedProvider(id, onProgress);
 }
 
-export async function ensureProviderIfCached(
-  id: EmbeddingProviderId,
-): Promise<Extractor | null> {
+export async function ensureProviderIfCached(id: EmbeddingProviderId): Promise<Extractor | null> {
   return slot(id).pipe ?? null;
 }
 
@@ -247,7 +246,9 @@ export async function embed(
 ): Promise<{ vectors: number[][]; provider: EmbeddingProviderId } | null> {
   const id = opts.provider ?? (await activeProvider(Boolean(opts.opportunistic)));
   if (!id) return null;
-  const pipe = opts.opportunistic ? await ensureProviderIfCached(id) : await loadDownloadedProvider(id);
+  const pipe = opts.opportunistic
+    ? await ensureProviderIfCached(id)
+    : await loadDownloadedProvider(id);
   if (!pipe) return null;
   const run = queue.then(async () => {
     const out = await pipe(texts, { pooling: "mean", normalize: true });
@@ -267,21 +268,140 @@ export async function embed(
 
 export type Ranked = { id: string; score: number };
 
+// ── vector cache ────────────────────────────────────────────────────────────
+//
+// Derived data only: embeddings are never the source of truth, and the cache
+// lives in memory so there is no storage quota to respect. Same provider plus
+// same text must produce the same vector, so a hit skips the encoder entirely.
+// LRU order: Map insertion order, refreshed on hit.
+
+const VECTOR_CACHE_MAX = 2000;
+const vectorCache = new Map<string, number[]>();
+
+/** Stats of the most recent cached rank call, for the turn trace. */
+export type RankStats = {
+  hits: number;
+  misses: number;
+  /** wall-clock ms of the whole rank, embedding included */
+  ms: number;
+  provider: EmbeddingProviderId | null;
+};
+
+let lastStats: RankStats | null = null;
+export function lastRankStats(): RankStats | null {
+  return lastStats;
+}
+
+function cacheKey(provider: EmbeddingProviderId, text: string): string {
+  return `${provider}\u0000${text}`;
+}
+
+function cacheGet(provider: EmbeddingProviderId, text: string): number[] | null {
+  const key = cacheKey(provider, text);
+  const hit = vectorCache.get(key) ?? null;
+  if (hit) {
+    vectorCache.delete(key);
+    vectorCache.set(key, hit);
+  }
+  return hit;
+}
+
+function cachePut(provider: EmbeddingProviderId, text: string, vector: number[]) {
+  const key = cacheKey(provider, text);
+  vectorCache.delete(key);
+  vectorCache.set(key, vector);
+  while (vectorCache.size > VECTOR_CACHE_MAX) {
+    const oldest = vectorCache.keys().next().value;
+    if (oldest === undefined) break;
+    vectorCache.delete(oldest);
+  }
+}
+
+export function clearVectorCache() {
+  vectorCache.clear();
+  lastStats = null;
+}
+
+/** Vectors for texts, embedding only the ones never seen for this provider. */
+async function embedCached(
+  texts: string[],
+  opts: { opportunistic?: boolean; provider?: EmbeddingProviderId } = {},
+): Promise<{
+  vectors: number[][];
+  provider: EmbeddingProviderId;
+  hits: number;
+  misses: number;
+} | null> {
+  const id = opts.provider ?? (await activeProvider(Boolean(opts.opportunistic)));
+  if (!id) return null;
+  const vectors: number[][] = new Array(texts.length);
+  const fresh: { index: number; text: string }[] = [];
+  let hits = 0;
+  for (let i = 0; i < texts.length; i++) {
+    const cachedVector = cacheGet(id, texts[i]);
+    if (cachedVector) {
+      vectors[i] = cachedVector;
+      hits++;
+    } else {
+      fresh.push({ index: i, text: texts[i] });
+    }
+  }
+  if (fresh.length > 0) {
+    const res = await embed(
+      fresh.map((f) => f.text),
+      { ...opts, provider: id },
+    );
+    if (!res) return null;
+    fresh.forEach((f, i) => {
+      vectors[f.index] = res.vectors[i];
+      cachePut(id, f.text, res.vectors[i]);
+    });
+  }
+  return { vectors, provider: id, hits, misses: fresh.length };
+}
+
 /**
- * Cheap tier first. When its best match is not confident and the stronger
- * encoder is already on the device, re-rank with it.
+ * Warm the cache for texts the next question will probably rank against. Only
+ * runs when a provider is already resident; never downloads anything.
+ */
+export async function prewarm(
+  texts: string[],
+  opts: { opportunistic?: boolean } = {},
+): Promise<number> {
+  if (texts.length === 0) return 0;
+  const res = await embedCached(texts, { opportunistic: true, ...opts }).catch(() => null);
+  return res?.misses ?? 0;
+}
+
+/**
+ * Cheap tier first, cache always. When the cheap best match is not confident
+ * and the stronger encoder is already on the device, re-rank with it.
  */
 export async function rankTiered(
   query: string,
   targets: { id: string; text: string }[],
   opts: { opportunistic?: boolean } = {},
-): Promise<{ ranked: Ranked[]; provider: EmbeddingProviderId; escalated: boolean } | null> {
-  if (targets.length === 0)
-    return { ranked: [], provider: DEFAULT_EMBEDDING_ID, escalated: false };
+): Promise<{
+  ranked: Ranked[];
+  provider: EmbeddingProviderId;
+  escalated: boolean;
+  stats: RankStats;
+} | null> {
+  if (targets.length === 0) {
+    const empty: RankStats = { hits: 0, misses: 0, ms: 0, provider: null };
+    lastStats = empty;
+    return { ranked: [], provider: DEFAULT_EMBEDDING_ID, escalated: false, stats: empty };
+  }
+
+  const started = performance.now();
+  let hits = 0;
+  let misses = 0;
 
   const score = async (provider?: EmbeddingProviderId) => {
-    const res = await embed([query, ...targets.map((t) => t.text)], { ...opts, provider });
+    const res = await embedCached([query, ...targets.map((t) => t.text)], { ...opts, provider });
     if (!res) return null;
+    hits += res.hits;
+    misses += res.misses;
     const [q, ...rest] = res.vectors;
     return {
       provider: res.provider,
@@ -292,14 +412,30 @@ export async function rankTiered(
   };
 
   const first = await score();
-  if (!first) return null;
-  const best = first.ranked[0]?.score ?? 0;
-  if (best >= CONFIDENT || first.provider === "lfm-encoder-230m")
-    return { ...first, escalated: false };
-
-  if (providerReady("lfm-encoder-230m")) {
-    const second = await score("lfm-encoder-230m");
-    if (second) return { ...second, escalated: true };
+  if (!first) {
+    lastStats = null;
+    return null;
   }
-  return { ...first, escalated: false };
+  const best = first.ranked[0]?.score ?? 0;
+  let escalated = false;
+  let out = first;
+  if (
+    best < CONFIDENT &&
+    first.provider !== "lfm-encoder-230m" &&
+    providerReady("lfm-encoder-230m")
+  ) {
+    const second = await score("lfm-encoder-230m");
+    if (second) {
+      out = second;
+      escalated = true;
+    }
+  }
+
+  lastStats = {
+    hits,
+    misses,
+    ms: Math.round((performance.now() - started) * 10) / 10,
+    provider: out.provider,
+  };
+  return { ...out, escalated, stats: lastStats };
 }

@@ -1,16 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
-import {
-  Brain,
-  Eye,
-  HelpCircle,
-  ImagePlus,
-  Send,
-  Sparkles,
-  SquareStack,
-  X,
-} from "lucide-react";
+import { Brain, Eye, HelpCircle, ImagePlus, Send, Sparkles, SquareStack, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
-
 
 import { FlowStrip } from "@/components/pot/FlowStrip";
 import { ModelPanel } from "@/components/pot/ModelPanel";
@@ -19,8 +9,8 @@ import { Panel, Shell } from "@/components/pot/Shell";
 import { useAi } from "@/hooks/useAi";
 import { useTurn } from "@/hooks/useTurn";
 import { semanticLabel } from "@/lib/ai/capability";
-import { commandObservation, inkoSystemPrompt, type ToolObservation } from "@/lib/agent/context";
-import { capabilityCatalogue } from "@/lib/capabilities/catalogue";
+import { buildTurn, commandObservation, type ToolObservation } from "@/lib/agent/context";
+import { capabilityDigest, selectCapabilities } from "@/lib/capabilities/catalogue";
 import { PHASE_LABEL } from "@/lib/chat/pipeline";
 import { useDoc } from "@/hooks/useDoc";
 import { relativeTime } from "@/lib/format";
@@ -107,7 +97,6 @@ function AgentsPage() {
     setRailOpen(true);
   };
 
-
   return (
     <Shell
       title="Assistant"
@@ -147,7 +136,6 @@ function AgentsPage() {
               </button>
             ))}
           </nav>
-
 
           {tab === "model" && (
             <Panel eyebrow="Model // On this device">
@@ -234,9 +222,6 @@ function ChatConsole({
     setThinking(canReason);
   }, [activeSpecId, canReason, canSee]);
 
-
-
-
   const push = (m: Omit<ChatMessage, "id" | "ts">) => {
     const msg = newMessage(m);
     setMessages((prev) => [...prev, msg]);
@@ -270,7 +255,7 @@ function ChatConsole({
           text:
             woke.error === "not_downloaded"
               ? `${ai.spec?.label ?? "This model"} is not downloaded yet. Download it once from the model menu and it will stay on this device.`
-              : woke.error ?? "the model failed to load",
+              : (woke.error ?? "the model failed to load"),
         });
         turn.complete();
         return;
@@ -282,11 +267,11 @@ function ChatConsole({
     setBusy(true);
     try {
       // Retrieval before generation: a handful of records, never the journal.
-      let grounding = "";
+      let records: string[] = [];
       if (ground) {
         const found = await retrieveContext(user, 6);
         if (found.count) {
-          grounding = `\n\nRecords (${found.how}):\n${found.lines.join("\n")}`;
+          records = found.lines;
           push({
             role: "tool",
             text: `retrieval · ${found.count} records`,
@@ -295,23 +280,51 @@ function ChatConsole({
               facts: found.lines.slice(0, 5),
               data: { count: found.count, how: found.how },
             },
-
           });
         }
       }
-      const history = contextFor(messages, Math.floor(ai.ctx * 0.4));
+      // Just-in-time capability detail: the one-line book always rides along,
+      // full blocks only for what this turn actually touches.
+      const selection = await selectCapabilities(user, 5);
+      const build = buildTurn({
+        instructions: system,
+        state: digestLine(),
+        capabilitiesDigest: capabilityDigest(),
+        selectedCapabilities: selection.selected,
+        records,
+        observations: observationsRef.current,
+        history: messages,
+        user,
+        budgetTokens: Math.floor(ai.ctx * 0.75),
+      });
+      push({
+        role: "tool",
+        text: `context.build · ${build.estTokens}t across ${build.sections.length} sections`,
+        card: {
+          source: `context.build (capabilities ${selection.how})`,
+          facts: [
+            ...build.sections.map(
+              (s) => `${s.name} · ${s.estTokens}t${s.truncated ? " · trimmed" : ""}`,
+            ),
+            selection.reason ? `selected: ${selection.reason}` : "",
+          ].filter(Boolean),
+          data: {
+            estTokens: build.estTokens,
+            sections: build.sections.map((s) => ({
+              name: s.name,
+              estTokens: s.estTokens,
+              truncated: s.truncated,
+            })),
+            cache: selection.stats,
+          },
+        },
+      });
       turn.move("generating");
-      turn.stage("answer", ai.spec?.label ?? ai.target.label);
-      const raw = await ai.ask(
-        {
-          system: `${inkoSystemPrompt({ capabilities: capabilityCatalogue().slice(0, 20), observations: observationsRef.current })}\n\n${system}\n\nContext: ${digestLine()}${grounding}`,
-          user: `${history.text}\n\n${user}`,
-        },
-        {
-          thinking,
-          images: vision && image ? [image] : undefined,
-        },
-      );
+      turn.stage("answer", ai.target.label);
+      const raw = await ai.askMessages(build.messages, {
+        thinking,
+        images: vision && image ? [image] : undefined,
+      });
 
       const { thinking: think, answer } = splitThinking(raw);
       const text = (answer || raw || "").trim();
@@ -322,7 +335,7 @@ function ChatConsole({
         return;
       }
       push({ role: "assistant", text, thinking: think });
-      turn.settle("answer", "ok");
+      turn.settle("answer", "ok", `${build.estTokens}t prompt`);
       turn.complete();
       setImage(null);
     } catch (err) {
@@ -332,7 +345,6 @@ function ChatConsole({
       setBusy(false);
     }
   };
-
 
   const runSkillTurn = async (
     skillId: string,
@@ -560,8 +572,7 @@ function ChatConsole({
         push({
           role: "note",
           text: SKILLS.map(
-            (s) =>
-              `${s.id} · ${s.purpose} (${s.aiRequired ? "needs a model" : "no model"})`,
+            (s) => `${s.id} · ${s.purpose} (${s.aiRequired ? "needs a model" : "no model"})`,
           ).join("\n"),
         });
         return;
@@ -581,7 +592,9 @@ function ChatConsole({
         return;
       }
       if (name === "model") {
-        const wanted = MODELS.find((m) => m.id === rest || m.label.toLowerCase() === rest.toLowerCase());
+        const wanted = MODELS.find(
+          (m) => m.id === rest || m.label.toLowerCase() === rest.toLowerCase(),
+        );
         if (wanted) {
           push({ role: "note", text: `Loading ${wanted.label} from downloaded assets…` });
           setSwitchBusy(true);
@@ -640,9 +653,7 @@ function ChatConsole({
         return;
       }
       if (name === "thesis") {
-        const t = getDoc().theses.find((x) =>
-          x.title.toLowerCase().includes(rest.toLowerCase()),
-        );
+        const t = getDoc().theses.find((x) => x.title.toLowerCase().includes(rest.toLowerCase()));
         if (!t) return push({ role: "note", text: `No thesis matching "${rest}".` });
         return void runSkillTurn("thesis.review", { thesisId: t.id });
       }
@@ -690,7 +701,10 @@ function ChatConsole({
       turn.settle("route", "ok");
       if (semantic.kind === "command") {
         push({ role: "note", text: `Running ${semantic.commandId}: ${semantic.why}.` });
-        return void runCommandTurn(semantic.commandId, semantic.args ? JSON.stringify(semantic.args) : "");
+        return void runCommandTurn(
+          semantic.commandId,
+          semantic.args ? JSON.stringify(semantic.args) : "",
+        );
       }
       if (semantic.kind === "skill") {
         push({ role: "note", text: `Running ${semantic.skillId}: ${semantic.why}.` });
@@ -703,7 +717,6 @@ function ChatConsole({
       text,
       true,
     );
-
   };
 
   const apply = (s: Suggestion) => {
@@ -713,10 +726,11 @@ function ChatConsole({
 
   /** Replaces the trailing `@query` with the picked record's title. */
   const applyMention = (r: Reference) => {
-    setInput((prev) => prev.replace(/(?:^|\s)@([\w .-]*)$/, (m) => `${m.startsWith(" ") ? " " : ""}@${r.title} `));
+    setInput((prev) =>
+      prev.replace(/(?:^|\s)@([\w .-]*)$/, (m) => `${m.startsWith(" ") ? " " : ""}@${r.title} `),
+    );
     inputRef.current?.focus();
   };
-
 
   const active = sessions.find((s) => s.id === activeId);
   const ctxUsed = contextFor(messages, Math.floor(ai.ctx * 0.4));
@@ -770,7 +784,6 @@ function ChatConsole({
           </div>
         )}
         <div ref={boxRef} className="max-h-[52vh] min-h-[240px] overflow-y-auto px-4 py-3">
-
           {messages.length === 0 && (
             <p className="py-6 text-[13px] text-ink-soft">
               Ask in plain words, or press / for a command.
@@ -846,11 +859,7 @@ function ChatConsole({
                 )}
               </li>
             ))}
-            {busy && (
-              <li className="eyebrow">
-                {ai.output ? ai.output.slice(-160) : "thinking…"}
-              </li>
-            )}
+            {busy && <li className="eyebrow">{ai.output ? ai.output.slice(-160) : "thinking…"}</li>}
           </ul>
         </div>
 
@@ -872,7 +881,6 @@ function ChatConsole({
         )}
 
         {mentions.length === 0 && picks.length > 0 && (
-
           <ul className="max-h-[190px] overflow-y-auto border-t border-stroke">
             {picks.map((s) => (
               <li key={s.insert}>
@@ -908,137 +916,134 @@ function ChatConsole({
               </button>
             </div>
           )}
-          {switchBusy && (
-            <p className="eyebrow border-b border-stroke px-4 py-2">loading model…</p>
-          )}
+          {switchBusy && <p className="eyebrow border-b border-stroke px-4 py-2">loading model…</p>}
           <div className="px-4 py-3">
-          <div className="flex items-end gap-2">
-            <textarea
-              ref={inputRef}
-              rows={1}
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && !e.shiftKey) {
-                  e.preventDefault();
-                  void submit();
-                }
-              }}
-              disabled={switchBusy}
-              placeholder={switchBusy ? "Loading model…" : "Ask, or / for commands"}
-              className="min-h-[38px] flex-1 resize-none bg-transparent text-[13px] outline-none disabled:opacity-50"
-            />
-            {busy ? (
-              <button
-                type="button"
-                onClick={ai.abort}
-                className="doodle-pill px-3 py-1.5 text-[11px]"
-              >
-                Stop
-              </button>
-            ) : (
-              <button
-                type="button"
-                onClick={() => void submit()}
+            <div className="flex items-end gap-2">
+              <textarea
+                ref={inputRef}
+                rows={1}
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    void submit();
+                  }
+                }}
                 disabled={switchBusy}
-                aria-label="Send"
-                className="doodle-pill grid h-8 w-8 place-items-center bg-ink text-paper disabled:opacity-50"
-              >
-                <Send className="h-3.5 w-3.5" />
-              </button>
-            )}
-          </div>
-
-          <div className="mt-2 flex flex-wrap items-center gap-1.5">
-            <Toggle
-              on={vision}
-              disabled={!canSee}
-              onClick={() => setVision((v) => !v)}
-              icon={<Eye className="h-3 w-3" />}
-              label="Vision"
-            />
-            <Toggle
-              on={reasoning}
-              onClick={() => setReasoning((v) => !v)}
-              icon={<Sparkles className="h-3 w-3" />}
-              label="Reason"
-            />
-
-            <Toggle
-              on={thinking}
-              disabled={!canReason}
-              onClick={() => setThinking((v) => !v)}
-              icon={<Brain className="h-3 w-3" />}
-              label="Thinking"
-            />
-            {vision && canSee && (
-              <button
-                type="button"
-                onClick={() => fileRef.current?.click()}
-                className="doodle-pill inline-flex items-center gap-1 px-2.5 py-1 text-[11px] hover:border-ink"
-              >
-                <ImagePlus className="h-3 w-3" /> {image ? "Image attached" : "Attach"}
-              </button>
-            )}
-            {image && (
-              <button
-                type="button"
-                onClick={() => setImage(null)}
-                aria-label="Remove image"
-                className="doodle-pill grid h-6 w-6 place-items-center"
-              >
-                <X className="h-3 w-3" />
-              </button>
-            )}
-            <button
-              type="button"
-              onClick={() => setHelp((h) => !h)}
-              className={cn(
-                "doodle-pill ml-auto inline-flex items-center gap-1 px-2.5 py-1 text-[11px]",
-                help ? "bg-ink text-paper" : "text-ink-faint hover:border-ink",
+                placeholder={switchBusy ? "Loading model…" : "Ask, or / for commands"}
+                className="min-h-[38px] flex-1 resize-none bg-transparent text-[13px] outline-none disabled:opacity-50"
+              />
+              {busy ? (
+                <button
+                  type="button"
+                  onClick={ai.abort}
+                  className="doodle-pill px-3 py-1.5 text-[11px]"
+                >
+                  Stop
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => void submit()}
+                  disabled={switchBusy}
+                  aria-label="Send"
+                  className="doodle-pill grid h-8 w-8 place-items-center bg-ink text-paper disabled:opacity-50"
+                >
+                  <Send className="h-3.5 w-3.5" />
+                </button>
               )}
-            >
-              <HelpCircle className="h-3 w-3" /> Help
-            </button>
-            <ModelSwitch
-              ai={ai}
-              onOpenPanel={() => onOpenRail("model")}
-              onBusyChange={setSwitchBusy}
-            />
+            </div>
 
-            <input
-              ref={fileRef}
-              type="file"
-              accept="image/*"
-              hidden
-              onChange={(e) => {
-                const file = e.target.files?.[0];
-                if (!file) return;
-                const reader = new FileReader();
-                reader.onload = () => setImage(String(reader.result));
-                reader.readAsDataURL(file);
-              }}
-            />
+            <div className="mt-2 flex flex-wrap items-center gap-1.5">
+              <Toggle
+                on={vision}
+                disabled={!canSee}
+                onClick={() => setVision((v) => !v)}
+                icon={<Eye className="h-3 w-3" />}
+                label="Vision"
+              />
+              <Toggle
+                on={reasoning}
+                onClick={() => setReasoning((v) => !v)}
+                icon={<Sparkles className="h-3 w-3" />}
+                label="Reason"
+              />
+
+              <Toggle
+                on={thinking}
+                disabled={!canReason}
+                onClick={() => setThinking((v) => !v)}
+                icon={<Brain className="h-3 w-3" />}
+                label="Thinking"
+              />
+              {vision && canSee && (
+                <button
+                  type="button"
+                  onClick={() => fileRef.current?.click()}
+                  className="doodle-pill inline-flex items-center gap-1 px-2.5 py-1 text-[11px] hover:border-ink"
+                >
+                  <ImagePlus className="h-3 w-3" /> {image ? "Image attached" : "Attach"}
+                </button>
+              )}
+              {image && (
+                <button
+                  type="button"
+                  onClick={() => setImage(null)}
+                  aria-label="Remove image"
+                  className="doodle-pill grid h-6 w-6 place-items-center"
+                >
+                  <X className="h-3 w-3" />
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => setHelp((h) => !h)}
+                className={cn(
+                  "doodle-pill ml-auto inline-flex items-center gap-1 px-2.5 py-1 text-[11px]",
+                  help ? "bg-ink text-paper" : "text-ink-faint hover:border-ink",
+                )}
+              >
+                <HelpCircle className="h-3 w-3" /> Help
+              </button>
+              <ModelSwitch
+                ai={ai}
+                onOpenPanel={() => onOpenRail("model")}
+                onBusyChange={setSwitchBusy}
+              />
+
+              <input
+                ref={fileRef}
+                type="file"
+                accept="image/*"
+                hidden
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (!file) return;
+                  const reader = new FileReader();
+                  reader.onload = () => setImage(String(reader.result));
+                  reader.readAsDataURL(file);
+                }}
+              />
+            </div>
+
+            <p className="num eyebrow mt-2 flex flex-wrap gap-x-3">
+              <span>semantic · {semanticLabel(ai.capability).toLowerCase()}</span>
+              {turn.phase !== "idle" && <span>{PHASE_LABEL[turn.phase]}</span>}
+              <span>ctx {ai.ctx}</span>
+              <span>
+                {ctxUsed.turns} turns ·{" "}
+                {Math.round((ctxUsed.used / Math.max(1, Math.floor(ai.ctx * 0.4))) * 100)}% history
+              </span>
+              <span>
+                {ai.target.kind === "cloud" ? "cloud" : ai.backend === "webgpu" ? "WebGPU" : "WASM"}
+              </span>
+              {ai.status.phase === "downloading" && (
+                <span>downloading {Math.round(ai.status.progress * 100)}%</span>
+              )}
+              {ai.speed && <span>{ai.speed.tps.toFixed(1)} tok/s</span>}
+            </p>
           </div>
-
-          <p className="num eyebrow mt-2 flex flex-wrap gap-x-3">
-            <span>
-              semantic · {semanticLabel(ai.capability).toLowerCase()}
-            </span>
-            {turn.phase !== "idle" && <span>{PHASE_LABEL[turn.phase]}</span>}
-            <span>ctx {ai.ctx}</span>
-            <span>
-              {ctxUsed.turns} turns · {Math.round((ctxUsed.used / Math.max(1, Math.floor(ai.ctx * 0.4))) * 100)}% history
-            </span>
-            <span>
-              {ai.target.kind === "cloud" ? "cloud" : ai.backend === "webgpu" ? "WebGPU" : "WASM"}
-            </span>
-            {ai.status.phase === "downloading" && (
-              <span>downloading {Math.round(ai.status.progress * 100)}%</span>
-            )}
-            {ai.speed && <span>{ai.speed.tps.toFixed(1)} tok/s</span>}
-          </p>
-        </div>
         </div>
         {help && (
           <HelpPanel
@@ -1052,7 +1057,6 @@ function ChatConsole({
           />
         )}
       </Panel>
-
     </div>
   );
 }
@@ -1127,7 +1131,6 @@ function HelpPanel({
     </div>
   );
 }
-
 
 function Toggle({
   on,
@@ -1284,9 +1287,7 @@ function LogsRail() {
         {logs.map((l) => (
           <li key={l.id} className="border-b border-stroke px-4 py-2 last:border-0">
             <div className="flex items-baseline gap-2">
-              <span className={cn("eyebrow", l.level === "error" && "text-loss")}>
-                {l.level}
-              </span>
+              <span className={cn("eyebrow", l.level === "error" && "text-loss")}>{l.level}</span>
               <span className="num flex-1 truncate text-[12px]">
                 {l.agent} · {l.event}
               </span>
