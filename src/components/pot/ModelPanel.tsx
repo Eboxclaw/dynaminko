@@ -20,7 +20,15 @@ const BACKEND_LABEL: Record<string, string> = {
   unavailable: "not running",
 };
 
-function Card({ title, aside, children }: { title: string; aside?: React.ReactNode; children: React.ReactNode }) {
+function Card({
+  title,
+  aside,
+  children,
+}: {
+  title: string;
+  aside?: React.ReactNode;
+  children: React.ReactNode;
+}) {
   return (
     <section className="overflow-hidden rounded-[4px] border border-stroke">
       <header className="flex items-center gap-2 border-b border-stroke bg-ink/[0.02] px-3 py-2">
@@ -34,14 +42,18 @@ function Card({ title, aside, children }: { title: string; aside?: React.ReactNo
 
 export function ModelPanel({ ai }: { ai: ReturnType<typeof useAi> }) {
   const doc = useDoc();
-  const [tab, setTab] = useState<"local" | "cloud">(doc.settings.assistant.provider === "cloud" ? "cloud" : "local");
+  const [tab, setTab] = useState<"local" | "cloud">(
+    doc.settings.assistant.provider === "cloud" ? "cloud" : "local",
+  );
 
   return (
     <div className="grid gap-3">
       <Card
         title="Provider"
         aside={
-          <span className="eyebrow">{ai.target.kind === "cloud" ? "cloud active" : BACKEND_LABEL[ai.backend]}</span>
+          <span className="eyebrow">
+            {ai.target.kind === "cloud" ? "cloud active" : BACKEND_LABEL[ai.backend]}
+          </span>
         }
       >
         <div className="flex items-center gap-2 px-3 py-2.5">
@@ -60,7 +72,9 @@ export function ModelPanel({ ai }: { ai: ReturnType<typeof useAi> }) {
               </button>
             ))}
           </div>
-          <span className="min-w-0 flex-1 truncate text-right text-[12px] text-ink-soft">{ai.target.label}</span>
+          <span className="min-w-0 flex-1 truncate text-right text-[12px] text-ink-soft">
+            {ai.target.label}
+          </span>
         </div>
       </Card>
       {tab === "local" ? (
@@ -91,7 +105,15 @@ const STATE_TEXT: Record<string, string> = {
   error: "error",
 };
 
-function ModelRow({ ai, id, recommended }: { ai: ReturnType<typeof useAi>; id: string; recommended: boolean }) {
+function ModelRow({
+  ai,
+  id,
+  recommended,
+}: {
+  ai: ReturnType<typeof useAi>;
+  id: string;
+  recommended: boolean;
+}) {
   const m = MODEL_BY_ID[id];
   const doc = useDoc();
   const selected = doc.settings.assistant.modelId === id;
@@ -99,9 +121,14 @@ function ModelRow({ ai, id, recommended }: { ai: ReturnType<typeof useAi>; id: s
   const actions = ai.actionsFor(id);
   const busy = state === "loading";
   const mine = ai.status.modelId === id;
-  const pct = mine && ai.status.phase === "downloading" ? Math.round(ai.status.progress * 100) : null;
+  const pct =
+    mine && ai.status.phase === "downloading" ? Math.round(ai.status.progress * 100) : null;
   const workLabel =
-    busy && mine ? (ai.status.phase === "downloading" ? `downloading ${pct}%` : "loading into memory") : null;
+    busy && mine
+      ? ai.status.phase === "downloading"
+        ? `downloading ${pct}%`
+        : "loading into memory"
+      : null;
 
   const run = (a: ModelAction) => {
     if (a === "download" || a === "resume") return void ai.load(id);
@@ -147,12 +174,17 @@ function ModelRow({ ai, id, recommended }: { ai: ReturnType<typeof useAi>; id: s
           {busy && mine && (
             <div className="mt-1.5 h-1 w-full overflow-hidden rounded-full bg-ink/10">
               <div
-                className={cn("h-full bg-ink transition-[width] duration-200", pct === null && "w-1/3 animate-pulse")}
+                className={cn(
+                  "h-full bg-ink transition-[width] duration-200",
+                  pct === null && "w-1/3 animate-pulse",
+                )}
                 style={pct === null ? undefined : { width: `${Math.max(pct, 2)}%` }}
               />
             </div>
           )}
-          {ai.status.phase === "error" && mine && <p className="mt-1 text-[12px] text-loss">{ai.status.message}</p>}
+          {ai.status.phase === "error" && mine && (
+            <p className="mt-1 text-[12px] text-loss">{ai.status.message}</p>
+          )}
         </div>
         <div className="flex shrink-0 flex-wrap justify-end gap-1">
           {actions.map((a) =>
@@ -166,7 +198,10 @@ function ModelRow({ ai, id, recommended }: { ai: ReturnType<typeof useAi>; id: s
                 type="button"
                 disabled={busy}
                 onClick={() => run(a)}
-                className={cn("doodle-pill px-2.5 py-1 text-[11px] disabled:opacity-40", ACTION_STYLE[a])}
+                className={cn(
+                  "doodle-pill px-2.5 py-1 text-[11px] disabled:opacity-40",
+                  ACTION_STYLE[a],
+                )}
               >
                 {busy && mine && (a === "download" || a === "resume" || a === "load")
                   ? pct === null
@@ -198,8 +233,9 @@ function LocalModels({ ai }: { ai: ReturnType<typeof useAi> }) {
         title="Models // on this device"
         aside={
           <HelpDot label="About local models">
-            Weights are cached in this browser. Download fetches once and leaves the model warm. Load brings a cached
-            model back into memory, Unload frees it, Delete removes the cached weights.
+            Weights are cached in this browser. Download fetches once and leaves the model warm.
+            Load brings a cached model back into memory, Unload frees it, Delete removes the cached
+            weights.
           </HelpDot>
         }
       >
@@ -223,7 +259,12 @@ function LocalModels({ ai }: { ai: ReturnType<typeof useAi> }) {
           {ai.models
             .filter((m) => m.generative)
             .map((m) => (
-              <ModelRow key={m.id} ai={ai} id={m.id} recommended={profile.probed && m.id === rec.id} />
+              <ModelRow
+                key={m.id}
+                ai={ai}
+                id={m.id}
+                recommended={profile.probed && m.id === rec.id}
+              />
             ))}
         </ul>
 
@@ -242,7 +283,8 @@ function LocalModels({ ai }: { ai: ReturnType<typeof useAi> }) {
             {enc.error && <span className="mt-1 block text-[12px] text-loss">{enc.error}</span>}
           </span>
           <HelpDot label="About the encoder">
-            ~23 MB. Sharper command matching. Optional: routing falls back to keywords without it.
+            ~180 MB. Semantic routing, retrieval and classification. Download once, always warm on
+            this device.
           </HelpDot>
           {enc.state === "loaded" ? (
             <button
@@ -327,7 +369,9 @@ function LocalModels({ ai }: { ai: ReturnType<typeof useAi> }) {
 
         <div className="flex items-center gap-2 border-t border-stroke px-3 py-2">
           <span className="eyebrow flex-1">Runtime</span>
-          {ai.speed && <span className="num text-[11px] text-ink-faint">{ai.speed.tps.toFixed(1)} tok/s</span>}
+          {ai.speed && (
+            <span className="num text-[11px] text-ink-faint">{ai.speed.tps.toFixed(1)} tok/s</span>
+          )}
           <HelpDot label="Runtime diagnostics">
             <span className="grid gap-0.5">
               {diagnosticsRows(ai.caps).map((row) => (
@@ -352,8 +396,8 @@ function CloudModels({ ai }: { ai: ReturnType<typeof useAi> }) {
   return (
     <div>
       <p className="border-b border-stroke px-4 py-2.5 text-[12px] text-ink-soft">
-        Optional. Keys are stored in this browser only and sent to the provider you configure, nowhere else. Every
-        endpoint uses the OpenAI chat shape.
+        Optional. Keys are stored in this browser only and sent to the provider you configure,
+        nowhere else. Every endpoint uses the OpenAI chat shape.
       </p>
       <ul>
         {CLOUD_PROVIDERS.map((p) => {
@@ -400,7 +444,9 @@ function CloudModels({ ai }: { ai: ReturnType<typeof useAi> }) {
                   disabled={state === "unconfigured"}
                   onClick={() =>
                     patchAssistant(
-                      active ? { provider: "local" } : { provider: "cloud", cloudId: p.id as CloudProviderId },
+                      active
+                        ? { provider: "local" }
+                        : { provider: "cloud", cloudId: p.id as CloudProviderId },
                     )
                   }
                   className={cn(
@@ -421,7 +467,12 @@ function CloudModels({ ai }: { ai: ReturnType<typeof useAi> }) {
                   </button>
                 )}
                 {p.keysUrl && (
-                  <a href={p.keysUrl} target="_blank" rel="noreferrer" className="eyebrow underline">
+                  <a
+                    href={p.keysUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="eyebrow underline"
+                  >
                     get a key
                   </a>
                 )}
@@ -431,8 +482,8 @@ function CloudModels({ ai }: { ai: ReturnType<typeof useAi> }) {
         })}
       </ul>
       <p className="px-4 py-3 text-[12px] text-ink-soft">
-        Local runs stay the default: {ai.models.find((m) => m.generative)?.label} and the rest of the LFM 2.5 family
-        need no key and no network after the first download.
+        Local runs stay the default: {ai.models.find((m) => m.generative)?.label} and the rest of
+        the LFM 2.5 family need no key and no network after the first download.
       </p>
     </div>
   );

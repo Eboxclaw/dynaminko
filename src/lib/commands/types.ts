@@ -26,7 +26,9 @@ export type CommandResult = {
     | "unsupported"
     | "cancelled"
     | "timeout"
-    | "runtime_error";
+    | "runtime_error"
+    /** memory write rejected: the char cap would be exceeded */
+    | "over_limit";
 };
 
 export type CommandContext = {

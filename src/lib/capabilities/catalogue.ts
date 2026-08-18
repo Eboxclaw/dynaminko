@@ -73,6 +73,25 @@ const CONCEPTS = [
 ];
 
 const COMMAND_ALIASES: Record<string, string[]> = {
+  "session.search": [
+    "what did we discuss",
+    "what did we conclude",
+    "what did i ask you",
+    "earlier conversation",
+    "past conversations",
+    "did i mention",
+  ],
+  "memory.save": [
+    "remember",
+    "keep in mind",
+    "note that",
+    "don't forget",
+    "my preference is",
+    "from now on",
+  ],
+  "memory.read": ["what do you remember", "what do you know about me", "your notes about me"],
+  "memory.forget": ["forget that", "stop remembering", "remove that note"],
+  "memory.update": ["change your note", "update that note"],
   "portfolio.snapshot": [
     "show my exposure",
     "what do i hold",
@@ -235,6 +254,7 @@ export const DEFAULT_HOP_IDS = [
   "signal.coverage",
   "indicators.potIndex",
   "indicators.motiveStats",
+  "session.search",
 ] as const;
 
 /**

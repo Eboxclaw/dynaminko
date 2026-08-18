@@ -3,10 +3,63 @@
 // in the executors, which reuse the existing tool layer.
 
 import * as journal from "./journal";
+import * as memory from "./memory";
 import * as portfolio from "./portfolio";
+import * as session from "./session";
 import type { CommandDefinition } from "./types";
 
 export const COMMAND_DEFS: CommandDefinition[] = [
+  {
+    id: "session.search",
+    description:
+      "Recall past conversation turns by keyword across all stored sessions; no query returns recent turns.",
+    args: { query: "string?", limit: "number?" },
+    mode: "single",
+    batchMode: "single",
+    capability: ["session", "read"],
+    access: "READ",
+    execute: session.search,
+  },
+  {
+    id: "memory.save",
+    description: "Save one durable note about the user to persistent memory.",
+    args: { text: "string" },
+    mode: "single",
+    batchMode: "single",
+    capability: ["memory", "write"],
+    access: "EDIT",
+    execute: memory.save,
+  },
+  {
+    id: "memory.read",
+    description: "List persistent memory notes with ids and capacity.",
+    args: {},
+    mode: "single",
+    batchMode: "single",
+    capability: ["memory", "read"],
+    access: "READ",
+    execute: memory.read,
+  },
+  {
+    id: "memory.update",
+    description: "Replace one memory note by id with new text.",
+    args: { id: "string", text: "string" },
+    mode: "single",
+    batchMode: "single",
+    capability: ["memory", "write"],
+    access: "EDIT",
+    execute: memory.update,
+  },
+  {
+    id: "memory.forget",
+    description: "Delete one memory note by id.",
+    args: { id: "string" },
+    mode: "single",
+    batchMode: "single",
+    capability: ["memory", "write"],
+    access: "EDIT",
+    execute: memory.forget,
+  },
   {
     id: "journal.resolve_inbox",
     description: "Aggregate pending journal trades and report what is missing.",

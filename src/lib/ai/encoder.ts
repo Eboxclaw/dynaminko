@@ -2,19 +2,17 @@
 // vectors so routing, retrieval and tool discovery can be semantic without
 // waking a generative model.
 //
-// This file is now a thin facade over the tiered embedding layer
-// (`src/lib/ai/embedding.ts`): MiniLM is the cheap default, the LFM 2.5
-// Encoder-230M is the recommended upgrade. It is OPTIONAL — every caller keeps
-// working when nothing is downloaded, falling back to the keyword pass.
+// This is a thin facade over the single LFM 2.5 Encoder-230M in
+// `embedding.ts`. It is WARMED on first message and never goes cold — routing
+// always has vectors when it needs them.
 
 import {
-  DEFAULT_EMBEDDING_ID,
   cosine as cosineOf,
-  embed as embedWith,
   downloadProvider,
-  loadDownloadedProvider,
+  embed as embedWith,
   ensureProviderIfCached,
   lastRankStats,
+  loadDownloadedProvider,
   onEmbeddingChange,
   prewarm,
   providerBackend,
@@ -34,48 +32,44 @@ export type { RankStats };
 export type EncoderState =
   "missing" | "downloaded" | "loading" | "loaded" | "unavailable" | "error";
 
-/** Which provider the legacy encoder API drives. */
-function active(): EmbeddingProviderId {
-  return providerReady("lfm-encoder-230m") ? "lfm-encoder-230m" : DEFAULT_EMBEDDING_ID;
-}
+const LFM_ID: EmbeddingProviderId = "lfm-encoder-230m";
 
 export const onEncoderChange = onEmbeddingChange;
 
 export function encoderState(): EncoderState {
-  return providerState(active());
+  return providerState(LFM_ID);
 }
 export function encoderError(): string | null {
-  return providerError(active());
+  return providerError(LFM_ID);
 }
 export function encoderProgress(): number {
-  return providerProgress(active());
+  return providerProgress(LFM_ID);
 }
 export function encoderBackend(): "webgpu" | "wasm" | null {
-  return providerBackend(active());
+  return providerBackend(LFM_ID);
 }
 export function encoderReady(): boolean {
-  return providerReady("lfm-encoder-230m") || providerReady(DEFAULT_EMBEDDING_ID);
+  return providerReady(LFM_ID);
 }
 
 export async function encoderCached(): Promise<boolean> {
-  return (await providerCached(DEFAULT_EMBEDDING_ID)) || (await providerCached("lfm-encoder-230m"));
+  return providerCached(LFM_ID);
 }
 
 export async function downloadSemanticProvider(onProgress?: (fraction: number) => void) {
-  return downloadProvider(active(), onProgress);
+  return downloadProvider(LFM_ID, onProgress);
 }
 
 export async function activateSemantic(onProgress?: (fraction: number) => void) {
-  return loadDownloadedProvider(active(), onProgress);
+  return loadDownloadedProvider(LFM_ID, onProgress);
 }
 
 export async function ensureEncoderIfCached() {
-  return ensureProviderIfCached(active());
+  return ensureProviderIfCached(LFM_ID);
 }
 
 export function unloadEncoder() {
-  unloadProvider("lfm-encoder-230m");
-  unloadProvider(DEFAULT_EMBEDDING_ID);
+  unloadProvider(LFM_ID);
 }
 
 export const cosine = cosineOf;

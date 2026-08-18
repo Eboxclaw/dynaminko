@@ -1,7 +1,7 @@
 // A compact digest of the journal, handed to the model instead of the journal.
 // Everything deeper is fetched on demand by a tool call.
 
-import { getDoc } from "@/lib/store";
+import { getDoc, memoryStats } from "@/lib/store";
 import * as ind from "@/lib/tools/indicators";
 
 export type Digest = {
@@ -18,6 +18,8 @@ export type Digest = {
   venueTrades: { venue: string; count: number }[];
   /** signals whose venue reported a realized pnl */
   tradesWithVenuePnl: number;
+  /** agent memory capacity, so the model sees how full it is before writing */
+  memory: { chars: number; limit: number; entries: number };
 };
 
 export function digest(): Digest {
@@ -56,6 +58,7 @@ export function digest(): Digest {
       .map(({ key, count }) => ({ ticker: key, count })),
     venueTrades: rank(byVenue).map(({ key, count }) => ({ venue: key, count })),
     tradesWithVenuePnl: withPnl,
+    memory: memoryStats(),
   };
 }
 
@@ -96,5 +99,6 @@ export function factLines(d = digest()): string {
       d.venueTrades.length ? d.venueTrades.map((v) => `${v.venue} ${v.count}`).join(", ") : "none"
     }`,
     `trades_with_venue_pnl: ${d.tradesWithVenuePnl}`,
+    `memory: ${d.memory.entries ? `${d.memory.chars}/${d.memory.limit} chars · ${d.memory.entries} notes` : `empty (0/${d.memory.limit} chars)`}`,
   ].join("\n");
 }

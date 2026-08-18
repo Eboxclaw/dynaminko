@@ -1,17 +1,14 @@
 // Embedding abstraction.
 //
-// Two tiers, neither downloaded automatically:
-//   MiniLM (23 MB)  — the cheap default semantic index for retrieval/routing.
-//   LFM 2.5 Encoder-230M — the stronger, strongly recommended upgrade for
-//                          semantic reasoning, classification and routing.
-//
-//   query → MiniLM → confident match → command
-//                 └→ uncertain      → encoder → router
+// One provider: the LFM 2.5 Encoder-230M. It does everything the old MiniLM
+// tier did (vectors, semantics, classification) at higher capacity, so the
+// two-tier cheap-then-escalate design collapsed to a single always-warm
+// encoder. Routing, retrieval and tool discovery all rank through this.
 //
 // One shared runtime: Transformers.js serialises ONNX sessions, so every caller
 // goes through this module instead of creating its own pipeline.
 
-export type EmbeddingProviderId = "minilm" | "lfm-encoder-230m";
+export type EmbeddingProviderId = "lfm-encoder-230m";
 
 export type EmbeddingProviderSpec = {
   id: EmbeddingProviderId;
@@ -26,24 +23,14 @@ export type EmbeddingProviderSpec = {
 
 export const EMBEDDING_PROVIDERS: EmbeddingProviderSpec[] = [
   {
-    id: "minilm",
-    label: "MiniLM L6 v2",
-    repo: "Xenova/all-MiniLM-L6-v2",
-    dtype: "q8",
-    dimensions: 384,
-    sizeMb: 23,
-    tier: "default",
-    blurb: "Tiny semantic index. Enough for retrieval and slash routing.",
-  },
-  {
     id: "lfm-encoder-230m",
     label: "LFM 2.5 Encoder 230M",
     repo: "LiquidAI/LFM2.5-Encoder-230M",
     dtype: "q8",
     dimensions: 768,
     sizeMb: 180,
-    tier: "upgrade",
-    blurb: "Bidirectional 8k encoder. Stronger routing and classification.",
+    tier: "default",
+    blurb: "Bidirectional 8k encoder. Routing, retrieval and classification.",
   },
 ];
 
@@ -51,9 +38,7 @@ export const PROVIDER_BY_ID = Object.fromEntries(
   EMBEDDING_PROVIDERS.map((p) => [p.id, p]),
 ) as Record<EmbeddingProviderId, EmbeddingProviderSpec>;
 
-export const DEFAULT_EMBEDDING_ID: EmbeddingProviderId = "minilm";
-/** Below this the cheap tier is not trusted and the upgrade tier is consulted. */
-export const CONFIDENT = 0.55;
+export const DEFAULT_EMBEDDING_ID: EmbeddingProviderId = "lfm-encoder-230m";
 
 export type ProviderState =
   "missing" | "downloaded" | "loading" | "loaded" | "unavailable" | "error";
@@ -232,10 +217,8 @@ export function cosine(a: number[], b: number[]): number {
   return s;
 }
 
-/** The provider actually usable right now: upgrade tier first when resident. */
+/** The provider actually usable right now. */
 export async function activeProvider(opportunistic: boolean): Promise<EmbeddingProviderId | null> {
-  const upgrade: EmbeddingProviderId = "lfm-encoder-230m";
-  if (providerReady(upgrade)) return upgrade;
   if (providerReady(DEFAULT_EMBEDDING_ID)) return DEFAULT_EMBEDDING_ID;
   return opportunistic ? null : DEFAULT_EMBEDDING_ID;
 }
@@ -374,8 +357,9 @@ export async function prewarm(
 }
 
 /**
- * Cheap tier first, cache always. When the cheap best match is not confident
- * and the stronger encoder is already on the device, re-rank with it.
+ * Single-provider rank: embed the query and every target once, then cosine
+ * score and sort. Escalation is a non-concept with one encoder. Cached vectors
+ * skip the embedding call entirely.
  */
 export async function rankTiered(
   query: string,
@@ -397,45 +381,28 @@ export async function rankTiered(
   let hits = 0;
   let misses = 0;
 
-  const score = async (provider?: EmbeddingProviderId) => {
-    const res = await embedCached([query, ...targets.map((t) => t.text)], { ...opts, provider });
-    if (!res) return null;
-    hits += res.hits;
-    misses += res.misses;
-    const [q, ...rest] = res.vectors;
-    return {
-      provider: res.provider,
-      ranked: targets
-        .map((t, i) => ({ id: t.id, score: cosine(q, rest[i]) }))
-        .sort((a, b) => b.score - a.score),
-    };
-  };
-
-  const first = await score();
-  if (!first) {
+  const res = await embedCached([query, ...targets.map((t) => t.text)], { ...opts });
+  if (!res) {
     lastStats = null;
     return null;
   }
-  const best = first.ranked[0]?.score ?? 0;
-  let escalated = false;
-  let out = first;
-  if (
-    best < CONFIDENT &&
-    first.provider !== "lfm-encoder-230m" &&
-    providerReady("lfm-encoder-230m")
-  ) {
-    const second = await score("lfm-encoder-230m");
-    if (second) {
-      out = second;
-      escalated = true;
-    }
-  }
+  hits += res.hits;
+  misses += res.misses;
+  const [q, ...rest] = res.vectors;
 
   lastStats = {
     hits,
     misses,
     ms: Math.round((performance.now() - started) * 10) / 10,
-    provider: out.provider,
+    provider: res.provider,
   };
-  return { ...out, escalated, stats: lastStats };
+
+  return {
+    provider: res.provider,
+    escalated: false,
+    stats: lastStats,
+    ranked: targets
+      .map((t, i) => ({ id: t.id, score: cosine(q, rest[i]) }))
+      .sort((a, b) => b.score - a.score),
+  };
 }

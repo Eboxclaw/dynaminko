@@ -106,6 +106,64 @@ export function bootstrapSessions(): { sessions: SessionMeta[]; activeId: string
   return { sessions: [created], activeId: created.id };
 }
 
+// ── past-session recall ─────────────────────────────────────────────────────
+//
+// The Hermes pattern: past conversations never sit in context; they are
+// recalled on demand by keyword. At most 20 sessions x 60 messages live in
+// localStorage, so an honest linear scan is sub-millisecond — no index.
+
+export type SessionHit = {
+  sessionId: string;
+  sessionTitle: string;
+  /** session-level recency, for display */
+  updatedAt: number;
+  role: "user" | "assistant" | "tool";
+  text: string;
+};
+
+function hitOf(meta: SessionMeta, m: ChatMessage): SessionHit {
+  return {
+    sessionId: meta.id,
+    sessionTitle: meta.title,
+    updatedAt: meta.updatedAt,
+    role: m.role === "user" || m.role === "assistant" ? m.role : "tool",
+    text: (m.card ? `${m.card.source}: ${m.card.facts?.[0] ?? ""}` : m.text).slice(0, 200),
+  };
+}
+
+/**
+ * Keyword recall over every stored session, newest sessions first. With no
+ * query, returns the most recent turns instead (the "what did I just say"
+ * mode). Bounded by `limit`; notes are skipped, tool cards collapse to one
+ * line.
+ */
+export function searchSessions(query: string, limit = 8): SessionHit[] {
+  const cap = Math.min(12, Math.max(1, limit));
+  const q = query.trim().toLowerCase();
+  const out: SessionHit[] = [];
+  for (const meta of listSessions()) {
+    const msgs = readSession(meta.id).filter((m) => m.role !== "note");
+    if (!q) {
+      for (let i = msgs.length - 1; i >= 0 && out.length < cap; i--) {
+        out.push(hitOf(meta, msgs[i]));
+      }
+    } else {
+      for (const m of msgs) {
+        if (out.length >= cap) break;
+        if (
+          m.text.toLowerCase().includes(q) ||
+          (m.card?.source ?? "").toLowerCase().includes(q) ||
+          (m.card?.facts ?? []).some((f) => f.toLowerCase().includes(q))
+        ) {
+          out.push(hitOf(meta, m));
+        }
+      }
+    }
+    if (out.length >= cap) break;
+  }
+  return out.slice(0, cap);
+}
+
 /**
  * What the model actually sees. There is no fixed turn cap: history is replayed
  * newest first until the session's token budget runs out, then flipped back.

@@ -43,6 +43,18 @@ export type ModelSpec = {
   maxCtx: number;
   /** number of transformer layers (used for per-layer VRAM calculation) */
   nLayers: number;
+  /**
+   * Sampling defaults for this model family. Liquid AI's LFM2 cards recommend
+   * temperature 0.3, min_p 0.15, repetition_penalty 1.05; the 450M loops
+   * sentences without the penalty. Callers can still override per turn.
+   */
+  sampling?: {
+    temperature: number;
+    minP: number;
+    repeatPenalty: number;
+    /** how many recent tokens the penalty window covers */
+    penaltyLastN: number;
+  };
   /** which browser backend this model prefers, and what it falls back to */
   backend: { preferred: "webgpu"; fallback: "wasm" };
 };
@@ -69,6 +81,7 @@ const MODEL_LIST: Omit<ModelSpec, "backend">[] = [
     generative: true,
     maxCtx: 128192,
     nLayers: 32,
+    sampling: { temperature: 0.3, minP: 0.15, repeatPenalty: 1.05, penaltyLastN: 64 },
   },
   {
     id: "lfm2-1_2-instruct",
@@ -87,6 +100,26 @@ const MODEL_LIST: Omit<ModelSpec, "backend">[] = [
     generative: true,
     maxCtx: 32128,
     nLayers: 24,
+    sampling: { temperature: 0.3, minP: 0.15, repeatPenalty: 1.05, penaltyLastN: 64 },
+  },
+  {
+    id: "lfm2-350",
+    label: "LFM 2.5 350M",
+    repo: "LiquidAI/LFM2.5-350M-GGUF",
+    quant: "Q4_K_M",
+    runtime: "gguf",
+    serve: "llama serve -hf LiquidAI/LFM2.5-350M-GGUF:Q4_K_M",
+    blurb: "Faster than the VL model, text-only, still follows FACTS and grounded turns well.",
+    role: "On-device assistant. Default model.",
+    capabilities: ["assist", "extract"],
+    weightsGb: 0.28,
+    minRamGb: 1.5,
+    vision: false,
+    reasoning: false,
+    generative: true,
+    maxCtx: 8192,
+    nLayers: 28,
+    sampling: { temperature: 0.3, minP: 0.15, repeatPenalty: 1.05, penaltyLastN: 64 },
   },
   {
     id: "lfm2-450-vl",
@@ -95,8 +128,8 @@ const MODEL_LIST: Omit<ModelSpec, "backend">[] = [
     quant: "Q4_K_M",
     runtime: "gguf",
     serve: "llama serve -hf LiquidAI/LFM2.5-VL-450M-GGUF:Q4_K_M",
-    blurb: "Fast extraction with vision. The default assistant on phones.",
-    role: "Lightweight vision and multimodal work",
+    blurb: "Vision variant of the 350M. Only download if you need image input.",
+    role: "Vision-capable on-device assistant.",
     capabilities: ["vision", "extract", "assist"],
     weightsGb: 0.35,
     minRamGb: 2,
@@ -106,6 +139,7 @@ const MODEL_LIST: Omit<ModelSpec, "backend">[] = [
     generative: true,
     maxCtx: 32128,
     nLayers: 28,
+    sampling: { temperature: 0.3, minP: 0.15, repeatPenalty: 1.05, penaltyLastN: 64 },
   },
   {
     id: "lfm2-230-encoder",
@@ -135,15 +169,15 @@ export const MODEL_BY_ID: Record<string, ModelSpec> = Object.fromEntries(
   MODELS.map((m) => [m.id, m]),
 );
 
-export const DEFAULT_MODEL_ID = "lfm2-450-vl";
+export const DEFAULT_MODEL_ID = "lfm2-350";
 export const ENCODER_ID = "lfm2-230-encoder";
 
 /** Which model each capability should prefer — cheapest first. */
 export const CAPABILITY_MODELS: Record<Capability, string[]> = {
   encode: ["lfm2-230-encoder"],
-  extract: ["lfm2-450-vl", "lfm2-1_2-instruct", "lfm2-2_6"],
+  extract: ["lfm2-350", "lfm2-1_2-instruct", "lfm2-2_6"],
   vision: ["lfm2-450-vl"],
-  assist: ["lfm2-450-vl", "lfm2-1_2-instruct", "lfm2-2_6"],
+  assist: ["lfm2-350", "lfm2-1_2-instruct", "lfm2-2_6"],
   reason: ["lfm2-1_2-instruct", "lfm2-2_6"],
 };
 
@@ -188,11 +222,11 @@ export function deviceProfile(): DeviceProfile {
 }
 
 /**
- * Mobile first. The 1.2B instruct model is the preferred general assistant on
- * anything capable; the 450M VL model is the lightweight fallback; the 2.6B is
- * never recommended automatically on a phone.
+ * The 350M is the default for every device: it follows FACTS and grounded
+ * turns well, loads fast, and fits on phones. The 1.2B instruct is the
+ * reasoning upgrade when the user enables it; the 2.6B is desktop-only.
  */
-const RECOMMEND_ORDER = ["lfm2-1_2-instruct", "lfm2-450-vl", "lfm2-2_6"];
+const RECOMMEND_ORDER = ["lfm2-350", "lfm2-1_2-instruct", "lfm2-450-vl", "lfm2-2_6"];
 
 export function recommendModel(profile = deviceProfile()): { id: string; reason: string } {
   if (!profile.probed) {
@@ -208,7 +242,7 @@ export function recommendModel(profile = deviceProfile()): { id: string; reason:
     candidates.find(
       (m) => m.generative && budget >= m.minRamGb && !(m.desktopOnly && profile.mobile),
     ) ??
-    MODEL_BY_ID["lfm2-450-vl"] ??
+    MODEL_BY_ID[DEFAULT_MODEL_ID] ??
     MODEL_BY_ID[DEFAULT_MODEL_ID];
   const seen =
     profile.ramGb != null ? `${profile.ramGb} GB reported` : "memory not reported by the browser";
@@ -254,6 +288,9 @@ let currentCtx = DEFAULT_CTX;
 let abortRun = false;
 let activeBackendValue: Backend = "unavailable";
 
+/** memoized cachedModels() result, recomputed after download/delete */
+let cachedDownloaded: Promise<Set<string>> | null = null;
+
 /** The backend the loaded model is actually running on, never a guess. */
 export function activeBackend(): Backend {
   return activeBackendValue;
@@ -287,8 +324,23 @@ export function loadedContext() {
  * Which models already have their weights on this device. GGUF models are read
  * from the wllama cache index, the encoder from the Transformers.js cache.
  * Nothing is downloaded here.
+ *
+ * The result is memoized and computed once per page load: wllama's IndexedDB
+ * cache manager may not be initialized on the first microtick after a reload,
+ * and creating a fresh runtime to list it every time is wasteful. Call
+ * invalidateCachedModels() after downloading or deleting a model.
  */
+export function invalidateCachedModels() {
+  cachedDownloaded = null;
+}
+
 export async function cachedModels(): Promise<Set<string>> {
+  if (cachedDownloaded) return cachedDownloaded;
+  cachedDownloaded = computeCachedModels();
+  return cachedDownloaded;
+}
+
+async function computeCachedModels(): Promise<Set<string>> {
   const out = new Set<string>();
   const gguf = MODELS.filter((m) => m.runtime === "gguf");
   try {
@@ -333,6 +385,7 @@ export async function cachedModels(): Promise<Set<string>> {
 export async function deleteModel(modelId: string): Promise<void> {
   const spec = MODEL_BY_ID[modelId];
   if (!spec) return;
+  invalidateCachedModels();
   if (currentModel === spec.id) await unload();
   const needle = (spec.repo.split("/")[1] ?? spec.repo).toLowerCase();
   if (spec.runtime === "gguf") {
@@ -497,6 +550,7 @@ export async function downloadModel(
   options: LoadOptions = {},
 ): Promise<LifecycleResult> {
   const spec = MODEL_BY_ID[modelId] ?? MODEL_BY_ID[DEFAULT_MODEL_ID];
+  invalidateCachedModels();
   try {
     await loadModelInternal(spec.id, onStatus, { ...options, allowDownload: true });
     return { status: "ready", modelId: spec.id };
@@ -653,12 +707,23 @@ export async function chatMessages(
   let tokens = 0;
   const started = performance.now();
 
+  // Per-model sampling defaults (Liquid AI's LFM2 recommendation) apply
+  // unless the caller overrides temperature for a specific turn.
+  const sampling = spec?.sampling;
+
   await instance.createChatCompletion({
     messages: messages as never,
     stream: true,
     max_tokens: options.maxTokens ?? 8192,
-    temperature: options.temperature ?? 0.4,
+    temperature: options.temperature ?? sampling?.temperature ?? 0.4,
     top_p: 0.9,
+    ...(sampling
+      ? {
+          min_p: sampling.minP,
+          penalty_repeat: sampling.repeatPenalty,
+          penalty_last_n: sampling.penaltyLastN,
+        }
+      : {}),
     ...(options.responseSchema
       ? {
           response_format: {

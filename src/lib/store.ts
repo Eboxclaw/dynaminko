@@ -441,6 +441,142 @@ export function importDoc(json: string) {
 
 export function wipe() {
   update(() => ({ ...EMPTY_DOC }));
+  forgetAllMemory();
+}
+
+// ── agent memory ───────────────────────────────────────────────────────────
+//
+// Hermes-style bounded persistent memory: the agent's own curated notes about
+// the user, capped hard at MEMORY_CHAR_LIMIT. A write that would exceed the
+// cap fails loudly and lists the current entries — the caller consolidates in
+// the same turn, nothing drops silently. Capacity is surfaced in FACTS so the
+// model sees how full its memory is before it writes.
+
+export type MemoryEntry = {
+  id: string;
+  text: string;
+  createdAt: number;
+  updatedAt: number;
+};
+
+export const MEMORY_CHAR_LIMIT = 2200;
+const MEMORY_KEY = "pot.memory.v1";
+
+function readMemoryRaw(): MemoryEntry[] {
+  if (typeof localStorage === "undefined") return [];
+  try {
+    const raw = localStorage.getItem(MEMORY_KEY);
+    const parsed = raw ? (JSON.parse(raw) as MemoryEntry[]) : [];
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeMemoryRaw(entries: MemoryEntry[]) {
+  if (typeof localStorage === "undefined") return;
+  try {
+    localStorage.setItem(MEMORY_KEY, JSON.stringify(entries));
+  } catch {
+    /* quota — memory stays in memory until space frees */
+  }
+}
+
+export function memoryChars(entries: MemoryEntry[] = readMemoryRaw()): number {
+  return entries.reduce((sum, e) => sum + e.text.length, 0);
+}
+
+export function readMemory(): MemoryEntry[] {
+  return readMemoryRaw();
+}
+
+export function memoryStats(entries: MemoryEntry[] = readMemoryRaw()): {
+  chars: number;
+  limit: number;
+  entries: number;
+} {
+  return { chars: memoryChars(entries), limit: MEMORY_CHAR_LIMIT, entries: entries.length };
+}
+
+export type MemoryWriteResult =
+  | { ok: true; entry: MemoryEntry; stats: ReturnType<typeof memoryStats> }
+  | { ok: false; chars: number; limit: number; entries: MemoryEntry[]; overBy: number };
+
+/** The rejection message the model consolidates against: capacity plus the
+ * current entries, so the next write can replace or shorten them. */
+export function memoryFullMessage(r: Extract<MemoryWriteResult, { ok: false }>): string {
+  const list = r.entries.map((e) => `[${e.id}] ${e.text.slice(0, 80)}`).join(" | ");
+  return `memory full: ${r.chars}/${r.limit} chars across ${r.entries.length} entries, over by ${r.overBy}. Consolidate first (update or forget an entry): ${list}`;
+}
+
+export function addMemory(text: string): MemoryWriteResult {
+  const clean = text.trim();
+  const entries = readMemoryRaw();
+  const chars = memoryChars(entries);
+  if (!clean) return { ok: false, chars, limit: MEMORY_CHAR_LIMIT, entries, overBy: 0 };
+  if (chars + clean.length > MEMORY_CHAR_LIMIT) {
+    return {
+      ok: false,
+      chars,
+      limit: MEMORY_CHAR_LIMIT,
+      entries,
+      overBy: chars + clean.length - MEMORY_CHAR_LIMIT,
+    };
+  }
+  const entry: MemoryEntry = {
+    id: `m${uid().slice(0, 6)}`,
+    text: clean,
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+  };
+  const next = [...entries, entry];
+  writeMemoryRaw(next);
+  return { ok: true, entry, stats: memoryStats(next) };
+}
+
+export function updateMemory(id: string, text: string): MemoryWriteResult {
+  const clean = text.trim();
+  const entries = readMemoryRaw();
+  const others = entries.filter((e) => e.id !== id);
+  const chars = memoryChars(others);
+  if (!entries.some((e) => e.id === id)) {
+    return { ok: false, chars, limit: MEMORY_CHAR_LIMIT, entries, overBy: 0 };
+  }
+  if (!clean || chars + clean.length > MEMORY_CHAR_LIMIT) {
+    return {
+      ok: false,
+      chars,
+      limit: MEMORY_CHAR_LIMIT,
+      entries,
+      overBy: Math.max(0, chars + clean.length - MEMORY_CHAR_LIMIT),
+    };
+  }
+  const entry: MemoryEntry = {
+    ...(entries.find((e) => e.id === id) as MemoryEntry),
+    text: clean,
+    updatedAt: Date.now(),
+  };
+  const next = [...others, entry];
+  writeMemoryRaw(next);
+  return { ok: true, entry, stats: memoryStats(next) };
+}
+
+export function forgetMemory(id: string): boolean {
+  const entries = readMemoryRaw();
+  if (!entries.some((e) => e.id === id)) return false;
+  writeMemoryRaw(entries.filter((e) => e.id !== id));
+  return true;
+}
+
+export function forgetAllMemory() {
+  if (typeof localStorage !== "undefined") localStorage.removeItem(MEMORY_KEY);
+}
+
+/** The MEMORY prompt section: one line per entry, ids addressable so the
+ * model can update or forget by id. Bounded by the store cap by construction. */
+export function memoryPrompt(entries: MemoryEntry[] = readMemoryRaw()): string {
+  if (!entries.length) return "";
+  return entries.map((e) => `[${e.id}] ${e.text}`).join("\n");
 }
 
 // ── agent log ──────────────────────────────────────────────────────────────

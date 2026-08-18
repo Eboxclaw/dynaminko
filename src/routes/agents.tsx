@@ -1,5 +1,15 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { Brain, Eye, HelpCircle, ImagePlus, Send, Sparkles, SquareStack, X } from "lucide-react";
+import {
+  Brain,
+  Eye,
+  Globe,
+  HelpCircle,
+  ImagePlus,
+  Send,
+  Sparkles,
+  SquareStack,
+  X,
+} from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { FlowStrip } from "@/components/pot/FlowStrip";
@@ -25,6 +35,7 @@ import {
   selectCapabilities,
   type CapabilityDefinition,
 } from "@/lib/capabilities/catalogue";
+import { routeMessage, routeSemantic, classifyIntent } from "@/lib/chat/route";
 import { PHASE_LABEL } from "@/lib/chat/pipeline";
 import { useDoc } from "@/hooks/useDoc";
 import { relativeTime } from "@/lib/format";
@@ -42,7 +53,6 @@ import { encoderReady } from "@/lib/ai/encoder";
 import { AGENTS, automationOn } from "@/lib/agents/registry";
 import { COMMANDS, parseCommand, suggestions, type Suggestion } from "@/lib/chat/commands";
 import { factLines } from "@/lib/chat/context";
-import { routeMessage, routeSemantic } from "@/lib/chat/route";
 import { newMessage, type ChatMessage } from "@/lib/chat/session";
 import {
   bootstrapSessions,
@@ -64,7 +74,15 @@ import { searchCards } from "@/lib/tools/journal";
 import * as ind from "@/lib/tools/indicators";
 import { TOOLS, TOOL_BY_ID, TOOL_GROUPS } from "@/lib/tools/registry";
 import { POLICY, needsApproval, runTool } from "@/lib/tools/types";
-import { clearLogs, getDoc, setAutomation, toggleAssistantItem } from "@/lib/store";
+import {
+  addMemory,
+  clearLogs,
+  getDoc,
+  memoryPrompt,
+  memoryStats,
+  setAutomation,
+  toggleAssistantItem,
+} from "@/lib/store";
 import { cn } from "@/lib/utils";
 
 const RAIL = [
@@ -191,6 +209,7 @@ function ChatConsole({
   const [vision, setVision] = useState(false);
   const [reasoning, setReasoning] = useState(false);
   const [thinking, setThinking] = useState(false);
+  const [web, setWeb] = useState(false);
   const [busy, setBusy] = useState(false);
   const [help, setHelp] = useState(false);
   const [helpQuery, setHelpQuery] = useState("");
@@ -218,8 +237,8 @@ function ChatConsole({
   }, []);
 
   // Hot encoder: whatever is already cached loads in idle time, then the
-  // journal pool prewarms so the first question hits warm vectors. The 230M
-  // stays manual on phones (RAM); MiniLM is cheap enough everywhere.
+  // journal pool prewarms so the first question hits warm vectors. The 180MB
+  // download stays manual on phones (RAM), but shapes the semantic offer.
   useEffect(() => {
     let cancelled = false;
     const idle = (fn: () => void) =>
@@ -229,11 +248,10 @@ function ChatConsole({
     idle(() => {
       if (cancelled) return;
       void (async () => {
-        const minilm = await providerCached("minilm");
-        const big = minilm ? false : await providerCached("lfm-encoder-230m");
-        if (big && deviceProfile().mobile) return;
-        if (minilm || big) {
-          await loadDownloadedProvider(minilm ? "minilm" : "lfm-encoder-230m");
+        const cached = await providerCached("lfm-encoder-230m");
+        if (cached && deviceProfile().mobile) return;
+        if (cached) {
+          await loadDownloadedProvider("lfm-encoder-230m");
           if (!cancelled) idle(() => void prewarmRetrieval());
         }
       })();
@@ -246,7 +264,7 @@ function ChatConsole({
   const installSemantic = async () => {
     setSemanticChip("downloading");
     try {
-      await downloadProvider("minilm", setChipProgress);
+      await downloadProvider("lfm-encoder-230m", setChipProgress);
       try {
         localStorage.setItem("pot.semanticChip", "done");
       } catch {
@@ -384,7 +402,12 @@ function ChatConsole({
     }
   };
 
-  const speak = async (system: string, user: string, ground = false) => {
+  /**
+   * One assistant turn through the full pipeline. Returns the answer text
+   * (null on any failure), so callers like /compress can use the result
+   * without guessing at React state that has not flushed yet.
+   */
+  const speak = async (system: string, user: string, ground = false): Promise<string | null> => {
     // Chat never downloads weights, but a model already on this device is
     // woken up here so the first message does not need a manual Load.
     turn.stage("model", ai.target.label);
@@ -402,7 +425,7 @@ function ChatConsole({
               : (woke.error ?? "the model failed to load"),
         });
         turn.complete();
-        return;
+        return null;
       }
     }
     turn.settle("model", "ok", ai.backend);
@@ -448,32 +471,66 @@ function ChatConsole({
 
       // v1 agent hop: one model-chosen read-only tool before the answer. The
       // deterministic loop stays primary; this only adds evidence to the turn.
+      // Topic classification: does the question need external information or is
+      // it about the app/journal? Runs through the always-warm encoder. When
+      // the intent is "external" and the Web toggle is on, web.search runs
+      // directly (no need for the 450M to choose). When external and Web is
+      // off, the state line says so and the agent tells the user to enable it.
+      // When internal, the existing hop menu runs normally and may still offer
+      // web.search if the toggle is on.
+      let intentExternal: boolean | null = null;
+      if (ground && !conversational) {
+        const intent = await classifyIntent(user).catch(() => null);
+        intentExternal = intent?.kind === "external" || null;
+      }
+      const needsWeb = intentExternal === true && web;
+
+      // v1 agent hop: one model-chosen read-only tool before the answer. When
+      // the intent classifies as external and the Web toggle is on, the hop is
+      // forced to web.search directly — no decideAction needed, no 450M
+      // choosing between journal and web. Every other path builds the standard
+      // hop menu from the semantic selection.
       // Firehose and unwired tools never enter the menu: they either flood the
       // context (journal.index, journal.filter) or throw (portfolio.read).
       const excluded = new Set<string>(HOP_EXCLUDED_IDS);
-      const hopAllowed = selection.selected.filter(
-        (d) =>
-          (d.kind === "tool" || d.kind === "command") &&
-          (d.access === "READ" || d.access === "COMPUTE") &&
-          !excluded.has(d.id),
-      );
-      if (ground && !conversational && hopAllowed.length === 0) {
-        // Nothing matched (or no encoder installed): offer a small default
-        // read-only set instead, so the model can always fetch what FACTS
-        // lacks. The catalogue only carries live tools.
-        const defaults = new Set<string>(DEFAULT_HOP_IDS);
-        hopAllowed.push(
-          ...capabilityCatalogue().filter(
-            (d) =>
-              d.kind === "tool" &&
-              defaults.has(d.id) &&
-              (d.access === "READ" || d.access === "COMPUTE"),
-          ),
+      let hopAllowed: CapabilityDefinition[] = [];
+      let skipDecide = false;
+
+      if (needsWeb) {
+        const webDef = capabilityCatalogue().find((d) => d.id === "web.search");
+        if (webDef) {
+          hopAllowed = [webDef];
+          skipDecide = true;
+        }
+      } else {
+        hopAllowed = selection.selected.filter(
+          (d) =>
+            (d.kind === "tool" || d.kind === "command") &&
+            (d.access === "READ" || d.access === "COMPUTE") &&
+            !excluded.has(d.id),
         );
+        if (ground && !conversational && hopAllowed.length === 0) {
+          const defaults = new Set<string>(DEFAULT_HOP_IDS);
+          hopAllowed.push(
+            ...capabilityCatalogue().filter(
+              (d) =>
+                d.kind === "tool" &&
+                defaults.has(d.id) &&
+                (d.access === "READ" || d.access === "COMPUTE"),
+            ),
+          );
+        }
+        if (web && ground && !conversational && !hopAllowed.some((d) => d.id === "web.search")) {
+          const webDef = capabilityCatalogue().find((d) => d.id === "web.search");
+          if (webDef) hopAllowed.push(webDef);
+        }
       }
+
       if (ground && !conversational && hopAllowed.length > 0) {
         turn.stage("tool", "decide");
-        const pick = await decideAction(user, hopAllowed);
+        const pick = skipDecide
+          ? { def: hopAllowed[0], query: user, why: "external intent, web.search forced" }
+          : await decideAction(user, hopAllowed);
         if (pick) {
           turn.settle("tool", "ok", `${pick.def.id} · ${pick.why || "model-chosen"}`);
           try {
@@ -515,7 +572,17 @@ function ChatConsole({
       const budgetTokens = Math.floor(ai.ctx * 0.75);
       const buildInput = {
         instructions: system,
-        state: factLines(),
+        // The web toggle is part of the turn's state, not the app digest:
+        // the model learns search is available (or why it is not) from the
+        // same labeled lines it trusts for everything else.
+        state: `${factLines()}\nweb_search: ${
+          web
+            ? "active this turn, prefer web.search for news and external facts"
+            : intentExternal === true
+              ? "disabled (Web toggle) — this question probably needs the web, enable it on the next turn"
+              : "disabled (Web toggle)"
+        }`,
+        memory: memoryPrompt(),
         capabilitiesDigest: capabilityDigest(),
         selectedCapabilities: selection.selected,
         records,
@@ -538,19 +605,33 @@ function ChatConsole({
           images: vision && image ? [image] : undefined,
         });
       } catch (err) {
-        // Overflow recovery: if the runtime still rejects the prompt for size,
-        // rebuild degraded (summary-only observations, halved history) and
-        // retry once. The user never sees GENERATION FAILED from a size
-        // mismatch; worst case the answer cites summaries instead of raw rows.
-        const msg = err instanceof Error ? err.message : String(err);
-        if (!/context size|too long|exceeds/i.test(msg)) throw err;
-        build = buildTurn({ ...buildInput, budgetTokens: Math.floor(budgetTokens / 2) });
+        // Overflow recovery (Pi-style retry chain): if the runtime rejects
+        // the prompt for size, rebuild with explicit degradation levels
+        // rather than guessing smaller budget numbers. Level 1 drops
+        // observation data, records and capability detail; level 2 also
+        // drops history. The user never sees GENERATION FAILED from a size
+        // mismatch; worst case the answer comes from FACTS alone.
+        const isSizeError = (e: unknown) =>
+          /context size|too long|exceeds/i.test(e instanceof Error ? e.message : String(e));
+        if (!isSizeError(err)) throw err;
+        build = buildTurn({ ...buildInput, shedLevel: 1 });
         lastPromptRef.current = build.estTokens;
-        raw = await ai.askMessages(build.messages, {
-          thinking,
-          temperature: ground ? 0.2 : undefined,
-          images: vision && image ? [image] : undefined,
-        });
+        try {
+          raw = await ai.askMessages(build.messages, {
+            thinking,
+            temperature: ground ? 0.2 : undefined,
+            images: vision && image ? [image] : undefined,
+          });
+        } catch (err2) {
+          if (!isSizeError(err2)) throw err2;
+          build = buildTurn({ ...buildInput, shedLevel: 2 });
+          lastPromptRef.current = build.estTokens;
+          raw = await ai.askMessages(build.messages, {
+            thinking,
+            temperature: ground ? 0.2 : undefined,
+            images: vision && image ? [image] : undefined,
+          });
+        }
       }
 
       const { thinking: think, answer } = splitThinking(raw);
@@ -559,7 +640,7 @@ function ChatConsole({
       if (!text) {
         turn.settle("answer", "error");
         turn.fail("The model completed without producing a response.", "no_output");
-        return;
+        return null;
       }
       push({ role: "assistant", text, thinking: think });
       turn.settle(
@@ -569,9 +650,11 @@ function ChatConsole({
       );
       turn.complete();
       setImage(null);
+      return text;
     } catch (err) {
       turn.settle("answer", "error");
       turn.fail(err instanceof Error ? err.message : "the assistant failed");
+      return null;
     } finally {
       setBusy(false);
     }
@@ -679,7 +762,10 @@ function ChatConsole({
           `${d?.toolsUsed ?? 0} tool calls · ${d?.durationMs ?? 0} ms${d?.retried ? " · retried" : ""} · no model used`,
           ...(result.nextAction?.reason ? [`next: ${result.nextAction.reason}`] : []),
         ],
-        data: clampResult((result.data as Record<string, unknown>) ?? {}) as Record<string, unknown>,
+        data: clampResult((result.data as Record<string, unknown>) ?? {}) as Record<
+          string,
+          unknown
+        >,
       },
     });
   };
@@ -759,8 +845,8 @@ function ChatConsole({
     // One-time semantic engine offer: only when nothing is cached and no
     // encoder is resident. Dismissed or done stays that way.
     if (semanticChip === "hidden" && !encoderReady()) {
-      void providerCached("minilm").then(async (hasMinilm) => {
-        if (hasMinilm || (await providerCached("lfm-encoder-230m"))) return;
+      void providerCached("lfm-encoder-230m").then(async (cached) => {
+        if (cached) return;
         try {
           if (localStorage.getItem("pot.semanticChip")) return;
         } catch {
@@ -841,6 +927,42 @@ function ChatConsole({
             text: `ctx ${ai.ctx} · ${used.turns} turns replayed · ~${used.used} of ${Math.floor(ai.ctx * 0.4)} history tokens.`,
           });
         }
+        return;
+      }
+      if (name === "usage") {
+        const lastT = lastPromptRef.current;
+        const memCtx = memoryStats();
+        const session = sessions.find((s) => s.id === activeId);
+        push({
+          role: "note",
+          text: `last prompt ${lastT != null && lastT > 0 ? `${lastT}t` : "—"} · ctx budget ${Math.floor(ai.ctx * 0.75)}\nmemory ${memCtx.chars}/${memCtx.limit} chars · ${memCtx.entries} notes\n${session ? `${session.turns} turns in this session` : "no active session"}`,
+        });
+        return;
+      }
+      if (name === "compress") {
+        push({ role: "note", text: "Summarising this session…" });
+        // Route through speak() which handles local vs cloud model and
+        // returns the answer text directly (React state has not flushed at
+        // this point, so reading `messages` here would be stale).
+        const compressPrompt =
+          "Summarise this conversation in 2 or 3 sentences: what the user asked and what was answered. Plain text only.";
+        let summary: string | null = null;
+        try {
+          summary = await speak(compressPrompt, "compress this session", true);
+        } catch {
+          // Model failed; proceed to clear without a summary
+        }
+        const summaryText =
+          summary?.replace(/^summary:\s*/i, "").slice(0, 2000) ??
+          "session compressed without a model summary";
+        const saved = addMemory(`session summary: ${summaryText}`);
+        startSession();
+        push({
+          role: "note",
+          text: saved.ok
+            ? "Session compressed. Summary saved to memory. Started a fresh session."
+            : `Session cleared, but the summary did not fit memory (${saved.chars}/${saved.limit} chars). Consolidate memory with /run memory.read and /run memory.forget.`,
+        });
         return;
       }
       if (name === "model") {
@@ -1047,7 +1169,7 @@ function ChatConsole({
               <p className="text-[13px]">
                 {semanticChip === "downloading"
                   ? `semantic engine · ${Math.round(chipProgress * 100)}%`
-                  : "Make routing semantic? 23 MB, downloaded once, then always ready on this device."}
+                  : "Make routing semantic? 180 MB, downloaded once, then always ready on this device."}
               </p>
               {semanticChip === "offer" && (
                 <>
@@ -1256,6 +1378,12 @@ function ChatConsole({
                 onClick={() => setThinking((v) => !v)}
                 icon={<Brain className="h-3 w-3" />}
                 label="Thinking"
+              />
+              <Toggle
+                on={web}
+                onClick={() => setWeb((v) => !v)}
+                icon={<Globe className="h-3 w-3" />}
+                label="Web"
               />
               {vision && canSee && (
                 <button
@@ -1469,15 +1597,62 @@ function clampResult(out: unknown): unknown {
   return `${json.slice(0, half)}\n[truncated: first and last ${half} of ${json.length} chars]\n${json.slice(-half)}`;
 }
 
+/**
+ * Small English words that would otherwise look like ticker symbols to the
+ * uppercase check below. Deliberately a closed list: anything not here that
+ * is all-caps (SOL, BTC, USDC) is treated as a ticker and the turn is not
+ * small talk.
+ */
+const CONVERSATIONAL_SAFE_WORDS = new Set([
+  "I",
+  "A",
+  "OK",
+  "AI",
+  "IN",
+  "ON",
+  "AT",
+  "TO",
+  "BY",
+  "UP",
+  "DO",
+  "GO",
+  "NO",
+  "SO",
+  "IT",
+  "IS",
+  "AS",
+  "AM",
+  "AN",
+  "OR",
+  "WE",
+  "ME",
+  "MY",
+  "HE",
+  "BE",
+  "IF",
+  "OF",
+  "US",
+]);
+
 /** Short small talk needs no retrieval, no capability selection, and no
  * model-chosen hop: FACTS still rides along, so a one-line greeting answers
- * instantly and a short real question still lands via top_tickers. */
-function isConversational(text: string): boolean {
+ * instantly and a short real question still lands via top_tickers.
+ * Deliberately zero-cost and deterministic: no encoder call for a decision
+ * this obvious, because this runs before every grounded turn on phones.
+ * "Hey what is Bitcoin?" stays conversational (static knowledge, no hop);
+ * "latest news on bitcoin" is long enough to classify as external instead.
+ * Exported for the verification harness only. */
+export function isConversational(text: string): boolean {
   const words = text.trim().split(/\s+/).filter(Boolean);
   if (words.length > 6) return false;
   if (/\d/.test(text)) return false;
-  if (/\b[A-Z]{2,6}\b/.test(text.replace(/\b(I|A|OK)\b/g, ""))) return false;
-  return true;
+  const hasTicker = words.some(
+    (w) =>
+      // venue perp symbols run long (BTC-PERP, TAO-PERP), so cap at 12 chars
+      /^[A-Z][A-Z0-9-]{1,11}[.!?]?$/.test(w) &&
+      !CONVERSATIONAL_SAFE_WORDS.has(w.replace(/[.!?]$/, "")),
+  );
+  return !hasTicker;
 }
 
 // ── rail panels ────────────────────────────────────────────────────────────

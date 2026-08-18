@@ -36,7 +36,7 @@ export type AgentTurnContext = {
 export const INKO_PROFILE: AgentProfile = {
   id: "inko",
   instructions:
-    "You are Inko, the application assistant inside Proof of Thesis. Prefer local deterministic tools for facts. Treat tool and command results as ground truth. Never claim a download or mutation happened unless an explicit approved action did it. If facts are missing, say which capability would produce them instead of guessing. You are running inside the user's own app; FACTS and TURN OBSERVATIONS are their real journal data. Never claim you lack access to it; if a number is missing, name the capability that would produce it.",
+    "You are Inko, the application assistant inside Proof of Thesis. Prefer local deterministic tools for facts. Treat tool and command results as ground truth. Never claim a download or mutation happened unless an explicit approved action did it. If facts are missing, say which capability would produce them instead of guessing. You are running inside the user's own app; FACTS and TURN OBSERVATIONS are their real journal data. Never claim you lack access to it; if a number is missing, name the capability that would produce it. MEMORY holds your persistent notes about this user, bounded by the char budget shown in FACTS. Save durable preferences, corrections, and conventions with memory.save; if a write is rejected because memory is full, consolidate by updating or forgetting an entry in the same turn. Never store trades or numbers in MEMORY; FACTS computes those fresh every turn.",
   skillIds: [],
   preferredCapabilityIds: [],
 };
@@ -112,7 +112,10 @@ export function observationsPrompt(observations: ToolObservation[]): string {
 export function observationsSummaryPrompt(observations: ToolObservation[]): string {
   if (!observations.length) return "TURN OBSERVATIONS\n(none)";
   return `TURN OBSERVATIONS (summaries only; data trimmed to fit the context budget)\n${observations
-    .map((o) => `${o.kind.toUpperCase()} RESULT\nsource: ${o.source}\nstatus: ${o.status}\nsummary: ${o.summary ?? ""}`)
+    .map(
+      (o) =>
+        `${o.kind.toUpperCase()} RESULT\nsource: ${o.source}\nstatus: ${o.status}\nsummary: ${o.summary ?? ""}`,
+    )
     .join("\n\n")}`;
 }
 
@@ -156,11 +159,20 @@ export type BuildTurnInput = {
   selectedCapabilities: CapabilityDefinition[];
   /** retrieved record lines */
   records: string[];
+  /** rendered agent memory lines (memoryPrompt()), may be "" */
+  memory: string;
   observations: ToolObservation[];
   /** prior transcript, compacted to fit */
   history: ChatMessage[];
   user: string;
   budgetTokens: number;
+  /**
+   * Forced degradation for overflow recovery. 0 = shed only as the budget
+   * requires. 1 = summary-only observations, records dropped, capability
+   * detail dropped. 2 = all of that plus history dropped entirely; the turn
+   * still answers from CORE/FACTS/MEMORY and the one-line capability book.
+   */
+  shedLevel?: 0 | 1 | 2;
 };
 
 /** One history entry as a compact chat turn. Tool cards collapse to one line. */
@@ -206,23 +218,33 @@ export function buildTurn(input: BuildTurnInput): TurnBuild {
   const cost = (t: string) => estimateTokens(t.trim());
   const coreCost = cost(coreText);
   const factsCost = cost(factsText);
+  // MEMORY is bounded by the store cap (2200 chars) and is never shed: it is
+  // persistent identity, not turn evidence, and it always fits.
+  const memCost = cost(input.memory);
   let capsCost = cost(bookText + detailText);
   let obsCost = cost(observationsPrompt(input.observations));
   let recCost = cost(input.records.join("\n"));
 
   const shed: string[] = [];
-  const over = () => coreCost + factsCost + capsCost + obsCost + recCost - budget;
+  const over = () => coreCost + factsCost + memCost + capsCost + obsCost + recCost - budget;
+  // Forced degradation for overflow recovery: deterministic levels instead of
+  // guessing a smaller budget number.
+  const forced = input.shedLevel ?? 0;
 
   // 1. observations degrade to summaries only
-  if (over() > 0 && obsCost > 0) {
+  if ((over() > 0 || forced >= 1) && obsCost > 0) {
     const slim = cost(observationsSummaryPrompt(input.observations));
     if (slim < obsCost) {
       shed.push("observations data");
       obsCost = slim;
     }
   }
-  // 2. records trim to what fits
-  if (over() > 0 && recCost > 0) {
+  // 2. records: forced level drops them entirely, otherwise trim to fit
+  if (forced >= 1 && input.records.length > 0) {
+    shed.push(`${input.records.length} records`);
+    input = { ...input, records: [] };
+    recCost = 0;
+  } else if (over() > 0 && recCost > 0) {
     const kept: string[] = [];
     let used = 0;
     for (const line of input.records) {
@@ -238,7 +260,7 @@ export function buildTurn(input: BuildTurnInput): TurnBuild {
     }
   }
   // 3. capability detail block drops; the one-line book always stays
-  if (over() > 0 && detailText) {
+  if ((over() > 0 || forced >= 1) && detailText) {
     shed.push("capability detail");
     capsCost = cost(bookText);
   }
@@ -246,6 +268,7 @@ export function buildTurn(input: BuildTurnInput): TurnBuild {
   const fixed: Array<[string, string, boolean]> = [
     ["CORE", coreText, false],
     ["FACTS", factsText, false],
+    ["MEMORY", input.memory, false],
     [
       "CAPABILITIES",
       shed.includes("capability detail") ? bookText : `${bookText}${detailText}`,
@@ -264,16 +287,31 @@ export function buildTurn(input: BuildTurnInput): TurnBuild {
     if (text.trim()) section(name, text, truncated);
   }
 
-  let historyBudget = Math.max(0, budget - (coreCost + factsCost + capsCost + obsCost + recCost));
+  let historyBudget = Math.max(
+    0,
+    budget - (coreCost + factsCost + memCost + capsCost + obsCost + recCost),
+  );
 
-  const lines = input.history
-    .map(historyLine)
-    .filter((l): l is NonNullable<ReturnType<typeof historyLine>> => l !== null);
+  const lines =
+    forced >= 2
+      ? []
+      : input.history
+          .map(historyLine)
+          .filter((l): l is NonNullable<ReturnType<typeof historyLine>> => l !== null);
 
   // Head+tail compaction: the first user turn anchors the topic, the newest
   // turns carry it; the middle collapses to a one-line marker.
   const kept: typeof lines = [];
   let middleDropped = 0;
+  if (forced >= 2 && input.history.length > 0) {
+    shed.push("history");
+    sections.push({
+      name: "COMPACTION",
+      text: `history dropped for this turn (${input.history.length} messages)`,
+      estTokens: 0,
+      truncated: true,
+    });
+  }
   if (lines.length > 0) {
     const head = lines[0];
     const headCost = estimateTokens(`user: ${head.text}`);
@@ -317,7 +355,7 @@ export function buildTurn(input: BuildTurnInput): TurnBuild {
   if (shed.length > 0) {
     sections.push({
       name: "SHED",
-      text: `over budget, dropped: ${shed.join(", ")}`,
+      text: `dropped: ${shed.join(", ")}`,
       estTokens: 0,
       truncated: true,
     });
@@ -332,7 +370,7 @@ export function buildTurn(input: BuildTurnInput): TurnBuild {
   for (const line of kept) {
     messages.push(
       line.role === "tool"
-        ? { role: "user", content: `[${line.text}]` }
+        ? { role: "user", content: `Context from an earlier tool call: ${line.text}` }
         : { role: line.role, content: line.text },
     );
   }

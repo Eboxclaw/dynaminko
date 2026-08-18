@@ -6,6 +6,7 @@ import { request as requestNotifications } from "@/lib/notify";
 
 import * as ind from "./indicators";
 import * as journal from "./journal";
+import { webSearch } from "./web";
 import type { ToolDef } from "./types";
 
 function def<I, O>(t: ToolDef<I, O>): ToolDef {
@@ -13,6 +14,22 @@ function def<I, O>(t: ToolDef<I, O>): ToolDef {
 }
 
 export const TOOLS: ToolDef[] = [
+  // ── web ──────────────────────────────────────────────────────────────
+  def({
+    id: "web.search",
+    group: "web",
+    action: "search",
+    label: "Search the web",
+    purpose: "Live DuckDuckGo web search for news and external facts.",
+    access: "READ",
+    inputs: "{ query: string, limit?: number }",
+    output: "{ query, source, results[{title,url,snippet}] }",
+    live: true,
+    // Server-proxied lite results with a CORS-enabled Instant Answer
+    // fallback; bounded to a handful of rows so it enters observations like
+    // any other tool result.
+    run: (i: { query: string; limit?: number }) => webSearch(i.query, i.limit),
+  }),
   // ── journal ───────────────────────────────────────────────────────────
   def({
     id: "journal.index",

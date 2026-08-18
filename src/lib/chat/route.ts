@@ -36,8 +36,6 @@ export type Routed =
   | { kind: "search"; query: string; why: string; candidates?: CapabilityCandidate[] }
   | { kind: "none"; candidates?: CapabilityCandidate[] };
 
-const MOTIVES: Sentiment[] = ["conviction", "reactive", "hedge", "fomo", "rebalance"];
-
 const PRE_EXECUTE: { commandId: string; aliases: string[] }[] = [
   {
     commandId: "portfolio.snapshot",
@@ -59,32 +57,6 @@ const PRE_EXECUTE: { commandId: string; aliases: string[] }[] = [
   { commandId: "journal.apply_answer", aliases: ["resolve all pending trades", "bulk resolve"] },
 ];
 
-const SKILL_ALIASES: { skillId: string; aliases: string[] }[] = [
-  {
-    skillId: "motive.performance",
-    aliases: [
-      "motive",
-      "discipline",
-      "why do i",
-      "emotion",
-      "pnl",
-      "profit",
-      "how much did i make",
-      "how much did i lose",
-      "payoff",
-      "am i up",
-      "am i down",
-    ],
-  },
-  { skillId: "journal.review", aliases: ["review", "coverage", "how am i", "state", "pot"] },
-  { skillId: "thesis.review", aliases: ["thesis", "conviction case", "stress test"] },
-  { skillId: "plan.create", aliases: ["plan", "next step", "what should i", "todo"] },
-  { skillId: "capture.tidy", aliases: ["tidy", "rewrite", "clean up"] },
-];
-
-/** Venue names double as search terms: ingestion tags every card since Phase 1. */
-const VENUES = ["nado", "hyperliquid", "ink chain", "inkchain"];
-
 function includesAlias(q: string, aliases: string[]) {
   return aliases.find((alias) => q.includes(alias.toLowerCase()));
 }
@@ -95,7 +67,6 @@ function tickerArg(text: string): string | undefined {
 
 export function routeMessage(text: string): Routed {
   const q = text.toLowerCase();
-  const motive = MOTIVES.find((m) => q.includes(m));
   const thesis = getDoc().theses.find((t) => t.title && q.includes(t.title.toLowerCase()));
 
   for (const route of PRE_EXECUTE) {
@@ -112,30 +83,6 @@ export function routeMessage(text: string): Routed {
       skillId: "thesis.review",
       thesisId: thesis.id,
       why: `matched the thesis "${thesis.title}"`,
-    };
-  }
-
-  for (const k of SKILL_ALIASES) {
-    const hit = includesAlias(q, k.aliases);
-    if (!hit) continue;
-    return { kind: "skill", skillId: k.skillId, motive, why: `matched "${hit}"` };
-  }
-
-  if (motive)
-    return {
-      kind: "skill",
-      skillId: "motive.performance",
-      motive,
-      why: `matched the motive "${motive}"`,
-    };
-
-  const ticker = tickerArg(text);
-  const venue = VENUES.find((v) => q.includes(v));
-  if (ticker || venue) {
-    return {
-      kind: "search",
-      query: [ticker, venue].filter(Boolean).join(" "),
-      why: `looked up ${[ticker, venue].filter(Boolean).join(" on ")}`,
     };
   }
 
@@ -178,4 +125,29 @@ export async function discover(text: string, limit = 5) {
   }));
   const ranked = await rank(text, targets, { opportunistic: true }).catch(() => null);
   return ranked?.slice(0, limit) ?? [];
+}
+
+/**
+ * Classify a turn as needing external information (web/search) or internal
+ * (app/journal). Uses the always-warm encoder to rank the question against
+ * two seeded intent descriptions. The Web toggle already gates tool access;
+ * this decides whether the 450M even sees web tools in the hop menu.
+ */
+const EXTERNAL_INTENT_TEXT =
+  "needs the latest/live web information, news, current events, facts the app cannot have, real-time data, online research, what is new, the latest news on X, what happened with, current price of, research on the internet, search the web, check online, find online";
+const INTERNAL_INTENT_TEXT =
+  "about the user's own trading journal, personal portfolio, past trades, theses, their own extracted signals, app content, existing records on this device";
+
+export type Intent = { kind: "internal" | "external"; score: number };
+
+export async function classifyIntent(text: string): Promise<Intent | null> {
+  const targets = [
+    { id: "external", text: EXTERNAL_INTENT_TEXT },
+    { id: "internal", text: INTERNAL_INTENT_TEXT },
+  ];
+  const ranked = await rank(text, targets, { opportunistic: true }).catch(() => null);
+  if (!ranked || ranked.length < 2) return null;
+  const best = ranked[0];
+  if (best.score < 0.1) return null; // too uncertain to classify
+  return { kind: best.id as "internal" | "external", score: best.score };
 }

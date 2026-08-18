@@ -2,6 +2,7 @@ import "./lib/error-capture";
 
 import { consumeLastCapturedError } from "./lib/error-capture";
 import { renderErrorPage } from "./lib/error-page";
+import { webSearchProxy } from "./lib/tools/web";
 
 type ServerEntry = {
   fetch: (request: Request, env: unknown, ctx: unknown) => Promise<Response> | Response;
@@ -46,6 +47,13 @@ function isH3SwallowedErrorBody(body: string): boolean {
 
 export default {
   async fetch(request: Request, env: unknown, ctx: unknown) {
+    // Same-origin web search proxy: the browser cannot fetch DuckDuckGo's
+    // HTML directly (no CORS headers), but the worker can. Runs before SSR;
+    // every other path is untouched.
+    const url = new URL(request.url);
+    if (url.pathname === "/api/web-search") {
+      return webSearchProxy(url, request);
+    }
     try {
       const handler = await getServerEntry();
       const response = await handler.fetch(request, env, ctx);
