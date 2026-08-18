@@ -97,10 +97,13 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       { rel: "icon", type: "image/png", sizes: "64x64", href: "/favicon.png" },
       { rel: "apple-touch-icon", href: "/pot-icon-192.png" },
 
-      { rel: "preconnect", href: "https://fonts.googleapis.com" },
+      { rel: "preconnect", href: "https://fonts.googleapis.com", crossOrigin: "anonymous" },
       { rel: "preconnect", href: "https://fonts.gstatic.com", crossOrigin: "anonymous" },
       {
         rel: "stylesheet",
+        // crossorigin makes the request CORS-mode: without it COEP
+        // require-corp (needed for SharedArrayBuffer) blocks Google Fonts.
+        crossOrigin: "anonymous",
         href: "https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=Caveat:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap",
       },
     ],

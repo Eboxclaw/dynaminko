@@ -241,8 +241,9 @@ export function useAi() {
           cloudAbort.current = controller;
           const started = performance.now();
           const text = await cloudChatMessages(cloudCfg, messages, {
-            temperature,
-            maxTokens,
+            temperature: options.temperature ?? temperature,
+            maxTokens: options.maxTokens ?? maxTokens,
+            responseSchema: options.responseSchema,
             signal: controller.signal,
             onToken: (partial) => {
               if (!mounted.current) return;
@@ -259,10 +260,21 @@ export function useAi() {
             "No local model is loaded. Load a downloaded model from the Model panel first.",
           );
         }
+        // Accumulate delta tokens and batch React updates via requestAnimationFrame
+        const outputRef = { current: "" };
+        const pendingRef = { current: false };
+        const flush = () => {
+          pendingRef.current = false;
+          if (mounted.current) setOutput(outputRef.current);
+        };
         const text = await chatMessages(
           messages,
-          (partial) => {
-            if (mounted.current) setOutput(partial);
+          (delta) => {
+            outputRef.current += delta;
+            if (!pendingRef.current) {
+              pendingRef.current = true;
+              requestAnimationFrame(flush);
+            }
           },
           {
             temperature,

@@ -95,6 +95,8 @@ export type CloudChatOptions = {
   maxTokens?: number;
   onToken?: (partial: string) => void;
   signal?: AbortSignal;
+  /** structured output; endpoints that reject it throw and the caller degrades */
+  responseSchema?: { name: string; schema: Record<string, unknown> };
 };
 
 /**
@@ -123,6 +125,17 @@ export async function cloudChatMessages(
       stream: true,
       temperature: options.temperature ?? 0.4,
       max_tokens: options.maxTokens ?? 512,
+      ...(options.responseSchema
+        ? {
+            response_format: {
+              type: "json_schema",
+              json_schema: {
+                name: options.responseSchema.name,
+                schema: options.responseSchema.schema,
+              },
+            },
+          }
+        : {}),
       messages,
     }),
   });

@@ -3,7 +3,6 @@ import "./lib/error-capture";
 import { consumeLastCapturedError } from "./lib/error-capture";
 import { renderErrorPage } from "./lib/error-page";
 
-
 type ServerEntry = {
   fetch: (request: Request, env: unknown, ctx: unknown) => Promise<Response> | Response;
 };
@@ -47,12 +46,26 @@ function isH3SwallowedErrorBody(body: string): boolean {
 
 export default {
   async fetch(request: Request, env: unknown, ctx: unknown) {
-
-
     try {
       const handler = await getServerEntry();
       const response = await handler.fetch(request, env, ctx);
-      return await normalizeCatastrophicSsrResponse(response);
+
+      // Inject COOP/COEP headers for SharedArrayBuffer (multi-thread WASM).
+      // These are needed by wllama for pthreads support in inference workers.
+      const headers = new Headers(response.headers);
+      if (!headers.has("Cross-Origin-Opener-Policy")) {
+        headers.set("Cross-Origin-Opener-Policy", "same-origin");
+      }
+      if (!headers.has("Cross-Origin-Embedder-Policy")) {
+        headers.set("Cross-Origin-Embedder-Policy", "require-corp");
+      }
+
+      const enriched = new Response(response.body, {
+        status: response.status,
+        statusText: response.statusText,
+        headers,
+      });
+      return await normalizeCatastrophicSsrResponse(enriched);
     } catch (error) {
       console.error(error);
       return new Response(renderErrorPage(), {

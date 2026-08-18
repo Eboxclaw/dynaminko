@@ -4,7 +4,12 @@
 // Nothing leaves the device; weights are cached after the first download.
 
 import type { Wllama } from "@wllama/wllama/esm/index.js";
-import { detectRuntime, type Backend } from "@/lib/ai/runtime";
+import {
+  buildInferenceProfile,
+  detectRuntime,
+  type Backend,
+  type InferenceProfile,
+} from "@/lib/ai/runtime";
 import { readDelta } from "@/lib/ai/stream";
 
 /** What a model is allowed to be used for. Cheapest capable model wins. */
@@ -36,6 +41,8 @@ export type ModelSpec = {
   /** can generate prose at all (the encoder cannot) */
   generative: boolean;
   maxCtx: number;
+  /** number of transformer layers (used for per-layer VRAM calculation) */
+  nLayers: number;
   /** which browser backend this model prefers, and what it falls back to */
   backend: { preferred: "webgpu"; fallback: "wasm" };
 };
@@ -61,6 +68,7 @@ const MODEL_LIST: Omit<ModelSpec, "backend">[] = [
     reasoning: true,
     generative: true,
     maxCtx: 128192,
+    nLayers: 32,
   },
   {
     id: "lfm2-1_2-instruct",
@@ -78,6 +86,7 @@ const MODEL_LIST: Omit<ModelSpec, "backend">[] = [
     reasoning: true,
     generative: true,
     maxCtx: 32128,
+    nLayers: 24,
   },
   {
     id: "lfm2-450-vl",
@@ -96,6 +105,7 @@ const MODEL_LIST: Omit<ModelSpec, "backend">[] = [
     reasoning: false,
     generative: true,
     maxCtx: 32128,
+    nLayers: 28,
   },
   {
     id: "lfm2-230-encoder",
@@ -114,6 +124,7 @@ const MODEL_LIST: Omit<ModelSpec, "backend">[] = [
     reasoning: false,
     generative: false,
     maxCtx: 8192,
+    nLayers: 24,
   },
 ];
 
@@ -248,7 +259,7 @@ export function activeBackend(): Backend {
   return activeBackendValue;
 }
 
-async function createRuntime(): Promise<Wllama> {
+async function createRuntime(parallelDownloads = 4): Promise<Wllama> {
   // The binary lives in public/wasm and is fetched by URL after hydration, so it
   // never enters the server bundle. One binary covers both single and
   // multi-threaded execution; wllama enables pthreads only when the page is
@@ -256,7 +267,7 @@ async function createRuntime(): Promise<Wllama> {
   const { Wllama: Ctor } = await import("@wllama/wllama/esm/index.js");
   return new Ctor(
     { default: "/wasm/wllama.wasm" },
-    { allowOffline: true, suppressNativeLog: true, parallelDownloads: 2 },
+    { allowOffline: true, suppressNativeLog: true, parallelDownloads },
   );
 }
 
@@ -404,10 +415,23 @@ async function loadModelInternal(
         : { phase: "loading", modelId: spec.id },
     );
     const caps = await detectRuntime();
-    const runtime = await createRuntime();
-    const gpuOk = caps.webgpu && runtime.isSupportWebGPU?.() !== false;
-    const load = async (useGpu: boolean) =>
-      runtime.loadModelFromHF(
+    const profile: InferenceProfile = buildInferenceProfile(
+      caps,
+      spec.weightsGb,
+      spec.nLayers,
+      nCtx,
+    );
+    const gpuOk = caps.webgpu && profile.n_gpu_layers > 0;
+    const runtime = await createRuntime(profile.n_threads > 1 ? 6 : 3);
+
+    const load = async (useGpu: boolean) => {
+      const p = { ...profile };
+      if (!useGpu) {
+        p.n_gpu_layers = 0;
+        p.offload_kqv = false;
+        p.no_kv_offload = false;
+      }
+      await runtime.loadModelFromHF(
         {
           repo: spec.repo,
           quant: spec.quant,
@@ -416,7 +440,15 @@ async function loadModelInternal(
         {
           n_ctx: nCtx,
           useCache: true,
-          n_gpu_layers: useGpu ? 99999 : 0,
+          n_gpu_layers: p.n_gpu_layers,
+          n_threads: p.n_threads,
+          n_batch: p.n_batch,
+          cache_type_k: p.cache_type_k as never,
+          cache_type_v: p.cache_type_v as never,
+          flash_attn: p.flash_attn,
+          offload_kqv: p.offload_kqv,
+          warmup: p.warmup,
+          no_kv_offload: p.no_kv_offload,
           progressCallback: ({ loaded, total }: { loaded: number; total: number }) => {
             if (options.allowDownload) {
               onStatus({
@@ -428,6 +460,7 @@ async function loadModelInternal(
           },
         } as never,
       );
+    };
     try {
       await load(gpuOk);
       activeBackendValue = gpuOk ? "webgpu" : caps.wasmSimd || caps.wasm ? "wasm" : "unavailable";
@@ -549,6 +582,11 @@ export type ChatOptions = {
   thinking?: boolean;
   /** data URLs of images, only used by a VL model */
   images?: string[];
+  /**
+   * Grammar-constrained output: wllama turns this into a GBNF grammar so even
+   * a 450M cannot emit JSON that violates the schema. Optional and additive.
+   */
+  responseSchema?: { name: string; schema: Record<string, unknown> };
   /** live generation speed, emitted while streaming */
   onSpeed?: (tokensPerSecond: number, tokens: number) => void;
 };
@@ -621,13 +659,24 @@ export async function chatMessages(
     max_tokens: options.maxTokens ?? 8192,
     temperature: options.temperature ?? 0.4,
     top_p: 0.9,
+    ...(options.responseSchema
+      ? {
+          response_format: {
+            type: "json_schema" as const,
+            json_schema: {
+              name: options.responseSchema.name,
+              schema: options.responseSchema.schema,
+            },
+          },
+        }
+      : {}),
     abortSignal: abortController.signal,
     onData: (chunk) => {
       const piece = readDelta(chunk);
       if (!piece) return;
       out += piece;
       tokens += 1;
-      onToken?.(out);
+      onToken?.(piece);
       const secs = (performance.now() - started) / 1000;
       if (secs > 0) options.onSpeed?.(tokens / secs, tokens);
       if (abortRun) abortController.abort();
