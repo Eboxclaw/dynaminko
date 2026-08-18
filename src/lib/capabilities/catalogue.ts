@@ -93,7 +93,16 @@ const COMMAND_ALIASES: Record<string, string[]> = {
     "what changed in my thesis",
     "compare thesis and trades",
   ],
-  "journal.search": ["search journal", "find trades", "look up entries"],
+  "journal.search": [
+    "search journal",
+    "find trades",
+    "look up entries",
+    "most traded",
+    "top ticker",
+    "most entries",
+    "which asset",
+    "most active",
+  ],
 };
 
 const COMMAND_EXAMPLES: Record<string, string[]> = {
@@ -214,6 +223,21 @@ export function capabilitySearchText(def: CapabilityDefinition): string {
   return [def.label, def.purpose, ...def.aliases, ...def.examples].join(". ");
 }
 
+/**
+ * The hop fallback: when a grounded turn's selection yields no read-only tool,
+ * these live READ/COMPUTE tools are offered instead so the model can always
+ * fetch what FACTS lacks. tool ids, all in the catalogue.
+ */
+export const DEFAULT_HOP_IDS = [
+  "journal.search",
+  "journal.index",
+  "journal.filter",
+  "signal.coverage",
+  "indicators.potIndex",
+  "indicators.motiveStats",
+  "portfolio.read",
+] as const;
+
 export type CapabilitySelection = {
   selected: CapabilityDefinition[];
   how: "keyword" | "semantic" | "none";
@@ -224,9 +248,14 @@ export type CapabilitySelection = {
 /**
  * Top-K capabilities for one turn: deterministic keyword match first, then the
  * cached encoder. Advisory only, like every semantic path here.
+ *
+ * The agent's own entry (agent.inko) stays out of the pool entirely, like
+ * concepts: greeting the agent must never crowd out the data tools.
  */
 export async function selectCapabilities(query: string, limit = 5): Promise<CapabilitySelection> {
-  const defs = capabilityCatalogue().filter((d) => d.kind !== "concept");
+  const defs = capabilityCatalogue().filter(
+    (d) => d.kind !== "concept" && d.kind !== "agent_capability",
+  );
   const q = query.toLowerCase();
 
   const keywordHits = defs.filter((d) =>

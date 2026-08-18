@@ -4,6 +4,6 @@ Batch and aggregate commands intentionally represent many low-level reads or wri
 
 Every capability carries a `batchMode` (`single`, `batch`, `aggregate`, `workspace`) in the registry. That metadata is the future batching surface: one agent-visible tool call that performs several internal tool calls and returns one observation, costing a single hop against the tool budget.
 
-## Spec only, deliberately
+## v1 shipped, batching still spec
 
-This is specced, not built. The deterministic command loop stays the primary execution path: agent-initiated tool hopping is out of scope until small models can carry it. Even fine-tuned ~350M tool-callers reach only 96 to 98 percent call accuracy (Distil Labs), which is fine for advisory suggestions and not fine for an execution loop. When batching lands it will wrap `runCommand` calls, inherit the same policy, approval and trace rules, and surface as one observation per batch in the turn.
+The single-hop agent loop shipped (Phase 4a): one grammar-constrained tool choice per grounded turn, read-only capabilities only, see docs/agent/context.md. That is deliberately not batching. This file's batching surface (one agent-visible call performing several internal `runCommand` calls, one observation per batch) stays specced only: the deterministic command loop remains the primary execution path, and write-tier work still requires explicit approval.

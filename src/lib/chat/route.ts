@@ -18,26 +18,72 @@ export type CapabilityCandidate = {
 };
 
 export type Routed =
-  | { kind: "skill"; skillId: string; motive?: Sentiment; thesisId?: string; why: string; candidates?: CapabilityCandidate[] }
-  | { kind: "command"; commandId: string; args?: Record<string, unknown>; why: string; candidates?: CapabilityCandidate[] }
+  | {
+      kind: "skill";
+      skillId: string;
+      motive?: Sentiment;
+      thesisId?: string;
+      why: string;
+      candidates?: CapabilityCandidate[];
+    }
+  | {
+      kind: "command";
+      commandId: string;
+      args?: Record<string, unknown>;
+      why: string;
+      candidates?: CapabilityCandidate[];
+    }
   | { kind: "search"; query: string; why: string; candidates?: CapabilityCandidate[] }
   | { kind: "none"; candidates?: CapabilityCandidate[] };
 
 const MOTIVES: Sentiment[] = ["conviction", "reactive", "hedge", "fomo", "rebalance"];
 
 const PRE_EXECUTE: { commandId: string; aliases: string[] }[] = [
-  { commandId: "portfolio.snapshot", aliases: ["show my exposure", "what do i hold", "what do i have", "holdings", "allocation"] },
-  { commandId: "journal.resolve_inbox", aliases: ["what is waiting in my inbox", "pending trades", "unanswered trades", "resolve my inbox"] },
+  {
+    commandId: "portfolio.snapshot",
+    aliases: ["show my exposure", "what do i hold", "what do i have", "holdings", "allocation"],
+  },
+  {
+    commandId: "journal.resolve_inbox",
+    aliases: [
+      "what is waiting in my inbox",
+      "pending trades",
+      "unanswered trades",
+      "resolve my inbox",
+      "new trades",
+      "ingest",
+      "pull my trades",
+      "sync my trades",
+    ],
+  },
   { commandId: "journal.apply_answer", aliases: ["resolve all pending trades", "bulk resolve"] },
 ];
 
 const SKILL_ALIASES: { skillId: string; aliases: string[] }[] = [
-  { skillId: "motive.performance", aliases: ["motive", "discipline", "why do i", "emotion"] },
+  {
+    skillId: "motive.performance",
+    aliases: [
+      "motive",
+      "discipline",
+      "why do i",
+      "emotion",
+      "pnl",
+      "profit",
+      "how much did i make",
+      "how much did i lose",
+      "payoff",
+      "am i up",
+      "am i down",
+    ],
+  },
   { skillId: "journal.review", aliases: ["review", "coverage", "how am i", "state", "pot"] },
   { skillId: "thesis.review", aliases: ["thesis", "conviction case", "stress test"] },
   { skillId: "plan.create", aliases: ["plan", "next step", "what should i", "todo"] },
   { skillId: "capture.tidy", aliases: ["tidy", "rewrite", "clean up"] },
 ];
+
+/** Venue names double as search terms: ingestion tags every card since Phase 1. */
+const VENUES = ["nado", "hyperliquid", "ink chain", "inkchain"];
 
 function includesAlias(q: string, aliases: string[]) {
   return aliases.find((alias) => q.includes(alias.toLowerCase()));
@@ -75,10 +121,23 @@ export function routeMessage(text: string): Routed {
     return { kind: "skill", skillId: k.skillId, motive, why: `matched "${hit}"` };
   }
 
-  if (motive) return { kind: "skill", skillId: "motive.performance", motive, why: `matched the motive "${motive}"` };
+  if (motive)
+    return {
+      kind: "skill",
+      skillId: "motive.performance",
+      motive,
+      why: `matched the motive "${motive}"`,
+    };
 
   const ticker = tickerArg(text);
-  if (ticker) return { kind: "search", query: ticker, why: `looked up ${ticker}` };
+  const venue = VENUES.find((v) => q.includes(v));
+  if (ticker || venue) {
+    return {
+      kind: "search",
+      query: [ticker, venue].filter(Boolean).join(" "),
+      why: `looked up ${[ticker, venue].filter(Boolean).join(" on ")}`,
+    };
+  }
 
   return { kind: "none" };
 }
@@ -102,7 +161,8 @@ export async function routeSemantic(text: string): Promise<Routed> {
     }) ?? [];
   const best = candidates[0];
   if (!best || best.score < STRONG) return { kind: "none", candidates };
-  if (best.kind === "skill") return { kind: "skill", skillId: best.id, why: best.reason, candidates };
+  if (best.kind === "skill")
+    return { kind: "skill", skillId: best.id, why: best.reason, candidates };
   if (best.kind === "command" || best.kind === "batch_command") {
     return { kind: "command", commandId: best.id, why: best.reason, candidates };
   }
@@ -112,7 +172,10 @@ export async function routeSemantic(text: string): Promise<Routed> {
 /** Tools, skills, commands and batch commands ranked semantically for pickers. */
 export async function discover(text: string, limit = 5) {
   const catalogue = capabilityCatalogue().filter((c) => c.kind !== "concept");
-  const targets = catalogue.map((c) => ({ id: `${c.kind}:${c.id}`, text: capabilitySearchText(c) }));
+  const targets = catalogue.map((c) => ({
+    id: `${c.kind}:${c.id}`,
+    text: capabilitySearchText(c),
+  }));
   const ranked = await rank(text, targets, { opportunistic: true }).catch(() => null);
   return ranked?.slice(0, limit) ?? [];
 }

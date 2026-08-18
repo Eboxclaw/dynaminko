@@ -9,17 +9,36 @@ import { Panel, Shell } from "@/components/pot/Shell";
 import { useAi } from "@/hooks/useAi";
 import { useTurn } from "@/hooks/useTurn";
 import { semanticLabel } from "@/lib/ai/capability";
-import { buildTurn, commandObservation, type ToolObservation } from "@/lib/agent/context";
-import { capabilityDigest, selectCapabilities } from "@/lib/capabilities/catalogue";
+import {
+  buildTurn,
+  commandObservation,
+  skillObservation,
+  type ToolObservation,
+} from "@/lib/agent/context";
+import {
+  capabilityCatalogue,
+  capabilityDigest,
+  DEFAULT_HOP_IDS,
+  selectCapabilities,
+  type CapabilityDefinition,
+} from "@/lib/capabilities/catalogue";
 import { PHASE_LABEL } from "@/lib/chat/pipeline";
 import { useDoc } from "@/hooks/useDoc";
 import { relativeTime } from "@/lib/format";
-import { MODELS, STATE_LABEL, splitThinking } from "@/lib/ai";
-import { referenceIndex, retrieveContext, type Reference } from "@/lib/ai/retrieval";
+import { MODELS, STATE_LABEL, deviceProfile, splitThinking } from "@/lib/ai";
+import type { TurnMessage } from "@/lib/ai";
+import {
+  prewarmRetrieval,
+  referenceIndex,
+  retrieveContext,
+  type Reference,
+} from "@/lib/ai/retrieval";
+import { downloadProvider, loadDownloadedProvider, providerCached } from "@/lib/ai/embedding";
+import { encoderReady } from "@/lib/ai/encoder";
 
 import { AGENTS, automationOn } from "@/lib/agents/registry";
 import { COMMANDS, parseCommand, suggestions, type Suggestion } from "@/lib/chat/commands";
-import { digestLine } from "@/lib/chat/context";
+import { factLines } from "@/lib/chat/context";
 import { routeMessage, routeSemantic } from "@/lib/chat/route";
 import { newMessage, type ChatMessage } from "@/lib/chat/session";
 import {
@@ -178,7 +197,14 @@ function ChatConsole({
   const boxRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const observationsRef = useRef<ToolObservation[]>([]);
+  // The last turn's real prompt size, shown in the footer next to the ctx budget.
+  const lastPromptRef = useRef<number | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  // Semantic engine onboarding: one offer, never a nag, never a silent download.
+  const [semanticChip, setSemanticChip] = useState<"hidden" | "offer" | "downloading" | "done">(
+    "hidden",
+  );
+  const [chipProgress, setChipProgress] = useState(0);
 
   // One idempotent bootstrap: read the index, create a session only when empty.
   useEffect(() => {
@@ -187,6 +213,60 @@ function ChatConsole({
     setActiveId(boot.activeId);
     setMessages(readSession(boot.activeId));
   }, []);
+
+  // Hot encoder: whatever is already cached loads in idle time, then the
+  // journal pool prewarms so the first question hits warm vectors. The 230M
+  // stays manual on phones (RAM); MiniLM is cheap enough everywhere.
+  useEffect(() => {
+    let cancelled = false;
+    const idle = (fn: () => void) =>
+      typeof window.requestIdleCallback === "function"
+        ? window.requestIdleCallback(() => fn(), { timeout: 4000 })
+        : window.setTimeout(fn, 1500);
+    idle(() => {
+      if (cancelled) return;
+      void (async () => {
+        const minilm = await providerCached("minilm");
+        const big = minilm ? false : await providerCached("lfm-encoder-230m");
+        if (big && deviceProfile().mobile) return;
+        if (minilm || big) {
+          await loadDownloadedProvider(minilm ? "minilm" : "lfm-encoder-230m");
+          if (!cancelled) idle(() => void prewarmRetrieval());
+        }
+      })();
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const installSemantic = async () => {
+    setSemanticChip("downloading");
+    try {
+      await downloadProvider("minilm", setChipProgress);
+      try {
+        localStorage.setItem("pot.semanticChip", "done");
+      } catch {
+        /* private mode: the session still works, the chip may return */
+      }
+      setSemanticChip("done");
+      const warm = () => void prewarmRetrieval();
+      if (typeof window.requestIdleCallback === "function")
+        window.requestIdleCallback(warm, { timeout: 4000 });
+      else setTimeout(warm, 1000);
+    } catch {
+      setSemanticChip("offer");
+    }
+  };
+
+  const dismissSemantic = () => {
+    try {
+      localStorage.setItem("pot.semanticChip", "later");
+    } catch {
+      /* ignore */
+    }
+    setSemanticChip("done");
+  };
 
   useEffect(() => {
     if (!activeId) return;
@@ -240,6 +320,67 @@ function ChatConsole({
     setMessages([]);
   };
 
+  /**
+   * One constrained decision: which single read-only capability would help
+   * answer this question, if any. Grammar-constrained JSON (wllama turns the
+   * schema into a GBNF grammar), so even the 450M cannot emit an invalid
+   * choice. Any failure degrades to "no hop", never blocks the answer.
+   */
+  const decideAction = async (
+    user: string,
+    allowed: CapabilityDefinition[],
+  ): Promise<{ def: CapabilityDefinition; query: string; why: string } | null> => {
+    const ids = allowed.map((d) => d.id);
+    if (ids.length === 0) return null;
+    const messages: TurnMessage[] = [
+      {
+        role: "system",
+        content:
+          "You select one tool to answer the user's question, or none. Answer with the JSON the schema allows. The query is the search term for the tool, at most 6 words, or empty.",
+      },
+      {
+        role: "user",
+        content: `QUESTION\n${user}\n\nTOOLS\n${allowed
+          .map((d) => `${d.id}: ${d.purpose} (inputs: ${d.inputs})`)
+          .join("\n")}\n\nFACTS\n${factLines()}`,
+      },
+    ];
+    let raw: string;
+    try {
+      raw = await ai.askMessages(messages, {
+        temperature: 0,
+        maxTokens: 96,
+        responseSchema: {
+          name: "tool_choice",
+          schema: {
+            type: "object",
+            properties: {
+              tool: { type: "string", enum: ["none", ...ids] },
+              query: { type: "string" },
+              why: { type: "string" },
+            },
+            required: ["tool", "query", "why"],
+            additionalProperties: false,
+          },
+        },
+      });
+    } catch {
+      return null;
+    }
+    try {
+      const parsed = JSON.parse(raw) as { tool?: string; query?: string; why?: string };
+      const def = allowed.find((d) => d.id === parsed.tool);
+      if (!def) return null;
+      return {
+        def,
+        query: String(parsed.query ?? "").slice(0, 60),
+        why: String(parsed.why ?? "").slice(0, 80),
+      };
+    } catch {
+      return null;
+    }
+  };
+
   const speak = async (system: string, user: string, ground = false) => {
     // Chat never downloads weights, but a model already on this device is
     // woken up here so the first message does not need a manual Load.
@@ -286,9 +427,72 @@ function ChatConsole({
       // Just-in-time capability detail: the one-line book always rides along,
       // full blocks only for what this turn actually touches.
       const selection = await selectCapabilities(user, 5);
+
+      // v1 agent hop: one model-chosen read-only tool before the answer. The
+      // deterministic loop stays primary; this only adds evidence to the turn.
+      const hopAllowed = selection.selected.filter(
+        (d) =>
+          (d.kind === "tool" || d.kind === "command") &&
+          (d.access === "READ" || d.access === "COMPUTE"),
+      );
+      if (ground && hopAllowed.length === 0) {
+        // Nothing matched (or no encoder installed): offer a small default
+        // read-only set instead, so the model can always fetch what FACTS
+        // lacks. The catalogue only carries live tools.
+        const defaults = new Set<string>(DEFAULT_HOP_IDS);
+        hopAllowed.push(
+          ...capabilityCatalogue().filter(
+            (d) =>
+              d.kind === "tool" &&
+              defaults.has(d.id) &&
+              (d.access === "READ" || d.access === "COMPUTE"),
+          ),
+        );
+      }
+      if (ground && hopAllowed.length > 0) {
+        turn.stage("tool", "decide");
+        const pick = await decideAction(user, hopAllowed);
+        if (pick) {
+          turn.settle("tool", "ok", `${pick.def.id} · ${pick.why || "model-chosen"}`);
+          try {
+            const input = pick.query ? { query: pick.query } : {};
+            const out =
+              pick.def.kind === "command"
+                ? await runCommand(pick.def.id, input)
+                : await runTool(TOOL_BY_ID[pick.def.id], input);
+            const summary =
+              pick.def.kind === "command"
+                ? ((out as CommandResult).summary ?? (out as CommandResult).status)
+                : summarise(out);
+            push({
+              role: "tool",
+              text: `${pick.def.id} · model-chosen`,
+              card: {
+                source: `${pick.def.id} (model pick)`,
+                facts: [pick.why, summary].filter(Boolean),
+                data: { query: pick.query, result: out } as Record<string, unknown>,
+              },
+            });
+            observationsRef.current.push({
+              id: pick.def.id,
+              kind: pick.def.kind === "command" ? "command" : "tool",
+              source: pick.def.id,
+              status: "ok",
+              summary,
+              data: out,
+            });
+          } catch (err) {
+            // The tool failing must read as evidence, not break the turn.
+            turn.settle("tool", "error", err instanceof Error ? err.message : "tool failed");
+          }
+        } else {
+          turn.settle("tool", "skipped", "no tool chosen");
+        }
+      }
+
       const build = buildTurn({
         instructions: system,
-        state: digestLine(),
+        state: factLines(),
         capabilitiesDigest: capabilityDigest(),
         selectedCapabilities: selection.selected,
         records,
@@ -297,32 +501,14 @@ function ChatConsole({
         user,
         budgetTokens: Math.floor(ai.ctx * 0.75),
       });
-      push({
-        role: "tool",
-        text: `context.build · ${build.estTokens}t across ${build.sections.length} sections`,
-        card: {
-          source: `context.build (capabilities ${selection.how})`,
-          facts: [
-            ...build.sections.map(
-              (s) => `${s.name} · ${s.estTokens}t${s.truncated ? " · trimmed" : ""}`,
-            ),
-            selection.reason ? `selected: ${selection.reason}` : "",
-          ].filter(Boolean),
-          data: {
-            estTokens: build.estTokens,
-            sections: build.sections.map((s) => ({
-              name: s.name,
-              estTokens: s.estTokens,
-              truncated: s.truncated,
-            })),
-            cache: selection.stats,
-          },
-        },
-      });
+      // The section table stays out of the transcript; the trace keeps one
+      // compact audit line and the footer carries the size.
+      lastPromptRef.current = build.estTokens;
       turn.move("generating");
       turn.stage("answer", ai.target.label);
       const raw = await ai.askMessages(build.messages, {
         thinking,
+        temperature: ground ? 0.2 : undefined,
         images: vision && image ? [image] : undefined,
       });
 
@@ -335,7 +521,11 @@ function ChatConsole({
         return;
       }
       push({ role: "assistant", text, thinking: think });
-      turn.settle("answer", "ok", `${build.estTokens}t prompt`);
+      turn.settle(
+        "answer",
+        "ok",
+        `${build.estTokens}t prompt · ${build.sections.map((s) => s.name).join("/")}`,
+      );
       turn.complete();
       setImage(null);
     } catch (err) {
@@ -349,6 +539,7 @@ function ChatConsole({
   const runSkillTurn = async (
     skillId: string,
     args: { motive?: never; thesisId?: string } = {},
+    opts: { question?: string; alwaysSpeak?: boolean } = {},
   ) => {
     turn.stage("skill", skillId);
     const result = runSkill(skillId, args);
@@ -362,10 +553,16 @@ function ChatConsole({
         data: result.data,
       },
     });
-    if (result.aiRequired || reasoning) {
+    observationsRef.current.push(skillObservation(result));
+    if (result.aiRequired || reasoning || opts.alwaysSpeak) {
+      // A routed question keeps the user's words as the prompt; the skill's
+      // numbers ride along as an observation instead of a paraphrase prompt.
       await speak(
-        "You are a trading-journal analyst. Use only the structured result. Be concrete and brief.",
-        result.prompt,
+        opts.question
+          ? "You are a trading-journal analyst. Ground every sentence in TURN OBSERVATIONS and FACTS. Be concrete and brief."
+          : "You are a trading-journal analyst. Use only the structured result. Be concrete and brief.",
+        opts.question ?? result.prompt,
+        Boolean(opts.question),
       );
     } else {
       turn.complete();
@@ -518,6 +715,20 @@ function ChatConsole({
     turn.begin();
     push({ role: "user", text });
 
+    // One-time semantic engine offer: only when nothing is cached and no
+    // encoder is resident. Dismissed or done stays that way.
+    if (semanticChip === "hidden" && !encoderReady()) {
+      void providerCached("minilm").then(async (hasMinilm) => {
+        if (hasMinilm || (await providerCached("lfm-encoder-230m"))) return;
+        try {
+          if (localStorage.getItem("pot.semanticChip")) return;
+        } catch {
+          /* private mode: still offer, the flag just will not stick */
+        }
+        setSemanticChip("offer");
+      });
+    }
+
     const cmd = parseCommand(text);
     if (cmd) {
       const { name, rest } = cmd;
@@ -665,15 +876,19 @@ function ChatConsole({
     const routed = routeMessage(text);
     if (routed.kind === "command") {
       turn.settle("route", "ok", routed.why);
-      push({ role: "note", text: `Running ${routed.commandId}: ${routed.why}.` });
       return void runCommandTurn(routed.commandId, routed.args ? JSON.stringify(routed.args) : "");
     }
     if (routed.kind === "skill") {
       turn.settle("route", "ok", routed.why);
-      push({ role: "note", text: `Running ${routed.skillId}: ${routed.why}.` });
-      return void runSkillTurn(routed.skillId, { thesisId: routed.thesisId });
+      return void runSkillTurn(
+        routed.skillId,
+        { thesisId: routed.thesisId },
+        { question: text, alwaysSpeak: true },
+      );
     }
     if (routed.kind === "search") {
+      // Deterministic lookup card; the turn still falls through to the model,
+      // which sees the card in history and the retrieval records in context.
       const cards = searchCards(routed.query, 8);
       if (cards.length) {
         push({
@@ -685,7 +900,6 @@ function ChatConsole({
             data: { matches: cards.length },
           },
         });
-        if (!reasoning) return;
       }
     }
     if (routed.kind === "none") {
@@ -700,15 +914,13 @@ function ChatConsole({
       );
       turn.settle("route", "ok");
       if (semantic.kind === "command") {
-        push({ role: "note", text: `Running ${semantic.commandId}: ${semantic.why}.` });
         return void runCommandTurn(
           semantic.commandId,
           semantic.args ? JSON.stringify(semantic.args) : "",
         );
       }
       if (semantic.kind === "skill") {
-        push({ role: "note", text: `Running ${semantic.skillId}: ${semantic.why}.` });
-        return void runSkillTurn(semantic.skillId);
+        return void runSkillTurn(semantic.skillId, {}, { question: text, alwaysSpeak: true });
       }
     }
 
@@ -788,6 +1000,33 @@ function ChatConsole({
             <p className="py-6 text-[13px] text-ink-soft">
               Ask in plain words, or press / for a command.
             </p>
+          )}
+          {(semanticChip === "offer" || semanticChip === "downloading") && (
+            <div className="doodle-inset mb-3 flex flex-wrap items-center gap-2 px-3 py-2">
+              <p className="text-[13px]">
+                {semanticChip === "downloading"
+                  ? `semantic engine · ${Math.round(chipProgress * 100)}%`
+                  : "Make routing semantic? 23 MB, downloaded once, then always ready on this device."}
+              </p>
+              {semanticChip === "offer" && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => void installSemantic()}
+                    className="doodle-pill bg-ink px-3 py-1 text-[11px] text-paper"
+                  >
+                    Install
+                  </button>
+                  <button
+                    type="button"
+                    onClick={dismissSemantic}
+                    className="doodle-pill px-3 py-1 text-[11px] text-ink-faint hover:border-ink"
+                  >
+                    Not now
+                  </button>
+                </>
+              )}
+            </div>
           )}
           <ul className="grid gap-3">
             {messages.map((m) => (
@@ -1031,6 +1270,7 @@ function ChatConsole({
               <span>semantic · {semanticLabel(ai.capability).toLowerCase()}</span>
               {turn.phase !== "idle" && <span>{PHASE_LABEL[turn.phase]}</span>}
               <span>ctx {ai.ctx}</span>
+              {lastPromptRef.current != null && <span>last {lastPromptRef.current}t</span>}
               <span>
                 {ctxUsed.turns} turns ·{" "}
                 {Math.round((ctxUsed.used / Math.max(1, Math.floor(ai.ctx * 0.4))) * 100)}% history

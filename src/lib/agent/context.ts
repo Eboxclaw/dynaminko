@@ -36,10 +36,21 @@ export type AgentTurnContext = {
 export const INKO_PROFILE: AgentProfile = {
   id: "inko",
   instructions:
-    "You are Inko, the application assistant inside Proof of Thesis. Prefer local deterministic tools for facts. Treat tool and command results as ground truth. Never claim a download or mutation happened unless an explicit approved action did it. If facts are missing, say which capability would produce them instead of guessing.",
+    "You are Inko, the application assistant inside Proof of Thesis. Prefer local deterministic tools for facts. Treat tool and command results as ground truth. Never claim a download or mutation happened unless an explicit approved action did it. If facts are missing, say which capability would produce them instead of guessing. You are running inside the user's own app; FACTS and TURN OBSERVATIONS are their real journal data. Never claim you lack access to it; if a number is missing, name the capability that would produce it.",
   skillIds: [],
   preferredCapabilityIds: [],
 };
+
+/**
+ * Hard rules appended to CORE. They exist because small models break exactly
+ * these: they invent counts that appear nowhere, and they pad. Grounded turns
+ * still verify against observations, but the rule is stated, not implied.
+ */
+export const GROUND_RULES = [
+  "Numbers may only come from FACTS lines or TURN OBSERVATIONS; never invent or derive new ones. If a number you need is absent, name the capability that would produce it.",
+  "Stay conversational: greet back in one short line when greeted, then answer. Do not repeat the same sentence or idea.",
+  "Answer in 2 to 4 sentences unless the user asks for more.",
+].join(" ");
 
 export function commandObservation(result: CommandResult): ToolObservation {
   return {
@@ -50,6 +61,22 @@ export function commandObservation(result: CommandResult): ToolObservation {
     summary: result.summary,
     data: result.data,
     diagnostics: result.diagnostics as Record<string, unknown> | undefined,
+  };
+}
+
+/** Same treatment for skill results so routed skill turns reach the model. */
+export function skillObservation(result: {
+  skill: { id: string; tools: string[] };
+  facts: string[];
+  data: unknown;
+}): ToolObservation {
+  return {
+    id: result.skill.id,
+    kind: "skill",
+    source: result.skill.tools.join(" → ") || result.skill.id,
+    status: "ok",
+    summary: result.facts[0],
+    data: { facts: result.facts, data: result.data },
   };
 }
 
@@ -95,7 +122,7 @@ export type TurnBuild = {
 export type BuildTurnInput = {
   /** per-call instruction line, e.g. the analyst prompt for a skill turn */
   instructions: string;
-  /** state digest lines */
+  /** labeled fact lines (`key: value`), see factLines() */
   state: string;
   /** one-line-per-capability book */
   capabilitiesDigest: string;
@@ -138,8 +165,8 @@ export function buildTurn(input: BuildTurnInput): TurnBuild {
     : "";
 
   const fixed: Array<[string, string]> = [
-    ["CORE", `${INKO_PROFILE.instructions}\n\n${input.instructions}`],
-    ["STATE", input.state],
+    ["CORE", `${INKO_PROFILE.instructions}\n\n${GROUND_RULES}\n\n${input.instructions}`],
+    ["FACTS", input.state],
     [
       "CAPABILITIES",
       `Full book:\n${input.capabilitiesDigest}${selectedText ? `\n\nDetail for this turn:\n${selectedText}` : ""}`,

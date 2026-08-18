@@ -6,13 +6,17 @@ Every model turn is assembled by one builder, `buildTurn` in `src/lib/agent/cont
 
 Fixed order, budget-aware:
 
-- `CORE` — Inko profile instructions plus the per-call instruction line (the analyst prompt for skill turns).
-- `STATE` — the journal digest line: wallet, entries, extracted trades, theses, POT score, open theses.
+- `CORE` — Inko profile instructions, the hard ground rules (numbers only from FACTS or observations, 2 to 4 sentences by default), plus the per-call instruction line (the analyst prompt for skill turns).
+- `FACTS` — labeled `key: value` state lines (`factLines()` in chat/context.ts): wallet, entries, extracted trades, unanswered, theses, open theses, POT score. Small models invent counts when numbers float unlabeled inside prose; one fact per line plus the CORE rule is the countermeasure. A "4000 questions" style claim cannot be traced to any fact line.
 - `CAPABILITIES` — the one-line-per-capability book (always, all live capabilities) plus full detail blocks for only the top 5 capabilities selected for this turn. Selection is keyword-first, then the cached encoder; the reason rides along in the `context.build` card.
-- `OBSERVATIONS` — structured results from this turn's tools and commands (`ToolObservation`), the same data the transcript cards show.
+- `OBSERVATIONS` — structured results from this turn's tools, commands and skills (`ToolObservation`), the same data the transcript cards show. Routed skill turns push their facts here, so the model answers the user's actual question with the skill's numbers as evidence instead of paraphrasing a JSON dump.
 - `RECORDS` — retrieved journal lines for grounded turns (a handful, never the journal).
 - `HISTORY` — prior turns, compacted to fit.
 - `COMPACTION` — marker row (not sent to the model) recording how many middle turns were dropped.
+
+## The v1 agent hop: decide, execute, observe, answer
+
+Grounded turns may run one model-chosen tool before the answer. `decideAction()` in agents.tsx makes a tiny grammar-constrained generation (`response_format: json_schema` on wllama, which converts the schema to a GBNF grammar): the schema's enum is `none` plus the turn's top read-only capabilities, so even the 450M cannot emit an invalid choice. If a tool is chosen (READ/COMPUTE access, tool or command kind only), it executes through the normal `runTool`/`runCommand` path, its result lands as a TURN OBSERVATION and a transcript card, and the final answer is generated with that evidence aboard. Any failure (schema rejected by an endpoint, invalid id, tool error) degrades to a plain answer: surfaced, never retried, never fatal. Hard cap: one hop per turn. Write-tier capabilities never enter the enum.
 
 ## Budget and compaction
 
