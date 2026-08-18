@@ -59,7 +59,7 @@ export function commandObservation(result: CommandResult): ToolObservation {
     source: result.command,
     status: result.status,
     summary: result.summary,
-    data: result.data,
+    data: result.data == null ? result.data : clampDataText(result.data),
     diagnostics: result.diagnostics as Record<string, unknown> | undefined,
   };
 }
@@ -76,8 +76,25 @@ export function skillObservation(result: {
     source: result.skill.tools.join(" → ") || result.skill.id,
     status: "ok",
     summary: result.facts[0],
-    data: { facts: result.facts, data: result.data },
+    data: clampDataText({ facts: result.facts, data: result.data }),
   };
+}
+
+/**
+ * One observation's data payload, capped before it enters the prompt. Small
+ * results pass through as native JSON; big ones keep head and tail with a
+ * marker that says exactly what was dropped, so the model can ask for the
+ * rest instead of drowning in it. The same cap is applied at capture time
+ * (clampResult in agents.tsx); this is the assembly-level guarantee that no
+ * caller can bypass.
+ */
+export const MAX_OBSERVATION_CHARS = 6000;
+
+export function clampDataText(data: unknown): string {
+  const json = JSON.stringify(data ?? {});
+  if (json.length <= MAX_OBSERVATION_CHARS) return json;
+  const half = Math.floor(MAX_OBSERVATION_CHARS / 2);
+  return `${json.slice(0, half)}\n[truncated: first and last ${half} of ${json.length} chars]\n${json.slice(-half)}`;
 }
 
 export function observationsPrompt(observations: ToolObservation[]): string {
@@ -85,8 +102,17 @@ export function observationsPrompt(observations: ToolObservation[]): string {
   return `TURN OBSERVATIONS\n${observations
     .map(
       (o) =>
-        `${o.kind.toUpperCase()} RESULT\nsource: ${o.source}\nstatus: ${o.status}\nsummary: ${o.summary ?? ""}\ndata: ${JSON.stringify(o.data ?? {})}`,
+        `${o.kind.toUpperCase()} RESULT\nsource: ${o.source}\nstatus: ${o.status}\nsummary: ${o.summary ?? ""}\ndata: ${clampDataText(o.data)}`,
     )
+    .join("\n\n")}`;
+}
+
+/** Same observations, summaries only: the degraded form used when the full
+ * data lines do not fit the budget. */
+export function observationsSummaryPrompt(observations: ToolObservation[]): string {
+  if (!observations.length) return "TURN OBSERVATIONS\n(none)";
+  return `TURN OBSERVATIONS (summaries only; data trimmed to fit the context budget)\n${observations
+    .map((o) => `${o.kind.toUpperCase()} RESULT\nsource: ${o.source}\nstatus: ${o.status}\nsummary: ${o.summary ?? ""}`)
     .join("\n\n")}`;
 }
 
@@ -164,23 +190,81 @@ export function buildTurn(input: BuildTurnInput): TurnBuild {
     ? capabilityPrompt(input.selectedCapabilities)
     : "";
 
-  const fixed: Array<[string, string]> = [
-    ["CORE", `${INKO_PROFILE.instructions}\n\n${GROUND_RULES}\n\n${input.instructions}`],
-    ["FACTS", input.state],
-    [
-      "CAPABILITIES",
-      `Full book:\n${input.capabilitiesDigest}${selectedText ? `\n\nDetail for this turn:\n${selectedText}` : ""}`,
-    ],
-    ["OBSERVATIONS", observationsPrompt(input.observations)],
-    ["RECORDS", input.records.length ? input.records.join("\n") : ""],
-  ];
-  for (const [name, text] of fixed) {
-    if (text.trim()) section(name, text);
+  // The budget covers the whole prompt, not just history: budgetTokens is the
+  // window minus the reply reserve (the caller passes 0.75 * ctx), and every
+  // section sheds in a fixed order until the total fits. Nothing reaches the
+  // model over budget; every cut is marked on its section so the trace shows
+  // what was dropped.
+  const userCost = estimateTokens(input.user);
+  const budget = Math.max(0, input.budgetTokens - userCost);
+
+  const coreText = `${INKO_PROFILE.instructions}\n\n${GROUND_RULES}\n\n${input.instructions}`;
+  const factsText = input.state;
+  const bookText = `Full book:\n${input.capabilitiesDigest}`;
+  const detailText = selectedText ? `\n\nDetail for this turn:\n${selectedText}` : "";
+
+  const cost = (t: string) => estimateTokens(t.trim());
+  const coreCost = cost(coreText);
+  const factsCost = cost(factsText);
+  let capsCost = cost(bookText + detailText);
+  let obsCost = cost(observationsPrompt(input.observations));
+  let recCost = cost(input.records.join("\n"));
+
+  const shed: string[] = [];
+  const over = () => coreCost + factsCost + capsCost + obsCost + recCost - budget;
+
+  // 1. observations degrade to summaries only
+  if (over() > 0 && obsCost > 0) {
+    const slim = cost(observationsSummaryPrompt(input.observations));
+    if (slim < obsCost) {
+      shed.push("observations data");
+      obsCost = slim;
+    }
+  }
+  // 2. records trim to what fits
+  if (over() > 0 && recCost > 0) {
+    const kept: string[] = [];
+    let used = 0;
+    for (const line of input.records) {
+      const c = estimateTokens(line);
+      if (used + c > recCost - over()) break;
+      kept.push(line);
+      used += c;
+    }
+    if (kept.length < input.records.length) {
+      shed.push(`${input.records.length - kept.length} records`);
+      input = { ...input, records: kept };
+      recCost = used;
+    }
+  }
+  // 3. capability detail block drops; the one-line book always stays
+  if (over() > 0 && detailText) {
+    shed.push("capability detail");
+    capsCost = cost(bookText);
   }
 
-  const used = sections.reduce((sum, s) => sum + s.estTokens, 0);
-  const userCost = estimateTokens(input.user);
-  let historyBudget = Math.max(0, input.budgetTokens - used - userCost);
+  const fixed: Array<[string, string, boolean]> = [
+    ["CORE", coreText, false],
+    ["FACTS", factsText, false],
+    [
+      "CAPABILITIES",
+      shed.includes("capability detail") ? bookText : `${bookText}${detailText}`,
+      shed.includes("capability detail"),
+    ],
+    [
+      "OBSERVATIONS",
+      shed.includes("observations data")
+        ? observationsSummaryPrompt(input.observations)
+        : observationsPrompt(input.observations),
+      shed.includes("observations data"),
+    ],
+    ["RECORDS", input.records.join("\n"), shed.some((s) => s.endsWith("records"))],
+  ];
+  for (const [name, text, truncated] of fixed) {
+    if (text.trim()) section(name, text, truncated);
+  }
+
+  let historyBudget = Math.max(0, budget - (coreCost + factsCost + capsCost + obsCost + recCost));
 
   const lines = input.history
     .map(historyLine)
@@ -230,9 +314,17 @@ export function buildTurn(input: BuildTurnInput): TurnBuild {
       truncated: true,
     });
   }
+  if (shed.length > 0) {
+    sections.push({
+      name: "SHED",
+      text: `over budget, dropped: ${shed.join(", ")}`,
+      estTokens: 0,
+      truncated: true,
+    });
+  }
 
   const system = sections
-    .filter((s) => s.name !== "COMPACTION")
+    .filter((s) => s.name !== "COMPACTION" && s.name !== "SHED")
     .map((s) => `${s.name}\n${s.text}`)
     .join("\n\n");
 

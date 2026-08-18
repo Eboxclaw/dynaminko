@@ -11,7 +11,9 @@ import { useTurn } from "@/hooks/useTurn";
 import { semanticLabel } from "@/lib/ai/capability";
 import {
   buildTurn,
+  clampDataText,
   commandObservation,
+  MAX_OBSERVATION_CHARS,
   skillObservation,
   type ToolObservation,
 } from "@/lib/agent/context";
@@ -19,6 +21,7 @@ import {
   capabilityCatalogue,
   capabilityDigest,
   DEFAULT_HOP_IDS,
+  HOP_EXCLUDED_IDS,
   selectCapabilities,
   type CapabilityDefinition,
 } from "@/lib/capabilities/catalogue";
@@ -407,9 +410,17 @@ function ChatConsole({
 
     setBusy(true);
     try {
+      // Small talk skips the whole evidence pipeline: no retrieval, no
+      // selection, no model-chosen hop. FACTS still rides along in the build,
+      // so a greeting answers instantly and a short real question still lands
+      // via top_tickers. This is the attention-budget rule: a 450M model
+      // choosing among tools needs few, well-separated options, and "hello"
+      // is not a tool question.
+      const conversational = ground && isConversational(user);
+
       // Retrieval before generation: a handful of records, never the journal.
       let records: string[] = [];
-      if (ground) {
+      if (ground && !conversational) {
         const found = await retrieveContext(user, 6);
         if (found.count) {
           records = found.lines;
@@ -426,16 +437,27 @@ function ChatConsole({
       }
       // Just-in-time capability detail: the one-line book always rides along,
       // full blocks only for what this turn actually touches.
-      const selection = await selectCapabilities(user, 5);
+      const selection = conversational
+        ? {
+            selected: [] as CapabilityDefinition[],
+            how: "none" as const,
+            reason: "conversational",
+            stats: null,
+          }
+        : await selectCapabilities(user, 5);
 
       // v1 agent hop: one model-chosen read-only tool before the answer. The
       // deterministic loop stays primary; this only adds evidence to the turn.
+      // Firehose and unwired tools never enter the menu: they either flood the
+      // context (journal.index, journal.filter) or throw (portfolio.read).
+      const excluded = new Set<string>(HOP_EXCLUDED_IDS);
       const hopAllowed = selection.selected.filter(
         (d) =>
           (d.kind === "tool" || d.kind === "command") &&
-          (d.access === "READ" || d.access === "COMPUTE"),
+          (d.access === "READ" || d.access === "COMPUTE") &&
+          !excluded.has(d.id),
       );
-      if (ground && hopAllowed.length === 0) {
+      if (ground && !conversational && hopAllowed.length === 0) {
         // Nothing matched (or no encoder installed): offer a small default
         // read-only set instead, so the model can always fetch what FACTS
         // lacks. The catalogue only carries live tools.
@@ -449,7 +471,7 @@ function ChatConsole({
           ),
         );
       }
-      if (ground && hopAllowed.length > 0) {
+      if (ground && !conversational && hopAllowed.length > 0) {
         turn.stage("tool", "decide");
         const pick = await decideAction(user, hopAllowed);
         if (pick) {
@@ -470,7 +492,7 @@ function ChatConsole({
               card: {
                 source: `${pick.def.id} (model pick)`,
                 facts: [pick.why, summary].filter(Boolean),
-                data: { query: pick.query, result: out } as Record<string, unknown>,
+                data: { query: pick.query, result: clampResult(out) } as Record<string, unknown>,
               },
             });
             observationsRef.current.push({
@@ -479,7 +501,7 @@ function ChatConsole({
               source: pick.def.id,
               status: "ok",
               summary,
-              data: out,
+              data: clampResult(out),
             });
           } catch (err) {
             // The tool failing must read as evidence, not break the turn.
@@ -490,7 +512,8 @@ function ChatConsole({
         }
       }
 
-      const build = buildTurn({
+      const budgetTokens = Math.floor(ai.ctx * 0.75);
+      const buildInput = {
         instructions: system,
         state: factLines(),
         capabilitiesDigest: capabilityDigest(),
@@ -499,18 +522,36 @@ function ChatConsole({
         observations: observationsRef.current,
         history: messages,
         user,
-        budgetTokens: Math.floor(ai.ctx * 0.75),
-      });
+        budgetTokens,
+      };
+      let build = buildTurn(buildInput);
       // The section table stays out of the transcript; the trace keeps one
       // compact audit line and the footer carries the size.
       lastPromptRef.current = build.estTokens;
       turn.move("generating");
       turn.stage("answer", ai.target.label);
-      const raw = await ai.askMessages(build.messages, {
-        thinking,
-        temperature: ground ? 0.2 : undefined,
-        images: vision && image ? [image] : undefined,
-      });
+      let raw: string;
+      try {
+        raw = await ai.askMessages(build.messages, {
+          thinking,
+          temperature: ground ? 0.2 : undefined,
+          images: vision && image ? [image] : undefined,
+        });
+      } catch (err) {
+        // Overflow recovery: if the runtime still rejects the prompt for size,
+        // rebuild degraded (summary-only observations, halved history) and
+        // retry once. The user never sees GENERATION FAILED from a size
+        // mismatch; worst case the answer cites summaries instead of raw rows.
+        const msg = err instanceof Error ? err.message : String(err);
+        if (!/context size|too long|exceeds/i.test(msg)) throw err;
+        build = buildTurn({ ...buildInput, budgetTokens: Math.floor(budgetTokens / 2) });
+        lastPromptRef.current = build.estTokens;
+        raw = await ai.askMessages(build.messages, {
+          thinking,
+          temperature: ground ? 0.2 : undefined,
+          images: vision && image ? [image] : undefined,
+        });
+      }
 
       const { thinking: think, answer } = splitThinking(raw);
       const text = (answer || raw || "").trim();
@@ -550,7 +591,7 @@ function ChatConsole({
       card: {
         source: result.skill.tools.join(" → ") || result.skill.id,
         facts: result.facts,
-        data: result.data,
+        data: clampResult(result.data) as Record<string, unknown>,
       },
     });
     observationsRef.current.push(skillObservation(result));
@@ -601,7 +642,7 @@ function ChatConsole({
       card: {
         source: tool.id,
         facts: [summarise(out)],
-        data: { result: out } as Record<string, unknown>,
+        data: { result: clampResult(out) } as Record<string, unknown>,
       },
     });
   };
@@ -638,7 +679,7 @@ function ChatConsole({
           `${d?.toolsUsed ?? 0} tool calls · ${d?.durationMs ?? 0} ms${d?.retried ? " · retried" : ""} · no model used`,
           ...(result.nextAction?.reason ? [`next: ${result.nextAction.reason}`] : []),
         ],
-        data: (result.data as Record<string, unknown>) ?? {},
+        data: clampResult((result.data as Record<string, unknown>) ?? {}) as Record<string, unknown>,
       },
     });
   };
@@ -700,7 +741,7 @@ function ChatConsole({
       push({
         role: "tool",
         text: `${tool.label} ran`,
-        card: { source: tool.id, facts: [summarise(out)], data: { result: out } },
+        card: { source: tool.id, facts: [summarise(out)], data: { result: clampResult(out) } },
       });
     } catch (err) {
       push({ role: "note", text: err instanceof Error ? err.message : "the tool failed" });
@@ -1411,6 +1452,32 @@ function summarise(out: unknown): string {
     return json.length > 220 ? `${json.slice(0, 220)}…` : json;
   }
   return String(out);
+}
+
+/**
+ * Capture-time bound for anything that will ride into the prompt as an
+ * observation or card payload. Small results pass through untouched; big
+ * ones keep head and tail with a marker naming the dropped size, so the
+ * model sees the cut and can ask for more. The assembly layer applies the
+ * same cap again (clampDataText) as a guarantee; this keeps cards and
+ * observations small at the source.
+ */
+function clampResult(out: unknown): unknown {
+  const json = JSON.stringify(out ?? null);
+  if (json.length <= MAX_OBSERVATION_CHARS) return out;
+  const half = Math.floor(MAX_OBSERVATION_CHARS / 2);
+  return `${json.slice(0, half)}\n[truncated: first and last ${half} of ${json.length} chars]\n${json.slice(-half)}`;
+}
+
+/** Short small talk needs no retrieval, no capability selection, and no
+ * model-chosen hop: FACTS still rides along, so a one-line greeting answers
+ * instantly and a short real question still lands via top_tickers. */
+function isConversational(text: string): boolean {
+  const words = text.trim().split(/\s+/).filter(Boolean);
+  if (words.length > 6) return false;
+  if (/\d/.test(text)) return false;
+  if (/\b[A-Z]{2,6}\b/.test(text.replace(/\b(I|A|OK)\b/g, ""))) return false;
+  return true;
 }
 
 // ── rail panels ────────────────────────────────────────────────────────────

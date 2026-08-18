@@ -19,12 +19,33 @@ export const TOOLS: ToolDef[] = [
     group: "journal",
     action: "index",
     label: "Index journal",
-    purpose: "Flatten entries and signals into one searchable card set.",
+    purpose: "Journal overview counts; use journal.search to fetch actual cards.",
     access: "COMPUTE",
     inputs: "none",
-    output: "{ cards[], tickers[], motives[], theses[], builtAt }",
+    output: "{ cards, tickers, motives, theses, topTickers, preview[], builtAt }",
     live: true,
-    run: () => journal.buildIndex(),
+    // Bounded digest, never the full card set: an unbounded index is the one
+    // result guaranteed to blow the context window. Counts and a short preview
+    // answer "how much of what"; journal.search fetches the rows themselves.
+    run: () => {
+      const index = journal.buildIndex();
+      const byTicker = new Map<string, number>();
+      for (const c of index.cards) {
+        if (c.ticker) byTicker.set(c.ticker, (byTicker.get(c.ticker) ?? 0) + 1);
+      }
+      return {
+        cards: index.cards.length,
+        tickers: index.tickers.length,
+        motives: index.motives.length,
+        theses: index.theses.length,
+        topTickers: [...byTicker.entries()]
+          .sort((a, b) => b[1] - a[1])
+          .slice(0, 5)
+          .map(([t, n]) => `${t} x${n}`),
+        preview: index.cards.slice(0, 8).map((c) => c.record),
+        builtAt: index.builtAt,
+      };
+    },
   }),
   def({
     id: "journal.search",

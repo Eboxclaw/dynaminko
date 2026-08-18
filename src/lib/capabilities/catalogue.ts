@@ -226,17 +226,25 @@ export function capabilitySearchText(def: CapabilityDefinition): string {
 /**
  * The hop fallback: when a grounded turn's selection yields no read-only tool,
  * these live READ/COMPUTE tools are offered instead so the model can always
- * fetch what FACTS lacks. tool ids, all in the catalogue.
+ * fetch what FACTS lacks. Deliberately small and well-separated: a 450M model
+ * choosing among tools needs few, clearly distinct options, and every entry
+ * here returns a bounded result.
  */
 export const DEFAULT_HOP_IDS = [
   "journal.search",
-  "journal.index",
-  "journal.filter",
   "signal.coverage",
   "indicators.potIndex",
   "indicators.motiveStats",
-  "portfolio.read",
 ] as const;
+
+/**
+ * Never offered to the model-chosen hop, from either the default set or the
+ * semantic selection: journal.index and journal.filter return unbounded card
+ * sets (the one result guaranteed to flood the context), and portfolio.read
+ * is not wired yet. They stay in the capability book and remain invocable as
+ * explicit commands; the model just never picks them blind.
+ */
+export const HOP_EXCLUDED_IDS = ["journal.index", "journal.filter", "portfolio.read"] as const;
 
 export type CapabilitySelection = {
   selected: CapabilityDefinition[];
