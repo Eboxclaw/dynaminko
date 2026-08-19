@@ -175,9 +175,15 @@ export type BuildTurnInput = {
   shedLevel?: 0 | 1 | 2;
 };
 
-/** One history entry as a compact chat turn. Tool cards collapse to one line. */
+/** One history entry as a compact chat turn. Tool cards collapse to one line.
+ * Approval-pending messages and slash-command echoes are UI chrome, never
+ * evidence: commands already contribute their result as a tool card, and
+ * command-only turns would otherwise leave consecutive user messages in
+ * history, a shape small models are not trained on (they answer with chrome
+ * or stop immediately). */
 function historyLine(m: ChatMessage): { role: "user" | "assistant" | "tool"; text: string } | null {
-  if (m.role === "note") return null;
+  if (m.role === "note" || m.approval) return null;
+  if (m.role === "user" && m.text.trimStart().startsWith("/")) return null;
   if (m.role === "tool") {
     const first =
       m.card?.facts?.[0] ?? (m.card ? JSON.stringify(m.card.data ?? {}).slice(0, 120) : m.text);
@@ -366,15 +372,29 @@ export function buildTurn(input: BuildTurnInput): TurnBuild {
     .map((s) => `${s.name}\n${s.text}`)
     .join("\n\n");
 
-  const messages: TurnMessage[] = [{ role: "system", content: system }];
+  // Chat templates expect alternating roles. Tool evidence rides as
+  // user-role prose lines, which can stack consecutive user messages; merge
+  // them into one turn so the model never sees an untrained shape.
+  const merged: TurnMessage[] = [{ role: "system", content: system }];
   for (const line of kept) {
-    messages.push(
+    const msg: TurnMessage =
       line.role === "tool"
         ? { role: "user", content: `Context from an earlier tool call: ${line.text}` }
-        : { role: line.role, content: line.text },
-    );
+        : { role: line.role, content: line.text };
+    const prev = merged[merged.length - 1];
+    if (prev && prev.role === msg.role) {
+      prev.content = `${prev.content}\n\n${msg.content}`;
+    } else {
+      merged.push(msg);
+    }
   }
-  messages.push({ role: "user", content: input.user });
+  const last = merged[merged.length - 1];
+  if (last && last.role === "user") {
+    last.content = `${last.content}\n\n${input.user}`;
+  } else {
+    merged.push({ role: "user", content: input.user });
+  }
+  const messages = merged;
 
   return {
     messages,

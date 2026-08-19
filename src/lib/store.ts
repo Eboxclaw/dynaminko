@@ -180,7 +180,7 @@ export const EMPTY_DOC: PotDoc = {
     hideBalances: false,
     theme: "light",
     aiEnabled: false,
-    aiModelId: "lfm2-450-vl",
+    aiModelId: "lfm2-350",
     onboarded: false,
     dismissedTrades: [],
     notifications: false,
@@ -188,7 +188,7 @@ export const EMPTY_DOC: PotDoc = {
     basketOverrides: {},
     assistant: {
       provider: "local",
-      modelId: "lfm2-450-vl",
+      modelId: "lfm2-350",
       skills: ["tidy", "reason", "review"],
       tools: ["read-portfolio", "read-signals"],
     },

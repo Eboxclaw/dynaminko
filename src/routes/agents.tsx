@@ -221,6 +221,11 @@ function ChatConsole({
   const observationsRef = useRef<ToolObservation[]>([]);
   // The last turn's real prompt size, shown in the footer next to the ctx budget.
   const lastPromptRef = useRef<number | null>(null);
+  // The last turn's section table (name · tokens · truncated), so /context can
+  // show exactly what the model saw without rebuilding anything.
+  const lastBuildRef = useRef<{ name: string; estTokens: number; truncated: boolean }[] | null>(
+    null,
+  );
   const fileRef = useRef<HTMLInputElement>(null);
   // Semantic engine onboarding: one offer, never a nag, never a silent download.
   const [semanticChip, setSemanticChip] = useState<"hidden" | "offer" | "downloading" | "done">(
@@ -594,7 +599,15 @@ function ChatConsole({
       let build = buildTurn(buildInput);
       // The section table stays out of the transcript; the trace keeps one
       // compact audit line and the footer carries the size.
-      lastPromptRef.current = build.estTokens;
+      const recordBuild = () => {
+        lastPromptRef.current = build.estTokens;
+        lastBuildRef.current = build.sections.map(({ name, estTokens, truncated }) => ({
+          name,
+          estTokens,
+          truncated,
+        }));
+      };
+      recordBuild();
       turn.move("generating");
       turn.stage("answer", ai.target.label);
       let raw: string;
@@ -615,7 +628,7 @@ function ChatConsole({
           /context size|too long|exceeds/i.test(e instanceof Error ? e.message : String(e));
         if (!isSizeError(err)) throw err;
         build = buildTurn({ ...buildInput, shedLevel: 1 });
-        lastPromptRef.current = build.estTokens;
+        recordBuild();
         try {
           raw = await ai.askMessages(build.messages, {
             thinking,
@@ -625,7 +638,7 @@ function ChatConsole({
         } catch (err2) {
           if (!isSizeError(err2)) throw err2;
           build = buildTurn({ ...buildInput, shedLevel: 2 });
-          lastPromptRef.current = build.estTokens;
+          recordBuild();
           raw = await ai.askMessages(build.messages, {
             thinking,
             temperature: ground ? 0.2 : undefined,
@@ -920,13 +933,30 @@ function ChatConsole({
         if (Number.isFinite(n) && n > 0) {
           ai.setCtx(n);
           push({ role: "note", text: `Context window set to ${n} tokens. Reload to apply.` });
-        } else {
+          return;
+        }
+        // No number: show exactly what the model saw on the last turn. The
+        // section table is the built prompt's anatomy; history scope is the
+        // current session only (New session starts an empty transcript), so
+        // nothing accumulates across chats. Memory is the one deliberate
+        // cross-session section, bounded at its char cap.
+        const lastT = lastPromptRef.current;
+        const sections = lastBuildRef.current;
+        if (lastT == null || !sections) {
           const used = contextFor(messages, Math.floor(ai.ctx * 0.4));
           push({
             role: "note",
-            text: `ctx ${ai.ctx} · ${used.turns} turns replayed · ~${used.used} of ${Math.floor(ai.ctx * 0.4)} history tokens.`,
+            text: `ctx ${ai.ctx} · ${used.turns} turns replayed · ~${used.used} of ${Math.floor(ai.ctx * 0.4)} history tokens.\nNo model turn yet in this tab; ask something to record a prompt.`,
           });
+          return;
         }
+        const table = sections
+          .map((s) => `${s.truncated ? "!" : " "} ${s.name} · ${s.estTokens}t`)
+          .join("\n");
+        push({
+          role: "note",
+          text: `last prompt ${lastT}t of ${Math.floor(ai.ctx * 0.75)}t budget · model ${ai.spec?.label ?? ai.target.label}\n${table}\nhistory scope: this session only · ${messages.length} messages stored\n(! = section truncated/shed; memory is the only cross-session section)`,
+        });
         return;
       }
       if (name === "usage") {
