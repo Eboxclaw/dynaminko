@@ -4,21 +4,21 @@
 
 Verified against the code, not the old notes.
 
-| Phase | Status | Evidence |
-| --- | --- | --- |
-| 1. Audit + command registry | Done | `src/lib/commands/registry.ts` (typed registry, access levels) |
-| 2. CommandRunner + CommandResult | Done | `src/lib/commands/runner.ts` (validation, one retry, timeout, deadline, cancel, approval, logging), `types.ts` |
-| 3. Low-level tools under commands | Partial | `src/lib/tools/registry.ts` still called directly from `/tool` in `agents.tsx`; journal + portfolio commands exist, chain/indicators/alerts groups do not |
-| 4. AgentRuntime extracted from chat | Not started | Turn logic lives inside `src/routes/agents.tsx` (`speak`, `runSkillTurn`, `runToolTurn`) |
-| 5. Five-hop loop | Partial | Bounded multi-cycle exists in `runner.ts`; not reachable from chat |
-| 6. Goal mode + two cycles | Not started | No `/goal` surface |
-| 7. Execution state / diagnostics | Partial | Tool cards + per-run traces exist; no staged pipeline view, no persistent error surface |
-| 8. Journal commands | Done | `src/lib/commands/journal.ts` |
-| 9. Tavily + DDG providers | Not started | No search provider module |
-| 10. EmbeddingProvider abstraction | Done | `src/lib/ai/embedding.ts` (MiniLM default, LFM Encoder-230M upgrade), `encoder.ts` is now a facade |
-| 11. Encoder benchmark | Not started | No journal-specific benchmark |
-| 12. Token baskets | Partial | `src/lib/sectors.ts` + `basketOverrides` in the store and a picker in portfolio; no canonical `AssetBasket` record with source/confidence, no `ai`/`l1`/`l2`/`gaming`/`btc`/`eth` split |
-| 13. Model broker + capability routing | Not started | `useAi` picks one target; no capability state, no broker |
+| Phase                                 | Status      | Evidence                                                                                                                                                                                |
+| ------------------------------------- | ----------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1. Audit + command registry           | Done        | `src/lib/commands/registry.ts` (typed registry, access levels)                                                                                                                          |
+| 2. CommandRunner + CommandResult      | Done        | `src/lib/commands/runner.ts` (validation, one retry, timeout, deadline, cancel, approval, logging), `types.ts`                                                                          |
+| 3. Low-level tools under commands     | Partial     | `src/lib/tools/registry.ts` still called directly from `/tool` in `agents.tsx`; journal + portfolio commands exist, chain/indicators/alerts groups do not                               |
+| 4. AgentRuntime extracted from chat   | Not started | Turn logic lives inside `src/routes/agents.tsx` (`speak`, `runSkillTurn`, `runToolTurn`)                                                                                                |
+| 5. Five-hop loop                      | Partial     | Bounded multi-cycle exists in `runner.ts`; not reachable from chat                                                                                                                      |
+| 6. Goal mode + two cycles             | Not started | No `/goal` surface                                                                                                                                                                      |
+| 7. Execution state / diagnostics      | Partial     | Tool cards + per-run traces exist; no staged pipeline view, no persistent error surface                                                                                                 |
+| 8. Journal commands                   | Done        | `src/lib/commands/journal.ts`                                                                                                                                                           |
+| 9. Tavily + DDG providers             | Not started | No search provider module                                                                                                                                                               |
+| 10. EmbeddingProvider abstraction     | Done        | `src/lib/ai/embedding.ts` (MiniLM default, LFM Encoder-230M upgrade), `encoder.ts` is now a facade                                                                                      |
+| 11. Encoder benchmark                 | Not started | No journal-specific benchmark                                                                                                                                                           |
+| 12. Token baskets                     | Partial     | `src/lib/sectors.ts` + `basketOverrides` in the store and a picker in portfolio; no canonical `AssetBasket` record with source/confidence, no `ai`/`l1`/`l2`/`gaming`/`btc`/`eth` split |
+| 13. Model broker + capability routing | Not started | `useAi` picks one target; no capability state, no broker                                                                                                                                |
 
 Bugs confirmed in code, matching the brief:
 

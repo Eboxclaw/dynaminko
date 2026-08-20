@@ -4,18 +4,18 @@ Audit of the current build, a documentation cleanup, and a tool/skill layer that
 
 ## 1. What is shipped and working
 
-| Area | State |
-| --- | --- |
-| Wallet reads (Ink Blockscout + JSON-RPC, in a worker) | Working |
-| Prices (CoinGecko), IndexedDB cache | Working |
-| Local document store (theses, signals, entries, alerts, settings, logs) | Working |
-| Journal hub `/journal` (inbox, entries, theses, ghosts, filters, bulk resolve) | Working |
-| Reconcile wizard, portfolio `/portfolio` with baskets and venues | Working |
-| POT Index `/pot` (5 axes, trends, formulas) | Working |
-| Alerts `/alerts` + engine + notifications + service worker | Working |
-| Agents `/agents` (agents, models, skills, tools, log tabs) | Working, but descriptive only |
-| On-device AI (`@wllama/wllama`, LFM 2.5 family) | Loads and chats; not wired to any app task |
-| `/trade` | Placeholder |
+| Area                                                                           | State                                      |
+| ------------------------------------------------------------------------------ | ------------------------------------------ |
+| Wallet reads (Ink Blockscout + JSON-RPC, in a worker)                          | Working                                    |
+| Prices (CoinGecko), IndexedDB cache                                            | Working                                    |
+| Local document store (theses, signals, entries, alerts, settings, logs)        | Working                                    |
+| Journal hub `/journal` (inbox, entries, theses, ghosts, filters, bulk resolve) | Working                                    |
+| Reconcile wizard, portfolio `/portfolio` with baskets and venues               | Working                                    |
+| POT Index `/pot` (5 axes, trends, formulas)                                    | Working                                    |
+| Alerts `/alerts` + engine + notifications + service worker                     | Working                                    |
+| Agents `/agents` (agents, models, skills, tools, log tabs)                     | Working, but descriptive only              |
+| On-device AI (`@wllama/wllama`, LFM 2.5 family)                                | Loads and chats; not wired to any app task |
+| `/trade`                                                                       | Placeholder                                |
 
 ## 2. What is outdated, duplicated or contradictory
 
@@ -53,14 +53,14 @@ Venue groups (`velodrome`, `inkyswap`, `hyperliquid`, `nado`, `tydro`) are decla
 
 Skills (orchestration over tools, AI optional):
 
-| Skill | Tools it drives | AI needed |
-| --- | --- | --- |
-| `journal.review` | journal.index/search/read + indicators | only for the summary |
-| `thesis.review` | thesis.read + journal.search + indicators | yes, for the qualitative part |
-| `motive.performance` | journal.filter + indicators.compute | only for interpretation |
-| `plan.create` | thesis + indicators | yes |
-| `charts.read/compare` | market + indicators | no |
-| `capture.tidy` | none | yes |
+| Skill                 | Tools it drives                           | AI needed                     |
+| --------------------- | ----------------------------------------- | ----------------------------- |
+| `journal.review`      | journal.index/search/read + indicators    | only for the summary          |
+| `thesis.review`       | thesis.read + journal.search + indicators | yes, for the qualitative part |
+| `motive.performance`  | journal.filter + indicators.compute       | only for interpretation       |
+| `plan.create`         | thesis + indicators                       | yes                           |
+| `charts.read/compare` | market + indicators                       | no                            |
+| `capture.tidy`        | none                                      | yes                           |
 
 ## 5. Skill and tool docs
 

@@ -54,12 +54,12 @@ Current state: alerts are stored but nothing ever evaluates or notifies them.
 
 Replace the Smol/Qwen entries with the LFM 2.5 family, Q4_K_M:
 
-| Model | Role | Default |
-| --- | --- | --- |
-| LFM 2.5 230M encoder | embeddings, tagging, retrieval | yes (automation) |
-| LFM 2.5 450M VL | fast extraction and vision | yes (assistant) |
-| LFM 2.5 1.2B instruct | better reasoning over trades | optional |
-| LFM 2.5 2.6B VL | strongest, desktop only | optional |
+| Model                 | Role                           | Default          |
+| --------------------- | ------------------------------ | ---------------- |
+| LFM 2.5 230M encoder  | embeddings, tagging, retrieval | yes (automation) |
+| LFM 2.5 450M VL       | fast extraction and vision     | yes (assistant)  |
+| LFM 2.5 1.2B instruct | better reasoning over trades   | optional         |
+| LFM 2.5 2.6B VL       | strongest, desktop only        | optional         |
 
 Sizes shown come from the actual GGUF repos, not guesses; anything we cannot confirm
 is left blank rather than invented.
@@ -69,9 +69,9 @@ is left blank rather than invented.
 New route `/agents` in the nav; the Assistant block is removed from Settings.
 Sub-menus:
 
-- **Agents** — two groups. *Automation group*: fixed-job agents (extractor, tagger,
+- **Agents** — two groups. _Automation group_: fixed-job agents (extractor, tagger,
   reconciler, alert watcher) that never chat, shown with their trigger, tools and
-  last run. Not user-editable beyond on/off. *Assistant*: the single user-managed agent —
+  last run. Not user-editable beyond on/off. _Assistant_: the single user-managed agent —
   pick model, provider (local WASM or cloud), skills and tools.
 - **Models / Providers** — local models with download, cache size, load/unload and
   progress; a cloud provider slot marked as not connected.

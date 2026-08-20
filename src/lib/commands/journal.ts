@@ -17,7 +17,13 @@ function str(v: unknown): string | null {
 }
 
 /** Which of the five reconciliation answers a card is still missing. */
-function missingFor(card: { thesisId: string | null; motive: unknown; alignment: unknown; size: unknown; type: string }): Field[] {
+function missingFor(card: {
+  thesisId: string | null;
+  motive: unknown;
+  alignment: unknown;
+  size: unknown;
+  type: string;
+}): Field[] {
   const out: Field[] = [];
   if (!card.thesisId) out.push("thesis");
   if (!card.motive) out.push("motive");
@@ -157,7 +163,9 @@ export function reviewThesis(args: Record<string, unknown>, ctx: CommandContext)
   const query = str(args.thesisId) ?? str(args.title);
   const thesis =
     doc.theses.find((t) => t.id === query) ??
-    (query ? doc.theses.find((t) => t.title.toLowerCase().includes(query.toLowerCase())) : doc.theses[0]);
+    (query
+      ? doc.theses.find((t) => t.title.toLowerCase().includes(query.toLowerCase()))
+      : doc.theses[0]);
   if (!thesis) return failed(id, "not_found", "no thesis matched");
   const stats = ind.thesisStats(thesis.id);
   ctx.count();

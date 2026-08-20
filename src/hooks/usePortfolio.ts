@@ -14,10 +14,9 @@ import { useDoc } from "./useDoc";
 /** Runs the chain read inside a worker so parsing never blocks the UI. */
 function readInWorker(address: string, chainId: number): Promise<WalletSnapshot> {
   return new Promise((resolve, reject) => {
-    const worker = new Worker(
-      new URL("../workers/wallet-reader.worker.ts", import.meta.url),
-      { type: "module" },
-    );
+    const worker = new Worker(new URL("../workers/wallet-reader.worker.ts", import.meta.url), {
+      type: "module",
+    });
     const timeout = setTimeout(() => {
       worker.terminate();
       reject(new Error("wallet read timed out"));

@@ -6,17 +6,13 @@
 
 import { log } from "@/lib/store";
 
-export type Access =
-  | "READ"
-  | "COMPUTE"
-  | "WRITE"
-  | "EDIT"
-  | "DELETE"
-  | "EXECUTE"
-  | "EXTERNAL";
+export type Access = "READ" | "COMPUTE" | "WRITE" | "EDIT" | "DELETE" | "EXECUTE" | "EXTERNAL";
 
 /** Approval + logging policy is derived from access, never hand-set per tool. */
-export const POLICY: Record<Access, { approval: "none" | "when-appropriate" | "explicit"; logged: boolean }> = {
+export const POLICY: Record<
+  Access,
+  { approval: "none" | "when-appropriate" | "explicit"; logged: boolean }
+> = {
   READ: { approval: "none", logged: false },
   COMPUTE: { approval: "none", logged: false },
   WRITE: { approval: "when-appropriate", logged: true },

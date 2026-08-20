@@ -5,7 +5,7 @@
 The app crashes on load with "Maximum update depth exceeded" and shows a blank page. The cause is confirmed in the store and agent code:
 
 - `update()` in `src/lib/store.ts` always replaces the document with a fresh deep clone and notifies every subscriber — even when the mutation changed nothing.
-- `ingestSignals()` calls `update()` on every wallet read, and bails out *inside* the mutation, so a no-op still produces a brand-new document object.
+- `ingestSignals()` calls `update()` on every wallet read, and bails out _inside_ the mutation, so a no-op still produces a brand-new document object.
 - That new object gives `usePortfolio`/`useActiveWallet` a new `active` reference, which re-triggers the effect in `src/hooks/useAgent.ts`, which calls `ingestSignals` again — an endless loop.
 
 ## The fix

@@ -19,13 +19,13 @@ model             only when prose or judgement is required
 
 ## Layers
 
-| Layer | File | Rule |
-| --- | --- | --- |
-| Command contract | `src/lib/commands/types.ts` | Status, reason, diagnostics, next action. |
-| Registry | `src/lib/commands/registry.ts` | One line per command; all the model ever sees. |
-| Executors | `src/lib/commands/{journal,portfolio}.ts` | Collect → aggregate → answer. Never return raw rows. |
-| Runner | `src/lib/commands/runner.ts` | Validation, retries, timeout, cancellation, approval, logging. |
-| Embeddings | `src/lib/ai/embedding.ts` | Tiered providers; the encoder facade delegates here. |
+| Layer            | File                                      | Rule                                                           |
+| ---------------- | ----------------------------------------- | -------------------------------------------------------------- |
+| Command contract | `src/lib/commands/types.ts`               | Status, reason, diagnostics, next action.                      |
+| Registry         | `src/lib/commands/registry.ts`            | One line per command; all the model ever sees.                 |
+| Executors        | `src/lib/commands/{journal,portfolio}.ts` | Collect → aggregate → answer. Never return raw rows.           |
+| Runner           | `src/lib/commands/runner.ts`              | Validation, retries, timeout, cancellation, approval, logging. |
+| Embeddings       | `src/lib/ai/embedding.ts`                 | Tiered providers; the encoder facade delegates here.           |
 
 ## Collect → aggregate → model
 
@@ -35,18 +35,18 @@ rows. `journal.apply_answer` writes the answer back in a single batch.
 
 ## Limits
 
-| Limit | Local | Cloud |
-| --- | --- | --- |
-| tool hops per turn | 5 | 5 |
-| goal cycles | 2 | unbounded by count |
-| calls per cycle | 5 | unbounded |
-| total steps | 10 | unbounded |
-| retries | 1, transient only | same |
-| wall-clock deadline | 120 s | 120 s — always enforced |
-| per-command timeout | 30 s | 30 s |
-| cancellation | always | always |
+| Limit               | Local             | Cloud                   |
+| ------------------- | ----------------- | ----------------------- |
+| tool hops per turn  | 5                 | 5                       |
+| goal cycles         | 2                 | unbounded by count      |
+| calls per cycle     | 5                 | unbounded               |
+| total steps         | 10                | unbounded               |
+| retries             | 1, transient only | same                    |
+| wall-clock deadline | 120 s             | 120 s — always enforced |
+| per-command timeout | 30 s              | 30 s                    |
+| cancellation        | always            | always                  |
 
-Cloud drops the *semantic* call cap only. Deadline, per-request timeout and
+Cloud drops the _semantic_ call cap only. Deadline, per-request timeout and
 cancellation stay so a malformed agent can never hang a session.
 
 ## Approval
@@ -57,9 +57,9 @@ with duration, tool count and whether a model was involved.
 
 ## Embedding tiers
 
-| Tier | Model | Size | Role |
-| --- | --- | --- | --- |
-| default | MiniLM L6 v2 | 23 MB | Cheap semantic index for retrieval and routing. |
+| Tier    | Model                | Size    | Role                                                                   |
+| ------- | -------------------- | ------- | ---------------------------------------------------------------------- |
+| default | MiniLM L6 v2         | 23 MB   | Cheap semantic index for retrieval and routing.                        |
 | upgrade | LFM 2.5 Encoder-230M | ~180 MB | Recommended experimental backend: stronger routing and classification. |
 
 Cheap tier first; when its best match scores below `0.55` and the encoder is

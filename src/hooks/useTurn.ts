@@ -3,12 +3,7 @@
 
 import { useCallback, useRef, useState } from "react";
 
-import {
-  isFailurePhase,
-  type Stage,
-  type StageNode,
-  type TurnPhase,
-} from "@/lib/chat/pipeline";
+import { isFailurePhase, type Stage, type StageNode, type TurnPhase } from "@/lib/chat/pipeline";
 
 export type TurnError = { message: string; phase: TurnPhase; at: number } | null;
 
@@ -39,25 +34,22 @@ export function useTurn() {
   }, []);
 
   /** Close the newest node of that stage. */
-  const settle = useCallback(
-    (s: Stage, state: "ok" | "error" | "skipped", detail?: string) => {
-      setNodes((prev) => {
-        const idx = [...prev].reverse().findIndex((n) => n.stage === s);
-        if (idx < 0) return prev;
-        const i = prev.length - 1 - idx;
-        const node = prev[i];
-        const next = [...prev];
-        next[i] = {
-          ...node,
-          state,
-          detail: detail ?? node.detail,
-          ms: Date.now() - node.startedAt,
-        };
-        return next;
-      });
-    },
-    [],
-  );
+  const settle = useCallback((s: Stage, state: "ok" | "error" | "skipped", detail?: string) => {
+    setNodes((prev) => {
+      const idx = [...prev].reverse().findIndex((n) => n.stage === s);
+      if (idx < 0) return prev;
+      const i = prev.length - 1 - idx;
+      const node = prev[i];
+      const next = [...prev];
+      next[i] = {
+        ...node,
+        state,
+        detail: detail ?? node.detail,
+        ms: Date.now() - node.startedAt,
+      };
+      return next;
+    });
+  }, []);
 
   const fail = useCallback((message: string, at: TurnPhase = "failed") => {
     phaseRef.current = at;

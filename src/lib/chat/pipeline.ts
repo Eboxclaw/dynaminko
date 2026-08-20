@@ -6,14 +6,7 @@
 // `stage` so the same record can describe routing, a skill, a command or the
 // answer itself.
 
-export type Stage =
-  | "model"
-  | "semantic"
-  | "route"
-  | "skill"
-  | "command"
-  | "tool"
-  | "answer";
+export type Stage = "model" | "semantic" | "route" | "skill" | "command" | "tool" | "answer";
 
 export type StageState = "running" | "ok" | "error" | "skipped";
 

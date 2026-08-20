@@ -12,16 +12,18 @@ export type Capability = {
 
 // Minimal SIMD v128 validation module — enough to know the runtime accepts it.
 const SIMD_PROBE = new Uint8Array([
-  0, 97, 115, 109, 1, 0, 0, 0,
-  1, 5, 1, 96, 0, 1, 123,
-  3, 2, 1, 0,
-  10, 10, 1, 8, 0, 65, 0, 253, 15, 253, 98, 11,
+  0, 97, 115, 109, 1, 0, 0, 0, 1, 5, 1, 96, 0, 1, 123, 3, 2, 1, 0, 10, 10, 1, 8, 0, 65, 0, 253, 15,
+  253, 98, 11,
 ]);
 
 export async function probeCapabilities(): Promise<Capability[]> {
   const wasm = typeof WebAssembly === "object";
   let simd = false;
-  try { simd = wasm && WebAssembly.validate(SIMD_PROBE); } catch { /* no-op */ }
+  try {
+    simd = wasm && WebAssembly.validate(SIMD_PROBE);
+  } catch {
+    /* no-op */
+  }
 
   const sab = typeof SharedArrayBuffer !== "undefined";
   const workers = typeof Worker !== "undefined";
@@ -32,7 +34,8 @@ export async function probeCapabilities(): Promise<Capability[]> {
   let webgpuDetail: string | undefined;
   if (typeof navigator !== "undefined" && "gpu" in navigator) {
     try {
-      const gpu = (navigator as unknown as { gpu?: { requestAdapter: () => Promise<unknown> } }).gpu;
+      const gpu = (navigator as unknown as { gpu?: { requestAdapter: () => Promise<unknown> } })
+        .gpu;
       const adapter = gpu ? await gpu.requestAdapter() : null;
       webgpu = !!adapter;
       const info = (adapter as { info?: { vendor?: string } } | null)?.info;
@@ -47,7 +50,9 @@ export async function probeCapabilities(): Promise<Capability[]> {
     if (typeof document !== "undefined") {
       webgl2 = !!document.createElement("canvas").getContext("webgl2");
     }
-  } catch { /* no-op */ }
+  } catch {
+    /* no-op */
+  }
 
   const crossOrigin =
     typeof globalThis !== "undefined" && "crossOriginIsolated" in globalThis
@@ -57,7 +62,12 @@ export async function probeCapabilities(): Promise<Capability[]> {
   return [
     { key: "wasm", label: "WebAssembly", ok: wasm },
     { key: "simd", label: "Wasm SIMD (v128)", ok: simd },
-    { key: "sab", label: "SharedArrayBuffer", ok: sab, detail: crossOrigin ? "cross-origin isolated" : "COOP/COEP off" },
+    {
+      key: "sab",
+      label: "SharedArrayBuffer",
+      ok: sab,
+      detail: crossOrigin ? "cross-origin isolated" : "COOP/COEP off",
+    },
     { key: "workers", label: "Web Workers", ok: workers },
     { key: "webgpu", label: "WebGPU", ok: webgpu, detail: webgpuDetail },
     { key: "webgl2", label: "WebGL 2", ok: webgl2 },

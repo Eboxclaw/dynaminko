@@ -36,12 +36,12 @@ Motion: cards enter staggered, numbers count up, page transitions cross-fade. Ev
 
 ## Real data
 
-| Need | Source |
-| --- | --- |
-| Balances, tokens, transfers | Ink Blockscout public API (no key) |
-| Prices, 24h change, history | CoinGecko public API (no key) |
-| Block height, gas, latency | Ink public RPC |
-| Wallet connect | EIP-1193 injected provider, read-only |
+| Need                        | Source                                |
+| --------------------------- | ------------------------------------- |
+| Balances, tokens, transfers | Ink Blockscout public API (no key)    |
+| Prices, 24h change, history | CoinGecko public API (no key)         |
+| Block height, gas, latency  | Ink public RPC                        |
+| Wallet connect              | EIP-1193 injected provider, read-only |
 
 Every read is cached in IndexedDB and stamped with its source and fetch time. Tokenized equities have no free feed and will render price-less until one exists.
 

@@ -3,11 +3,7 @@ import { useState } from "react";
 import { toast } from "sonner";
 
 import { CHAINS, DEFAULT_CHAIN_ID } from "@/chains";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { useActiveWallet } from "@/hooks/usePortfolio";
 import { useInjectedWallet } from "@/hooks/useInjectedWallet";
 import { shortAddress } from "@/lib/format";
@@ -91,9 +87,7 @@ export function WalletPanel({
     <div className="space-y-4 p-4">
       <div>
         <p className="text-[13px] font-medium">Your wallets</p>
-        <p className="text-[12px] text-ink-faint">
-          Read only. Nothing is signed, nothing is sent.
-        </p>
+        <p className="text-[12px] text-ink-faint">Read only. Nothing is signed, nothing is sent.</p>
       </div>
 
       {wallets.length > 0 && (

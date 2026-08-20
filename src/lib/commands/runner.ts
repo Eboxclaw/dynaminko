@@ -70,10 +70,7 @@ export async function runCommand(
   const attempt = async (): Promise<CommandResult> => {
     if (opts.signal?.aborted) return failed(id, "cancelled", "cancelled");
     const timeout = new Promise<CommandResult>((_, reject) =>
-      setTimeout(
-        () => reject(new Error("timeout")),
-        opts.timeoutMs ?? LIMITS.commandTimeoutMs,
-      ),
+      setTimeout(() => reject(new Error("timeout")), opts.timeoutMs ?? LIMITS.commandTimeoutMs),
     );
     return Promise.race([Promise.resolve(def.execute(args, ctx)), timeout]);
   };

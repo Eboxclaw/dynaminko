@@ -25,6 +25,7 @@ Layout:
 - Plain prose without a slash gets routed: a small deterministic router matches the message against skill keywords and journal/thesis nouns, picks the best skill, and says which one it picked before running it. If nothing matches and a model is loaded, the message goes to the model with a compact context header only.
 
 Session and context awareness (deliberately light):
+
 - One in-memory session per visit, persisted to the local doc store as a capped list (last N turns, trimmed by token estimate) so the tab survives navigation.
 - Context header sent to the model is a compact digest, never the journal: active wallet, counts (signals / entries / theses / inbox), POT score, and the titles of open theses. Anything deeper is fetched by a tool call on demand.
 - Result cards from tool calls stay in the transcript and are re-sent to the model as compact JSON, so follow-ups ("why?") work without re-running everything.
@@ -51,6 +52,7 @@ Center the dashboard's card grid within its container and cap the content width 
 Add `docs/positions-integration.md` containing the Velodrome / InkySwap / Nado / Hyperliquid spec verbatim in structure: wallet model (main read wallet reused for Hyperliquid; trading-account references added as child `WalletRef`s), per-protocol verified addresses and endpoints, read paths, data-model changes (`WalletRef` parent/subaccount field, a new `Position` type with `venue` / `kind` / venue-specific ids / common notional + PnL subset), worker placement in the market worker with `Promise.allSettled` per venue, and the open questions (Sugar ABI, Ink indexer availability, InkySwap read cost, LP PnL as a later spec).
 
 Applied where it is cheap and non-speculative now:
+
 - Extend `src/lib/venues/index.ts` docs and the `VenueReport` shape notes to match the spec's vocabulary.
 - Wire the **Nado** reader for real: subaccount discovery via the archive endpoint, then `subaccount_info` per subaccount — both are unauthenticated wallet-scoped REST reads.
 - Extend the **Hyperliquid** reader with spot balances, subaccounts and vault equities alongside the existing `clearinghouseState` call.

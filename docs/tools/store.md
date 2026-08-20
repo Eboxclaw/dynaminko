@@ -2,11 +2,11 @@
 
 Purpose: direct access to the two remaining local-document collections.
 
-| tool | access | inputs | output | approval | logged |
-| --- | --- | --- | --- | --- | --- |
-| thesis.read | READ | none | `Thesis[]` | no | optional |
-| thesis.edit | EDIT | `{id,patch}` | void | yes | always |
-| log.read | READ | none | `LogLine[]` | no | no |
+| tool        | access | inputs       | output      | approval | logged   |
+| ----------- | ------ | ------------ | ----------- | -------- | -------- |
+| thesis.read | READ   | none         | `Thesis[]`  | no       | optional |
+| thesis.edit | EDIT   | `{id,patch}` | void        | yes      | always   |
+| log.read    | READ   | none         | `LogLine[]` | no       | no       |
 
 `Thesis`: `id,title,body,symbols[],sector,horizon,conviction,status,createdAt,updatedAt`
 

@@ -29,6 +29,7 @@ public read is not available yet, the venue row shows as pending rather than fak
 ## 3. Theses & Journal
 
 **Inbox**
+
 - Copy-to-clipboard button on the transaction hash of each card.
 - Checkbox on every open trade card, a selection bar with "select all", and bulk resolve:
   answer the reconcile flow once and apply it to every selected trade (one journal entry per
@@ -36,10 +37,12 @@ public read is not available yet, the venue row shows as pending rather than fak
 - Remove the "Not journalable" button and the dismissed-signal path.
 
 **Reconcile flow**
+
 - Drop the first "Trade or thesis?" question. Every card enters the trade flow, which already
   links to an existing thesis or creates a new one inline.
 
 **Ghosts**
+
 - A thesis with any linked entry that has a trade is excluded. An entry that is linked to a
   trade is excluded. Only truly unexecuted intents remain.
 

@@ -49,8 +49,7 @@ export function ModelSwitch({
   const cloud = ai.target.kind === "cloud";
   const cap = ai.capability;
 
-  const pct =
-    ai.status.phase === "downloading" ? `${Math.round(ai.status.progress * 100)}%` : null;
+  const pct = ai.status.phase === "downloading" ? `${Math.round(ai.status.progress * 100)}%` : null;
 
   const state = pct
     ? `Downloading ${pct}`
@@ -67,7 +66,6 @@ export function ModelSwitch({
               : cap.generation === "error"
                 ? "Load failed"
                 : "Local · Not installed";
-
 
   const pick = async (modelId: string) => {
     setOpen(false);
@@ -107,7 +105,6 @@ export function ModelSwitch({
         <span className="min-w-0 truncate">{ai.target.label}</span>
         <span className="shrink-0 whitespace-nowrap text-ink-faint">{state}</span>
         <ChevronDown className="h-3 w-3 shrink-0" />
-
       </button>
 
       {error && (
@@ -123,70 +120,70 @@ export function ModelSwitch({
       {open && (
         <div className="absolute bottom-full left-0 z-30 mb-2 flex max-h-[min(60vh,22rem)] w-72 max-w-[calc(100vw-2rem)] flex-col overflow-hidden rounded-md border border-stroke bg-paper shadow-lg">
           <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
-          <p className="eyebrow border-b border-stroke px-3 py-1.5">Local</p>
-          <ul>
-            {ai.models
-              .filter((m) => m.generative)
-              .map((m) => {
-                const action = ai.actionFor(m.id);
-                const active = !cloud && ai.loadedModelId === m.id;
-                const state = ai.states[m.id];
-                const mine = ai.status.modelId === m.id;
-                const pct =
-                  mine && ai.status.phase === "downloading"
-                    ? `${Math.round(ai.status.progress * 100)}%`
-                    : null;
-                const note = active
-                  ? "Active"
-                  : state === "loading"
-                    ? (pct ?? "Loading…")
-                    : state === "downloaded"
-                      ? "On device"
-                      : ACTION_LABEL[action];
+            <p className="eyebrow border-b border-stroke px-3 py-1.5">Local</p>
+            <ul>
+              {ai.models
+                .filter((m) => m.generative)
+                .map((m) => {
+                  const action = ai.actionFor(m.id);
+                  const active = !cloud && ai.loadedModelId === m.id;
+                  const state = ai.states[m.id];
+                  const mine = ai.status.modelId === m.id;
+                  const pct =
+                    mine && ai.status.phase === "downloading"
+                      ? `${Math.round(ai.status.progress * 100)}%`
+                      : null;
+                  const note = active
+                    ? "Active"
+                    : state === "loading"
+                      ? (pct ?? "Loading…")
+                      : state === "downloaded"
+                        ? "On device"
+                        : ACTION_LABEL[action];
+                  return (
+                    <li key={m.id}>
+                      <button
+                        type="button"
+                        disabled={action === "unavailable"}
+                        onClick={() => void pick(m.id)}
+                        className={cn(
+                          "flex w-full items-baseline gap-2 px-3 py-2 text-left text-[12px] hover:bg-ink/5",
+                          active && "bg-ink/5 font-medium",
+                          action === "unavailable" && "opacity-40",
+                        )}
+                      >
+                        <span className="min-w-0 flex-1 truncate">{m.label}</span>
+                        <span className="eyebrow shrink-0">{note}</span>
+                      </button>
+                    </li>
+                  );
+                })}
+            </ul>
+
+            <p className="eyebrow border-y border-stroke px-3 py-1.5">Cloud</p>
+            <ul>
+              {CLOUD_PROVIDERS.map((p) => {
+                const cfg = doc.settings.assistant.cloud?.[p.id];
+                const ready = Boolean(cfg?.apiKey);
                 return (
-                  <li key={m.id}>
+                  <li key={p.id}>
                     <button
                       type="button"
-                      disabled={action === "unavailable"}
-                      onClick={() => void pick(m.id)}
+                      disabled={!ready}
+                      onClick={() => pickCloud(p.id)}
                       className={cn(
                         "flex w-full items-baseline gap-2 px-3 py-2 text-left text-[12px] hover:bg-ink/5",
-                        active && "bg-ink/5 font-medium",
-                        action === "unavailable" && "opacity-40",
+                        cloud && doc.settings.assistant.cloudId === p.id && "bg-ink/5 font-medium",
+                        !ready && "opacity-40",
                       )}
                     >
-                      <span className="min-w-0 flex-1 truncate">{m.label}</span>
-                      <span className="eyebrow shrink-0">{note}</span>
+                      <span className="min-w-0 flex-1 truncate">{p.label}</span>
+                      <span className="eyebrow shrink-0">{ready ? "Ready" : "No key"}</span>
                     </button>
                   </li>
                 );
               })}
-          </ul>
-
-          <p className="eyebrow border-y border-stroke px-3 py-1.5">Cloud</p>
-          <ul>
-            {CLOUD_PROVIDERS.map((p) => {
-              const cfg = doc.settings.assistant.cloud?.[p.id];
-              const ready = Boolean(cfg?.apiKey);
-              return (
-                <li key={p.id}>
-                  <button
-                    type="button"
-                    disabled={!ready}
-                    onClick={() => pickCloud(p.id)}
-                    className={cn(
-                      "flex w-full items-baseline gap-2 px-3 py-2 text-left text-[12px] hover:bg-ink/5",
-                      cloud && doc.settings.assistant.cloudId === p.id && "bg-ink/5 font-medium",
-                      !ready && "opacity-40",
-                    )}
-                  >
-                    <span className="min-w-0 flex-1 truncate">{p.label}</span>
-                    <span className="eyebrow shrink-0">{ready ? "Ready" : "No key"}</span>
-                  </button>
-                </li>
-              );
-            })}
-          </ul>
+            </ul>
           </div>
           <button
             type="button"
@@ -199,7 +196,6 @@ export function ModelSwitch({
             Model settings
           </button>
         </div>
-
       )}
     </div>
   );

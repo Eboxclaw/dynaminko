@@ -21,7 +21,7 @@ flowchart LR
 **Deliverables:** SQLite-WASM + `sqlite-vec` in OPFS behind a Storage Worker; IndexedDB for lightweight prefs; AES-256-GCM encryption with passphrase (+ optional WebAuthn PRF unlock); the canonical schema (§4.4) replacing fixtures; read-only wallet connect (`viem`/`wagmi`, `chains/ink.ts`); a daily fetch job pulling trade history via Nado's Gateway API or CLI (read-only, zero key material); token+time-window thesis-to-trade matching, with an explicitly decided acceptable error rate (§9 — this was flagged open in `[Vision §11]` and needs a real answer before this phase ships).
 **Exit criteria:** every trade on the connected wallet appears in the ledger with zero manual input; a standalone thesis survives a reload and reconciles correctly once a matching trade is fetched; the app works fully offline after first load.
 **Effort:** L–XL (this is the architectural foundation everything else sits on).
-Have in mind local storage for agent is diferent from local storage for our data and trades 
+Have in mind local storage for agent is diferent from local storage for our data and trades
 
 ### Phase 2 — Assisted journal
 
@@ -46,8 +46,8 @@ Have in mind local storage for agent is diferent from local storage for our data
 
 Have clear work flow, agent assistance and ability to read, resume and do some tool calls withing the app
 
+### Phase 5 —
 
-### Phase 5 — 
 Live execution & monetization
 
 **Goal:** move from tracking to executing, and turn the product into a funded one.
@@ -64,36 +64,36 @@ Live execution & monetization
 
 ### Confirmed vs. to-be-added
 
-| Category | Confirmed in `[Repo]` | To add, by phase |
-|---|---|---|
-| Framework | TanStack Start `^1.168.26`, TanStack Router `^1.170.16`, React `^19.2.0`, Vite `^8.0.16`, Nitro `3.0.260603-beta` | — |
-| Styling | Tailwind v4 `^4.2.1` (`@tailwindcss/vite`), shadcn/ui (full Radix set), `class-variance-authority`, `tailwind-merge`, `tw-animate-css` | Dynaminko token override (§2 palette/type as CSS `@theme` vars) |
-| UI utilities | `cmdk`, `vaul`, `sonner`, `recharts`, `embla-carousel-react`, `lucide-react ^0.575.0`, `react-day-picker`, `react-resizable-panels`, `input-otp` | — |
-| Forms | `react-hook-form`, `@hookform/resolvers`, `zod` | canonical schema (§4.4) |
-| PWA | — | `vite-plugin-pwa` (Phase 0/1 — verify Nitro build-output compatibility) |
-| Local data | — | SQLite-WASM + `sqlite-vec` in OPFS, Web Crypto (Phase 1) |
-| On-device AI | — | `@huggingface/transformers`, WebGPU/WASM (Phase 2) |
-| Cloud AI | — | `@anthropic-ai/sdk`, server-side only (Phase 2) |
-| Backend/sync | — | `@supabase/supabase-js` (Phase 2+) |
-| Chain | — | `viem`, `wagmi` (Phase 1) |
-| Package manager | Bun (`bun.lock`, `bunfig.toml`) | fix README (§3.8, §9) |
+| Category        | Confirmed in `[Repo]`                                                                                                                            | To add, by phase                                                        |
+| --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------- |
+| Framework       | TanStack Start `^1.168.26`, TanStack Router `^1.170.16`, React `^19.2.0`, Vite `^8.0.16`, Nitro `3.0.260603-beta`                                | —                                                                       |
+| Styling         | Tailwind v4 `^4.2.1` (`@tailwindcss/vite`), shadcn/ui (full Radix set), `class-variance-authority`, `tailwind-merge`, `tw-animate-css`           | Dynaminko token override (§2 palette/type as CSS `@theme` vars)         |
+| UI utilities    | `cmdk`, `vaul`, `sonner`, `recharts`, `embla-carousel-react`, `lucide-react ^0.575.0`, `react-day-picker`, `react-resizable-panels`, `input-otp` | —                                                                       |
+| Forms           | `react-hook-form`, `@hookform/resolvers`, `zod`                                                                                                  | canonical schema (§4.4)                                                 |
+| PWA             | —                                                                                                                                                | `vite-plugin-pwa` (Phase 0/1 — verify Nitro build-output compatibility) |
+| Local data      | —                                                                                                                                                | SQLite-WASM + `sqlite-vec` in OPFS, Web Crypto (Phase 1)                |
+| On-device AI    | —                                                                                                                                                | `@huggingface/transformers`, WebGPU/WASM (Phase 2)                      |
+| Cloud AI        | —                                                                                                                                                | `@anthropic-ai/sdk`, server-side only (Phase 2)                         |
+| Backend/sync    | —                                                                                                                                                | `@supabase/supabase-js` (Phase 2+)                                      |
+| Chain           | —                                                                                                                                                | `viem`, `wagmi` (Phase 1)                                               |
+| Package manager | Bun (`bun.lock`, `bunfig.toml`)                                                                                                                  | fix README (§3.8, §9)                                                   |
 
 ### Ink chain, Nado, Tydro — verified technical reference
 
-| Property | Value |
-|---|---|
-| Network | Ink Chain (Kraken, OP Stack, Optimism Superchain) |
-| Mainnet chain ID | `57073` |
-| Testnet | Sepolia Ink, chain ID `763373` |
-| Native currency | ETH |
-| Explorer | `https://explorer.inkonchain.com` |
-| RPC (examples) | `https://rpc-gel.inkonchain.com`, `https://rpc-qnd.inkonchain.com` |
-| Nado CLI | `@nadohq/nado-cli` (npm/bun); `nado market|account|trade|funds|nlp|auth|setup|shell` |
-| Nado MCP | `@nadohq/nado-mcp`, local stdio subprocess, ~50 tools |
-| Nado OffchainExchange contract | `0x8373C3Aa04153aBc0cfD28901c3c971a946994ab` (Ink) |
-| Nado Builder application | `https://tally.so/r/0QO4oy` |
-| Tydro docs | `https://docs.tydro.com` |
-| Tydro supported assets (as of mid-2026) | , wETH, kBTC, USDG, USDT0, GHO, USDC, USDe |
+| Property                                | Value                                                              |
+| --------------------------------------- | ------------------------------------------------------------------ |
+| Network                                 | Ink Chain (Kraken, OP Stack, Optimism Superchain)                  |
+| Mainnet chain ID                        | `57073`                                                            |
+| Testnet                                 | Sepolia Ink, chain ID `763373`                                     |
+| Native currency                         | ETH                                                                |
+| Explorer                                | `https://explorer.inkonchain.com`                                  |
+| RPC (examples)                          | `https://rpc-gel.inkonchain.com`, `https://rpc-qnd.inkonchain.com` |
+| Nado CLI                                | `@nadohq/nado-cli` (npm/bun); `nado market                         | account | trade | funds | nlp | auth | setup | shell` |
+| Nado MCP                                | `@nadohq/nado-mcp`, local stdio subprocess, ~50 tools              |
+| Nado OffchainExchange contract          | `0x8373C3Aa04153aBc0cfD28901c3c971a946994ab` (Ink)                 |
+| Nado Builder application                | `https://tally.so/r/0QO4oy`                                        |
+| Tydro docs                              | `https://docs.tydro.com`                                           |
+| Tydro supported assets (as of mid-2026) | , wETH, kBTC, USDG, USDT0, GHO, USDC, USDe                         |
 
 Structure `chains/ink.ts` as a thin wrapper over viem's built-in `ink` export (`import { ink } from "viem/chains"`) rather than hand-defining it, per §4.6.
 
