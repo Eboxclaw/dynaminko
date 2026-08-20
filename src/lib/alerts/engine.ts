@@ -13,7 +13,7 @@ export type Firing = {
 
 const DAY = 86_400_000;
 /** Don't re-fire the same alert more often than this while it stays true. */
-const COOLDOWN = 6 * 3_600_000;
+const COOLDOWN = 3 * 3_600_000;
 
 export function evaluate(
   alerts: Alert[],
@@ -46,8 +46,7 @@ export function evaluate(
       const since = alert.lastFiredAt ?? alert.createdAt;
       const matches = ctx.signals.filter(
         (s) =>
-          s.ts > since &&
-          (!alert.symbol || s.symbol.toUpperCase() === alert.symbol.toUpperCase()),
+          s.ts > since && (!alert.symbol || s.symbol.toUpperCase() === alert.symbol.toUpperCase()),
       );
       if (matches.length === 0) continue;
       out.push({

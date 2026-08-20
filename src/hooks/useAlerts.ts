@@ -22,6 +22,26 @@ export function useAlerts() {
 
   useEffect(() => {
     if (doc.alerts.length === 0) return;
+
+    // Warn when price alerts exist but no quotes are available
+    const priceAlerts = doc.alerts.filter((a) => a.kind === "price" && a.enabled);
+    if (priceAlerts.length > 0 && quotes.length === 0) {
+      log("watcher", "price alerts pending - no quotes available", {
+        level: "call",
+        detail: `${priceAlerts.length} alert(s) waiting`,
+      });
+    } else if (priceAlerts.length > 0) {
+      // Per-symbol: which alert symbols have no matching quote
+      for (const a of priceAlerts) {
+        if (a.symbol && !quotes.some((q) => q.symbol === a.symbol!.toUpperCase())) {
+          log("watcher", `no quote for ${a.symbol}`, {
+            level: "call",
+            detail: `${a.symbol} ${a.direction} ${a.target} has no matching price`,
+          });
+        }
+      }
+    }
+
     const firings = evaluate(doc.alerts, {
       quotes,
       signals: doc.signals,
