@@ -6,7 +6,7 @@
 import { getChain, type ChainConfig } from "@/chains";
 
 export type TokenBalance = {
-  address: string;      // contract, "native" for ETH
+  address: string; // contract, "native" for ETH
   symbol: string;
   name: string;
   decimals: number;
@@ -24,7 +24,7 @@ export type ChainTransfer = {
   amount: number;
   direction: "in" | "out";
   counterparty: string;
-  ts: number;           // ms epoch
+  ts: number; // ms epoch
   blockNumber: number | null;
 };
 

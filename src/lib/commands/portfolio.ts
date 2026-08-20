@@ -25,8 +25,13 @@ function lines(ctx: CommandContext): Line[] {
   const by = new Map<string, Line>();
   for (const s of doc.signals) {
     const sym = s.symbol.toUpperCase();
-    const cur =
-      by.get(sym) ?? { symbol: sym, basket: classify(sym).basket, net: 0, value: 0, trades: 0 };
+    const cur = by.get(sym) ?? {
+      symbol: sym,
+      basket: classify(sym).basket,
+      net: 0,
+      value: 0,
+      trades: 0,
+    };
     const sign = s.side === "in" ? 1 : -1;
     cur.net += sign * s.amount;
     cur.value = (cur.value ?? 0) + sign * (s.value ?? 0);
@@ -40,7 +45,8 @@ export function snapshot(_args: Record<string, unknown>, ctx: CommandContext): C
   const id = "portfolio.snapshot";
   const rows = lines(ctx);
   const baskets = new Map<SectorId, number>();
-  for (const l of rows) baskets.set(l.basket, (baskets.get(l.basket) ?? 0) + Math.abs(l.value ?? 0));
+  for (const l of rows)
+    baskets.set(l.basket, (baskets.get(l.basket) ?? 0) + Math.abs(l.value ?? 0));
   const total = [...baskets.values()].reduce((a, b) => a + b, 0);
   return ok(
     id,
@@ -122,5 +128,9 @@ export function createAlert(args: Record<string, unknown>, ctx: CommandContext):
   const direction = str(args.direction) === "below" ? "below" : "above";
   const alert = addAlert({ kind: "price", symbol, direction, target, note: str(args.note) ?? "" });
   ctx.count();
-  return ok(id, { id: alert.id, symbol, direction, target }, `Alert on ${symbol} ${direction} ${target}.`);
+  return ok(
+    id,
+    { id: alert.id, symbol, direction, target },
+    `Alert on ${symbol} ${direction} ${target}.`,
+  );
 }

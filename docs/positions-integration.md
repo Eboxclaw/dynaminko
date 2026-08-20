@@ -6,24 +6,24 @@ protocol's own current documentation; re-verify before a production deploy.
 
 ## Wallet model
 
-| Role | Purpose | Chain | Data model |
-| --- | --- | --- | --- |
-| Main read wallet | Ink reads today (`readWallet()`), and the identity used for Hyperliquid | Ink 57073 + Hyperliquid | one `WalletRef`, `chainId: 57073` |
-| Trading account | A Nado subaccount or Hyperliquid vault/subaccount the user opts to track | Ink or Hyperliquid | extra `WalletRef`, `kind: "watch"`, plus a parent link |
+| Role             | Purpose                                                                  | Chain                   | Data model                                             |
+| ---------------- | ------------------------------------------------------------------------ | ----------------------- | ------------------------------------------------------ |
+| Main read wallet | Ink reads today (`readWallet()`), and the identity used for Hyperliquid  | Ink 57073 + Hyperliquid | one `WalletRef`, `chainId: 57073`                      |
+| Trading account  | A Nado subaccount or Hyperliquid vault/subaccount the user opts to track | Ink or Hyperliquid      | extra `WalletRef`, `kind: "watch"`, plus a parent link |
 
 The add button reads "track a trading account", not "add a wallet": Nado and Hyperliquid
 subaccounts are sub-identifiers under one signing address, not separate EOAs.
 
 ## Velodrome (Ink 57073)
 
-| Contract | Address |
-| --- | --- |
+| Contract                              | Address                                      |
+| ------------------------------------- | -------------------------------------------- |
 | Slipstream NonFungiblePositionManager | `0xefD0f78F93f578036AE34D52A813a4BE7D8D2D52` |
-| Slipstream pool factory | `0x718E46d0962A66942E233760a8bd6038Ce54EdCD` |
-| Slipstream Sugar helper | `0x116bb1E5E57c9fA95a29aA50Eb1edb352446C089` |
-| V2 pool factory | `0x31832f2a97Fd20664D76Cc421207669b55CE4BC0` |
-| V2 router | `0x3a63171DD9BebF4D07BC782FECC7eb0b890C2A45` |
-| V2 voter | `0x97cDBCe21B6fd0585d29E539B1B99dAd328a1123` |
+| Slipstream pool factory               | `0x718E46d0962A66942E233760a8bd6038Ce54EdCD` |
+| Slipstream Sugar helper               | `0x116bb1E5E57c9fA95a29aA50Eb1edb352446C089` |
+| V2 pool factory                       | `0x31832f2a97Fd20664D76Cc421207669b55CE4BC0` |
+| V2 router                             | `0x3a63171DD9BebF4D07BC782FECC7eb0b890C2A45` |
+| V2 voter                              | `0x97cDBCe21B6fd0585d29E539B1B99dAd328a1123` |
 
 - CL positions: `balanceOf` + `tokenOfOwnerByIndex` + `positions(tokenId)` on the Position
   Manager. N+1 reads; the Sugar helper exists to batch this — check its ABI first.
@@ -36,13 +36,13 @@ subaccounts are sub-identifiers under one signing address, not separate EOAs.
 Not an AMM in the Velodrome sense: a bonding-curve launchpad that graduates tokens into
 Uniswap V4 pools.
 
-| Contract | Address |
-| --- | --- |
-| InkyPumpHook (proxy) | `0x4cC8F6d5B7cE150CCC0A9B7664532B1283b96AC4` |
-| Uniswap V4 PoolManager | `0x360E68faCcca8cA495c1B759Fd9EEe466db9FB32` |
+| Contract                   | Address                                      |
+| -------------------------- | -------------------------------------------- |
+| InkyPumpHook (proxy)       | `0x4cC8F6d5B7cE150CCC0A9B7664532B1283b96AC4` |
+| Uniswap V4 PoolManager     | `0x360E68faCcca8cA495c1B759Fd9EEe466db9FB32` |
 | Uniswap V4 PositionManager | `0x1b35d13a2E2528f192637F14B05f0Dc0e7dEB566` |
-| Uniswap V4 StateView | `0x76Fd297e2D437cd7f76d50F01AfE6160f86e9990` |
-| Uniswap V4 Quoter | `0x3972C00f7ed4885e145823eb7C655375d275A1C5` |
+| Uniswap V4 StateView       | `0x76Fd297e2D437cd7f76d50F01AfE6160f86e9990` |
+| Uniswap V4 Quoter          | `0x3972C00f7ed4885e145823eb7C655375d275A1C5` |
 
 - REST, no auth: `GET https://inkypump.com/api/tokens/by-owner?owner=0x…` (tokens created),
   `GET https://inkyswap.com/api/pairs` (pool-level, not wallet-scoped).
@@ -51,8 +51,8 @@ Uniswap V4 pools.
 
 ## Nado (Ink) — spot, perps, unified margin
 
-| Service | Base URL |
-| --- | --- |
+| Service      | Base URL                                     |
+| ------------ | -------------------------------------------- |
 | Gateway REST | `https://gateway.prod.nado.xyz/v1` and `/v2` |
 | Archive REST | `https://archive.prod.nado.xyz/v1` and `/v2` |
 
@@ -72,12 +72,12 @@ Step 1 pre-populates the "track a trading account" button.
 
 Single endpoint: `POST https://api.hyperliquid.xyz/info`, no auth for reads.
 
-| Query | Body | Returns |
-| --- | --- | --- |
-| Perps | `{"type":"clearinghouseState","user":"0x…"}` | positions (`szi`, `entryPx`, `positionValue`, `unrealizedPnl`, `liquidationPx`, leverage) + `marginSummary` |
-| Spot | `{"type":"spotClearinghouseState","user":"0x…"}` | `coin`, `total`, `hold`, `entryNtl` |
-| Subaccounts | `{"type":"subAccounts","user":"0x…"}` | each with embedded clearinghouse + spot state |
-| Vaults | `{"type":"userVaultEquities","user":"0x…"}` | vault equity |
+| Query       | Body                                             | Returns                                                                                                     |
+| ----------- | ------------------------------------------------ | ----------------------------------------------------------------------------------------------------------- |
+| Perps       | `{"type":"clearinghouseState","user":"0x…"}`     | positions (`szi`, `entryPx`, `positionValue`, `unrealizedPnl`, `liquidationPx`, leverage) + `marginSummary` |
+| Spot        | `{"type":"spotClearinghouseState","user":"0x…"}` | `coin`, `total`, `hold`, `entryNtl`                                                                         |
+| Subaccounts | `{"type":"subAccounts","user":"0x…"}`            | each with embedded clearinghouse + spot state                                                               |
+| Vaults      | `{"type":"userVaultEquities","user":"0x…"}`      | vault equity                                                                                                |
 
 Same address as the Ink read wallet. Hyperliquid runs on HyperCore/HyperEVM: route it
 through its own reader keyed off `chainId`, never through Blockscout logic.
@@ -105,12 +105,12 @@ through its own reader keyed off `chainId`, never through Blockscout logic.
 
 ## Implementation status
 
-| Venue | Reader | State |
-| --- | --- | --- |
-| Nado | `src/lib/venues/nado.ts` | Live. Archive v1 subaccount discovery + Gateway state; perps, spot, equity/health. |
-| Hyperliquid | `src/lib/venues/hyperliquid.ts` | Live. Perps, spot, subaccounts and vault equity. |
-| Velodrome | `src/lib/venues/velodrome.ts` | Live. Slipstream NFT enumeration → `positions` → factory pool → `slot0`; token amounts + in/out of range. USD not priced. |
-| InkySwap | — | Pending. Uniswap V4 position read not wired. |
+| Venue       | Reader                          | State                                                                                                                     |
+| ----------- | ------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| Nado        | `src/lib/venues/nado.ts`        | Live. Archive v1 subaccount discovery + Gateway state; perps, spot, equity/health.                                        |
+| Hyperliquid | `src/lib/venues/hyperliquid.ts` | Live. Perps, spot, subaccounts and vault equity.                                                                          |
+| Velodrome   | `src/lib/venues/velodrome.ts`   | Live. Slipstream NFT enumeration → `positions` → factory pool → `slot0`; token amounts + in/out of range. USD not priced. |
+| InkySwap    | —                               | Pending. Uniswap V4 position read not wired.                                                                              |
 
 Shared model in `src/lib/venues/types.ts`: `Position` (perp / spot / lp-*) and
 `AccountSummary` (equity, margin, health). Net worth = wallet balances +

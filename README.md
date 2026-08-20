@@ -20,20 +20,20 @@ What's real right now
 
 Verified by cloning the repository, installing dependencies, and running tsc, eslint, and vite build directly, not by reading documentation.
 
-Area	State
-TypeScript	Compiles clean, zero errors
-Production build	Succeeds (SSR + client)
-Wallet reads	Real. Ink Blockscout public API + JSON-RPC, no API key, runs inside a dedicated Web Worker so parsing never blocks the UI
-Prices	Real. CoinGecko public API, server-cached
-Trade detection	Real. Extracted from actual transfer logs, not synthesized
-Local storage	Real. Single versioned document in localStorage, subscription-based, with a fixed infinite-render-loop bug (see git log, "Fix the blank screen")
-Wallet connect	Real, read-only. Hand-rolled EIP-1193 listener, zero dependencies, no signing
-On-device AI	Real. @wllama/wllama (llama.cpp compiled to WASM) running in-browser, lazy-loaded behind explicit user action. Ships with the LiquidAI LFM 2.5 family (230M / 450M / 1.2B / 2.6B, Q4_K_M) as selectable models, downloaded on explicit user action from /agents
-Portfolio 3D ring	Real. three.js, dynamically imported so it never blocks startup, falls back cleanly under prefers-reduced-motion
-PWA	Installable, with a service worker (public/sw.js) backing notifications and asset caching
-Trading / execution	Not built. /trade is a single placeholder screen: "Journal first, execution second."
-Server-side AI (cloud LLM)	Not built. All AI in the current build runs on-device
-Nado, Tydro, inkySwap, Velodrome integration	Not built. No live DEX or lending calls anywhere in the codebase
+Area State
+TypeScript Compiles clean, zero errors
+Production build Succeeds (SSR + client)
+Wallet reads Real. Ink Blockscout public API + JSON-RPC, no API key, runs inside a dedicated Web Worker so parsing never blocks the UI
+Prices Real. CoinGecko public API, server-cached
+Trade detection Real. Extracted from actual transfer logs, not synthesized
+Local storage Real. Single versioned document in localStorage, subscription-based, with a fixed infinite-render-loop bug (see git log, "Fix the blank screen")
+Wallet connect Real, read-only. Hand-rolled EIP-1193 listener, zero dependencies, no signing
+On-device AI Real. @wllama/wllama (llama.cpp compiled to WASM) running in-browser, lazy-loaded behind explicit user action. Ships with the LiquidAI LFM 2.5 family (230M / 450M / 1.2B / 2.6B, Q4_K_M) as selectable models, downloaded on explicit user action from /agents
+Portfolio 3D ring Real. three.js, dynamically imported so it never blocks startup, falls back cleanly under prefers-reduced-motion
+PWA Installable, with a service worker (public/sw.js) backing notifications and asset caching
+Trading / execution Not built. /trade is a single placeholder screen: "Journal first, execution second."
+Server-side AI (cloud LLM) Not built. All AI in the current build runs on-device
+Nado, Tydro, inkySwap, Velodrome integration Not built. No live DEX or lending calls anywhere in the codebase
 Known issue: broken favicon reference
 
 src/routes/__root.tsx links /pot-mark.svg as the site icon. That file was never created; the actual logo files on disk are dynaminko.svg and dynaminko-logo.png, artwork unchanged since the rebuild. This 404s on every page load. The fix is a one-line revert in __root.tsx back to /dynaminko.svg, not a file rename.
@@ -82,7 +82,6 @@ Other scripts: npm run build, npm run lint, npm run format. (bun install / bun r
 Where the roadmap lives
 
 See ROADMAP.md for what's next, sequenced from this actual state rather than from the pre-rebuild plan.
-
 
 Agent architecture
 

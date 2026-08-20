@@ -101,10 +101,7 @@ export type Trade = {
 };
 
 /** Chain transfers become journalable moments. Dust is filtered out. */
-export function tradesFromSnapshot(
-  snapshot: WalletSnapshot | null,
-  quotes: Quote[],
-): Trade[] {
+export function tradesFromSnapshot(snapshot: WalletSnapshot | null, quotes: Quote[]): Trade[] {
   if (!snapshot) return [];
   const quoteBy = new Map(quotes.map((q) => [q.symbol.toUpperCase(), q]));
   return snapshot.transfers

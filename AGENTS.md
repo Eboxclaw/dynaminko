@@ -30,12 +30,12 @@ Prefer native capabilities before adding dependencies.
 Workers
 
 React UI
-    │
-    
+│
+
 Typed Message Bus
 
-Market   AI    Storage   Risk
-Worker  Worker  Worker   Worker
+Market AI Storage Risk
+Worker Worker Worker Worker
 
 | Worker       | Responsibility       |
 | ------------ | -------------------- |
@@ -45,15 +45,14 @@ Worker  Worker  Worker   Worker
 | Risk         | Calculations         |
 | Notification | Alerts               |
 
-
 WASM
 
 TypeScript
-      │
+│
 High-level orchestration
-      │
+│
 WebAssembly
-      │
+│
 GPU or CPU-intensive work
 
 | Worker       | Responsibility       |
@@ -68,11 +67,11 @@ Data
 Never serialize large binary data between workers
 
 SharedArrayBuffer
-      ↓
+↓
 ArrayBuffer
-      ↓
+↓
 Uint8Array
-      ↓
+↓
 JSON (network only)
 
 Async Model
@@ -91,13 +90,13 @@ Avoid synchronous work on the main thread.
 
 Lazy Loading
 App Shell
-    ↓
+↓
 UI
-    ↓
+↓
 User Action
-    ↓
+↓
 Download Model
-    ↓
+↓
 Warm Model
 Never block startup on AI models
 
@@ -126,12 +125,12 @@ Tokenization
 Numerical algorithms
 Performance-critical code
 Internal Communication
-Use	Format
-Network	JSON
-Workers	Typed messages
-Binary	Uint8Array
-Shared data	SharedArrayBuffer
-Serialization	MessagePack (optional)
+Use Format
+Network JSON
+Workers Typed messages
+Binary Uint8Array
+Shared data SharedArrayBuffer
+Serialization MessagePack (optional)
 Optimization Priorities
 Move less data.
 Avoid blocking the UI.
@@ -141,30 +140,30 @@ Stream instead of buffering.
 Lazy-load heavy resources.
 Benchmark before introducing WASM.
 Long-Term Focus
-Area	Importance
-TypeScript	★★★★★
-Browser APIs	★★★★★
-PWAs	★★★★★
-Workers	★★★★★
-WebAssembly	★★★★☆
-WebGPU	★★★★☆
-Networking	★★★★☆
-Cryptography	★★★★☆
-Rust	★★★☆☆ (performance modules only)
-
+Area Importance
+TypeScript ★★★★★
+Browser APIs ★★★★★
+PWAs ★★★★★
+Workers ★★★★★
+WebAssembly ★★★★☆
+WebGPU ★★★★☆
+Networking ★★★★☆
+Cryptography ★★★★☆
+Rust ★★★☆☆ (performance modules only)
 
 ## Agent Architecture — AI Only When Necessary
 
 **Principle (permanent):** `Extract → Parse → Index → Calculate → Retrieve → Reason only when necessary.`
 
-| Layer | Definition | Model? |
-| --- | --- | --- |
-| Tool | Deterministic action: read, parse, index, filter, calculate, format, notify, RPC | Never |
-| Skill | Orchestrates tools; may end with a reasoning step | Only the last step |
-| Agent / AI | Reasoning, interpretation, synthesis, planning, natural language | Only when the task genuinely needs it |
+| Layer      | Definition                                                                       | Model?                                |
+| ---------- | -------------------------------------------------------------------------------- | ------------------------------------- |
+| Tool       | Deterministic action: read, parse, index, filter, calculate, format, notify, RPC | Never                                 |
+| Skill      | Orchestrates tools; may end with a reasoning step                                | Only the last step                    |
+| Agent / AI | Reasoning, interpretation, synthesis, planning, natural language                 | Only when the task genuinely needs it |
 
 Rules:
-- Do not send work to a model because a model *can* do it. If code, an index, an API or a cached value can answer it, they must.
+
+- Do not send work to a model because a model _can_ do it. If code, an index, an API or a cached value can answer it, they must.
 - A model never scans the journal card by card. Tools index, filter and compute; the model receives a compact structured result.
 - Every AI feature is opt-in. If a surface needs a model that is not downloaded, show the deterministic result and link the user to `/agents` to download one — never fail silently.
 - Every tool declares an access level. Approval and logging follow from it:

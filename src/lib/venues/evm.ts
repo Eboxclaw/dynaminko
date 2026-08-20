@@ -49,13 +49,15 @@ export function toAddress(word: string | undefined): string {
 export function toStringValue(result: string): string {
   const w = words(result);
   const len = Number(toBigInt(w[1]));
-  const hex = w.slice(2).join("").slice(0, len * 2);
+  const hex = w
+    .slice(2)
+    .join("")
+    .slice(0, len * 2);
   const bytes = new Uint8Array(hex.length / 2);
   for (let i = 0; i < bytes.length; i += 1) bytes[i] = parseInt(hex.slice(i * 2, i * 2 + 2), 16);
   const out = new TextDecoder("utf-8", { fatal: false }).decode(bytes);
   return out.replace(/\0+$/, "");
 }
-
 
 type RpcCall = { to: string; data: string };
 
@@ -87,8 +89,7 @@ export async function ethCallMany(
   });
   if (!res.ok) throw new RpcError(`rpc ${res.status}`);
   const json = (await res.json()) as
-    | { id: number; result?: string; error?: unknown }[]
-    | { error?: unknown };
+    { id: number; result?: string; error?: unknown }[] | { error?: unknown };
   if (!Array.isArray(json)) throw new RpcError("rpc batch rejected");
 
   const out: (string | null)[] = new Array(calls.length).fill(null);
