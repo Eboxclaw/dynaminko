@@ -55,14 +55,12 @@ Access level decides. `READ`/`COMPUTE` run immediately; `WRITE`/`EDIT`/`DELETE`/
 `EXECUTE`/`EXTERNAL` render the intended change and wait. Every run is logged
 with duration, tool count and whether a model was involved.
 
-## Embedding tiers
+## Embedding
 
-| Tier | Model | Size | Role |
-| --- | --- | --- | --- |
-| default | MiniLM L6 v2 | 23 MB | Cheap semantic index for retrieval and routing. |
-| upgrade | LFM 2.5 Encoder-230M | ~180 MB | Recommended experimental backend: stronger routing and classification. |
-
-Cheap tier first; when its best match scores below `0.55` and the encoder is
-already on the device, the query is re-ranked with it. The encoder becomes the
-default only after a journal-specific benchmark, not before. Nothing downloads
-automatically, and routing degrades to keywords when neither is present.
+One provider: the LFM 2.5 Encoder-230M (768 dimensions, 180 MB Q8). It does
+everything the old MiniLM tier did — vectors, semantics, classification — at
+higher capacity, so the two-tier cheap-then-escalate design collapsed to a
+single always-warm encoder. The encoder is warmed on the first message and
+never goes cold; routing always has vectors when it needs them. Nothing
+downloads automatically, and routing degrades to keywords when the encoder is
+absent.

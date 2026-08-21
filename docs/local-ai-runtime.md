@@ -18,18 +18,21 @@ second AI architecture.
 
 1. Probe WebGPU: request an adapter *and* a device. An adapter that never
    yields a device counts as broken, not present.
-2. WebGPU present → load with all layers offloaded (`n_gpu_layers: 99999`).
-3. Load throws → retry once on WASM with zero GPU layers.
+2. WebGPU present → load with GPU layers computed dynamically from VRAM,
+   model size and context length via `computeGpuLayers()` in `runtime.ts`.
+3. Load throws on GPU → retry once on WASM with zero GPU layers.
 4. No WebGPU → WASM SIMD. Threads only when the page is cross-origin isolated.
-5. `activeBackend()` reports what actually ran. The UI never guesses.
+5. `activeBackend()` reports what actually ran: `"webgpu"`, `"wasm"`, or
+   `"unavailable"`. The UI never guesses.
 
 ## Model policy (LFM 2.5 family, GGUF, Q4_K_M)
 
 | Device | Recommendation |
 | --- | --- |
 | ≥ 8 GB reported, desktop | LFM2.5 1.2B Instruct |
-| 4–8 GB, or touch device | LFM2.5 450M VL |
-| unknown memory | 450M VL until probed |
+| 4–8 GB, or touch device | LFM2.5 350M |
+| unknown memory | 350M until probed |
+| 450M VL | vision turns only, manual choice |
 | 2.6B | manual choice only, never auto-recommended on mobile |
 
 Rules: one generative model resident at a time; unload before switching;
@@ -38,7 +41,7 @@ cached by the browser and reused offline.
 
 ## States the UI must distinguish
 
-`required` · `downloading` · `downloaded` · `ready` · `unavailable` · `error`,
+`missing` · `downloading` · `loading` · `downloaded` · `loaded` · `unavailable` · `error`,
 each with the backend when running. The encoder carries its own state and is
 labelled *optional, recommended*.
 
@@ -54,5 +57,5 @@ labelled *optional, recommended*.
 - [ ] Move generation into a dedicated worker so long turns never touch the main thread
 - [ ] Persist per-session KV cache reuse between turns
 - [ ] Encoder-backed embedding cache in IndexedDB, invalidated per record
-- [ ] Cross-origin isolation headers to unlock WASM threads on the published site
+- [x] Cross-origin isolation headers to unlock WASM threads on the published site
 - [ ] Vision turns for chart screenshots through the VL models

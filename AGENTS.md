@@ -56,14 +56,6 @@ WebAssembly
       │
 GPU or CPU-intensive work
 
-| Worker       | Responsibility       |
-| ------------ | -------------------- |
-| Market       | Market feeds         |
-| AI           | LLM, embeddings      |
-| Storage      | Persistence & crypto |
-| Risk         | Calculations         |
-| Notification | Alerts               |
-
 Data
 Never serialize large binary data between workers
 
