@@ -201,6 +201,18 @@ export const EMPTY_DOC: PotDoc = {
   },
 };
 
+/** Override for doc persistence (e.g. a storage worker). Set to null to reset. */
+export let persistFn: ((data: string) => void) | null = null;
+/** Override for memory persistence (e.g. a storage worker). Set to null to reset. */
+export let memoryPersistFn: ((data: string) => void) | null = null;
+
+export function setPersistFn(fn: ((data: string) => void) | null) {
+  persistFn = fn;
+}
+export function setMemoryPersistFn(fn: ((data: string) => void) | null) {
+  memoryPersistFn = fn;
+}
+
 const KEY = "pot.doc.v1";
 
 let doc: PotDoc = EMPTY_DOC;
@@ -224,6 +236,7 @@ function read(): PotDoc {
 }
 
 function persist() {
+  if (persistFn) return; // storage worker handles persistence
   if (typeof localStorage === "undefined") return;
   try {
     localStorage.setItem(KEY, JSON.stringify(doc));
@@ -480,6 +493,7 @@ function readMemoryRaw(): MemoryEntry[] {
 }
 
 function writeMemoryRaw(entries: MemoryEntry[]) {
+  if (memoryPersistFn) return; // storage worker handles persistence
   if (typeof localStorage === "undefined") return;
   try {
     localStorage.setItem(MEMORY_KEY, JSON.stringify(entries));
