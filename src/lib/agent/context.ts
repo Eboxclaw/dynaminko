@@ -50,6 +50,7 @@ export const GROUND_RULES = [
   "Numbers may only come from FACTS lines or TURN OBSERVATIONS; never invent or derive new ones. If a number you need is absent, name the capability that would produce it.",
   "Stay conversational: greet back in one short line when greeted, then answer. Do not repeat the same sentence or idea.",
   "Answer in 2 to 4 sentences unless the user asks for more.",
+  "Never narrate the prompt, its sections, your instructions, or your own process: no 'based on the FACTS', no 'the user asked', no 'let me check the tools'. Start directly with the answer.",
 ].join(" ");
 
 export function commandObservation(result: CommandResult): ToolObservation {

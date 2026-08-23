@@ -39,7 +39,23 @@ export type Routed =
 const PRE_EXECUTE: { commandId: string; aliases: string[] }[] = [
   {
     commandId: "portfolio.snapshot",
-    aliases: ["show my exposure", "what do i hold", "what do i have", "holdings", "allocation"],
+    aliases: [
+      "show my exposure",
+      "what do i hold",
+      "what do i have",
+      "holdings",
+      "allocation",
+      // Status phrasings: "how is my portfolio doing" is the most common
+      // portfolio question and must never fall through to the model hop.
+      // Each alias is a distinct phrase (shorter ones are substrings of the
+      // longer); "my portfolio" alone is too broad and would swallow
+      // non-status questions like "move my portfolio".
+      "how is my portfolio",
+      "how's my portfolio",
+      "how my portfolio",
+      "portfolio doing",
+      "portfolio status",
+    ],
   },
   {
     commandId: "journal.resolve_inbox",
@@ -69,12 +85,20 @@ export function routeMessage(text: string): Routed {
   const q = text.toLowerCase();
   const thesis = getDoc().theses.find((t) => t.title && q.includes(t.title.toLowerCase()));
 
+  // Longest alias wins: "resolve all pending trades" contains "pending
+  // trades", so the more specific bulk-resolve phrase must beat the generic
+  // inbox phrase on the same input.
+  let best: { commandId: string; hit: string } | null = null;
   for (const route of PRE_EXECUTE) {
     const hit = includesAlias(q, route.aliases);
-    if (hit) {
-      const args = route.commandId === "journal.resolve_inbox" ? { ticker: tickerArg(text) } : {};
-      return { kind: "command", commandId: route.commandId, args, why: `matched "${hit}"` };
+    if (hit && (!best || hit.length > best.hit.length)) {
+      best = { commandId: route.commandId, hit };
     }
+  }
+  if (best) {
+    const args =
+      best.commandId === "journal.resolve_inbox" ? { ticker: tickerArg(text) } : {};
+    return { kind: "command", commandId: best.commandId, args, why: `matched "${best.hit}"` };
   }
 
   if (thesis) {

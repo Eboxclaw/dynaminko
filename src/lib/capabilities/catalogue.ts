@@ -98,6 +98,14 @@ const COMMAND_ALIASES: Record<string, string[]> = {
     "holdings",
     "allocation",
     "portfolio composition",
+    // Keep in step with route.ts PRE_EXECUTE: the deterministic router matches
+    // these phrases, and the semantic layer should rank the same command for
+    // near-misses the keyword pass did not catch.
+    "how is my portfolio",
+    "how's my portfolio",
+    "how my portfolio",
+    "portfolio doing",
+    "portfolio status",
   ],
   "portfolio.positions": ["positions", "position lines", "tokens held"],
   "journal.resolve_inbox": [
@@ -132,13 +140,19 @@ const COMMAND_EXAMPLES: Record<string, string[]> = {
 };
 
 export function capabilityCatalogue(): CapabilityDefinition[] {
+  // One id, one entry. journal.search exists as both a tool and a command;
+  // the tool entry wins because it carries inputs/output the model can read,
+  // and the command stays runnable through /run either way. The command's
+  // semantic aliases ("find trades", "most traded", …) are folded into the
+  // tool entry so routing coverage does not shrink.
+  const toolIds = new Set(TOOLS.filter((t) => t.live).map((t) => t.id));
   const tools = TOOLS.filter((t) => t.live).map((t): CapabilityDefinition => ({
     id: t.id,
     kind: "tool",
     label: t.label,
     purpose: t.purpose,
-    aliases: [t.group, t.action, t.label],
-    examples: [],
+    aliases: [t.group, t.action, t.label, ...(COMMAND_ALIASES[t.id] ?? [])],
+    examples: COMMAND_EXAMPLES[t.id] ?? [],
     inputs: t.inputs,
     output: t.output,
     access: t.access,
@@ -164,7 +178,7 @@ export function capabilityCatalogue(): CapabilityDefinition[] {
     exec: execOf("skill", "COMPUTE", s.aiRequired),
   }));
 
-  const commands = COMMAND_DEFS.map((c): CapabilityDefinition => ({
+  const commands = COMMAND_DEFS.filter((c) => !toolIds.has(c.id)).map((c): CapabilityDefinition => ({
     id: c.id,
     kind:
       c.batchMode === "batch" || c.batchMode === "aggregate" || c.batchMode === "workspace"

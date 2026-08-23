@@ -358,17 +358,22 @@ function ChatConsole({
   ): Promise<{ def: CapabilityDefinition; query: string; why: string } | null> => {
     const ids = allowed.map((d) => d.id);
     if (ids.length === 0) return null;
+    // The pick prompt carries the same live portfolio lines as the answer
+    // prompt: when holdings are already in FACTS the model has no reason to
+    // spend its one hop on journal.search. Empty when the cache is cold.
+    const portfolio = await portfolioFactLines().catch(() => "");
+    const facts = [factLines(), portfolio].filter(Boolean).join("\n");
     const messages: TurnMessage[] = [
       {
         role: "system",
         content:
-          "You select one tool to answer the user's question, or none. Answer with the JSON the schema allows. The query is the search term for the tool, at most 6 words, or empty.",
+          "You select one tool to answer the user's question, or none. Answer with the JSON the schema allows. The query is the search term for the tool, at most 6 words, or empty. Pick none when the answer is already in FACTS.",
       },
       {
         role: "user",
         content: `QUESTION\n${user}\n\nTOOLS\n${allowed
           .map((d) => `${d.id}: ${d.purpose} (inputs: ${d.inputs})`)
-          .join("\n")}\n\nFACTS\n${factLines()}`,
+          .join("\n")}\n\nFACTS\n${facts}`,
       },
     ];
     let raw: string;

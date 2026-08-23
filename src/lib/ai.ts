@@ -13,6 +13,9 @@ import type { Backend } from "@/lib/ai/runtime";
 import type { AiWorkerRequest, AiWorkerResponse } from "@/workers/ai.worker";
 
 // ── static config (stays on main thread) ─────────────────────────────
+// This registry is the single source of truth; the AI worker imports it from
+// here instead of keeping its own copy (this module has no runtime imports,
+// so bundling it into the worker is safe).
 
 export type Capability = "encode" | "extract" | "vision" | "assist" | "reason";
 
@@ -283,6 +286,7 @@ let sActiveBackend: Backend = "unavailable";
 type PendingEntry = {
   resolve: (v: unknown) => void;
   reject: (e: Error) => void;
+  timer: ReturnType<typeof setTimeout>;
 };
 
 let nextReqId = 0;
@@ -292,6 +296,7 @@ function settle(reqId: number | undefined, resolve: (v: unknown) => void, value:
   if (reqId == null) return;
   const p = pending.get(reqId);
   if (!p) return;
+  clearTimeout(p.timer);
   pending.delete(reqId);
   p.resolve(value);
 }
@@ -300,13 +305,33 @@ function settleError(reqId: number | undefined, message: string) {
   if (reqId == null) return;
   const p = pending.get(reqId);
   if (!p) return;
+  clearTimeout(p.timer);
   pending.delete(reqId);
   p.reject(new Error(message));
 }
 
+/**
+ * Slides a pending request's deadline forward. Download progress ticks call
+ * this so a large model on a slow link does not trip the 120s wall; a stalled
+ * download (no ticks) still times out as before.
+ */
+function extendPending(reqId: number | undefined, ms: number) {
+  if (reqId == null) return;
+  const p = pending.get(reqId);
+  if (!p) return;
+  clearTimeout(p.timer);
+  p.timer = setTimeout(
+    () => p.reject(new Error("AI worker request timed out")),
+    ms,
+  );
+}
+
 /** Reject everything when the worker process itself dies. */
 function rejectAllPending(err: Error) {
-  for (const p of pending.values()) p.reject(err);
+  for (const p of pending.values()) {
+    clearTimeout(p.timer);
+    p.reject(err);
+  }
   pending.clear();
 }
 
@@ -343,7 +368,10 @@ function getWorker(): Worker | null {
           return;
         }
         case "loading": {
-          // Progress notification — not a response to a request.
+          // Progress notification — not a response to a request. Every tick
+          // slides the owning load's deadline forward, so a large model on a
+          // slow link keeps its promise alive while progress stalls it.
+          if (msg.reqId != null) extendPending(msg.reqId, 60_000);
           if (activeStatusCallback && msg.modelId === activeStatusModelId) {
             activeStatusCallback({
               phase: "downloading",
@@ -426,12 +454,21 @@ function postAndWait<T>(msg: AiWorkerRequest): Promise<T> {
       reject(e);
     };
 
+    // Timeout to prevent hanging (matches the wall-clock deadline in AGENTS.md)
+    const timer = setTimeout(() => {
+      // Only a load's deadline is ever extended by progress ticks; when it
+      // still fires, the download has been silent too long. Tell the worker
+      // to drop the in-flight guard so the next op is not blocked by the
+      // orphaned runtime it can no longer reach.
+      if (msg.type === "load") {
+        w.postMessage({ type: "cancel-load", modelId: msg.modelId, reqId } satisfies AiWorkerRequest);
+      }
+      doReject(new Error("AI worker request timed out"));
+    }, 120_000);
+
     // Register before posting so a response that arrives synchronously
     // still finds its waiter.
-    pending.set(reqId, { resolve: doResolve, reject: doReject });
-
-    // Timeout to prevent hanging (matches the wall-clock deadline in AGENTS.md)
-    const timer = setTimeout(() => doReject(new Error("AI worker request timed out")), 120_000);
+    pending.set(reqId, { resolve: doResolve, reject: doReject, timer });
 
     w.postMessage({ ...msg, reqId });
   });
@@ -480,7 +517,7 @@ let activeStatusModelId: string | null = null;
 export async function downloadModel(
   modelId: string,
   onStatus: (s: AiStatus) => void,
-  _options: { nCtx?: number } = {},
+  options: { nCtx?: number } = {},
 ): Promise<LifecycleResult> {
   onStatus({ phase: "downloading", progress: 0, modelId });
 
@@ -493,6 +530,7 @@ export async function downloadModel(
       type: "load",
       modelId,
       allowDownload: true,
+      nCtx: options.nCtx,
     });
     onStatus({ phase: "ready", modelId });
     return { status: "ready", modelId };
@@ -518,7 +556,7 @@ export function setActiveStatusCallback(
 export async function loadDownloadedModel(
   modelId: string,
   onStatus: (s: AiStatus) => void,
-  _options: { nCtx?: number } = {},
+  options: { nCtx?: number } = {},
 ): Promise<LifecycleResult> {
   const spec = MODEL_BY_ID[modelId] ?? MODEL_BY_ID[DEFAULT_MODEL_ID];
   if (spec.desktopOnly && deviceProfile().mobile) {
@@ -526,7 +564,7 @@ export async function loadDownloadedModel(
   }
   onStatus({ phase: "loading", modelId });
   try {
-    await postAndWait<void>({ type: "load", modelId, allowDownload: false });
+    await postAndWait<void>({ type: "load", modelId, allowDownload: false, nCtx: options.nCtx });
     onStatus({ phase: "ready", modelId });
     return { status: "ready", modelId };
   } catch (err) {

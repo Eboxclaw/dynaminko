@@ -9,9 +9,18 @@
 // downloadModel, etc.) so the main thread never waits on WASM instantiation
 // or model loading.
 
-import type { Wllama } from "@wllama/wllama/esm/index.js";
+import type { Wllama, CacheManager } from "@wllama/wllama/esm/index.js";
 import { buildInferenceProfile, detectRuntime } from "@/lib/ai/runtime";
 import { readDelta } from "@/lib/ai/stream";
+// The registry lives once, on the main thread (lib/ai.ts). This module has no
+// runtime imports of its own, so it bundles into the worker cleanly.
+import {
+  DEFAULT_CTX,
+  DEFAULT_MODEL_ID,
+  MODEL_BY_ID,
+  MODELS,
+  type ModelSpec,
+} from "@/lib/ai";
 
 // ── worker global shims ───────────────────────────────────────────────
 //
@@ -29,137 +38,13 @@ if (!g.document || !g.document.baseURI) {
   });
 }
 
-// ── model config (mirrors ai.ts MODEL_LIST) ──────────────────────────
-
-type Capability = "encode" | "extract" | "vision" | "assist" | "reason";
-
-interface ModelSpec {
-  id: string;
-  label: string;
-  repo: string;
-  quant: string;
-  runtime: "gguf" | "transformers";
-  weightsGb: number;
-  nLayers: number;
-  maxCtx: number;
-  desktopOnly?: boolean;
-  minRamGb: number;
-  vision: boolean;
-  mmprojQuant?: string;
-  generative: boolean;
-  sampling?: {
-    temperature: number;
-    minP: number;
-    repeatPenalty: number;
-    penaltyLastN: number;
-  };
-}
-
-const MODEL_LIST: ModelSpec[] = [
-  {
-    id: "lfm2-2_6",
-    label: "LFM 2.5 2.6B",
-    repo: "LiquidAI/LFM2.5-2.6B-GGUF",
-    quant: "QAD-Q4_0",
-    runtime: "gguf",
-    weightsGb: 1.59,
-    nLayers: 32,
-    maxCtx: 128192,
-    desktopOnly: true,
-    minRamGb: 6,
-    vision: false,
-    generative: true,
-    sampling: { temperature: 0.3, minP: 0.15, repeatPenalty: 1.05, penaltyLastN: 64 },
-  },
-  {
-    id: "lfm2-1_2-instruct",
-    label: "LFM 2.5 1.2B instruct",
-    repo: "LiquidAI/LFM2.5-1.2B-Instruct-GGUF",
-    quant: "QAD-Q4_0",
-    runtime: "gguf",
-    weightsGb: 0.696,
-    nLayers: 24,
-    maxCtx: 32128,
-    desktopOnly: false,
-    minRamGb: 4,
-    vision: false,
-    generative: true,
-    sampling: { temperature: 0.3, minP: 0.15, repeatPenalty: 1.05, penaltyLastN: 64 },
-  },
-  {
-    id: "lfm2-350",
-    label: "LFM 2.5 350M",
-    repo: "LiquidAI/LFM2.5-350M-GGUF",
-    quant: "QAD-Q4_0",
-    runtime: "gguf",
-    weightsGb: 0.219,
-    nLayers: 28,
-    maxCtx: 8192,
-    desktopOnly: false,
-    minRamGb: 1.5,
-    vision: false,
-    generative: true,
-    sampling: { temperature: 0.3, minP: 0.15, repeatPenalty: 1.05, penaltyLastN: 64 },
-  },
-  {
-    id: "lfm2-450-vl",
-    label: "LFM 2.5 450M VL",
-    repo: "LiquidAI/LFM2.5-VL-450M-GGUF",
-    quant: "Q4_K_M",
-    runtime: "gguf",
-    weightsGb: 0.35,
-    nLayers: 28,
-    maxCtx: 32128,
-    desktopOnly: false,
-    minRamGb: 2,
-    vision: true,
-    mmprojQuant: "F16",
-    generative: true,
-    sampling: { temperature: 0.3, minP: 0.15, repeatPenalty: 1.05, penaltyLastN: 64 },
-  },
-  {
-    id: "lfm2-1_2-thinking",
-    label: "LFM 2.5 1.2B Thinking",
-    repo: "LiquidAI/LFM2.5-1.2B-Thinking-GGUF",
-    quant: "Q4_K_M",
-    runtime: "gguf",
-    weightsGb: 0.731,
-    nLayers: 16,
-    maxCtx: 32768,
-    desktopOnly: false,
-    minRamGb: 4,
-    vision: false,
-    generative: true,
-    sampling: { temperature: 0.05, minP: 0.15, repeatPenalty: 1.05, penaltyLastN: 64 },
-  },
-  {
-    id: "minilm-6-v2",
-    label: "All MiniLM L6 v2 encoder",
-    repo: "onnx-community/all-MiniLM-L6-v2-ONNX",
-    quant: "fp32",
-    runtime: "transformers",
-    weightsGb: 0.09,
-    nLayers: 6,
-    maxCtx: 512,
-    desktopOnly: false,
-    minRamGb: 0,
-    vision: false,
-    generative: false,
-  },
-];
-
-const MODEL_BY_ID = Object.fromEntries(MODEL_LIST.map((m) => [m.id, m])) as Record<
-  string,
-  ModelSpec
->;
-
-const DEFAULT_CTX = 8192;
-const DEFAULT_MODEL_ID = "lfm2-350";
-
 // ── types ────────────────────────────────────────────────────────────
 
 export type AiWorkerRequest =
   | { type: "load"; modelId: string; nCtx?: number; allowDownload: boolean }
+  // Carries the owning load's reqId so the worker releases the guard only for
+  // the request the main thread stopped waiting on, never for a newer load.
+  | ({ type: "cancel-load"; modelId: string } & WithReqId)
   | { type: "chat-messages"; turns: { role: string; content: string }[]; options?: ChatOptions }
   | { type: "chat"; system: string; user: string; options?: ChatOptions }
   | { type: "stop" }
@@ -168,13 +53,14 @@ export type AiWorkerRequest =
   | { type: "delete-model"; modelId: string };
 
 /** reqId is stamped by the main thread on requests and echoed back on the
- * responses that settle a request's promise. Progress/streaming messages
- * (loading, token, done) carry no reqId and are not request responses. */
+ * responses that settle a request's promise. The "loading" progress stream is
+ * the one outbound message that carries a reqId: it belongs to the in-flight
+ * load so the bridge can slide that load's deadline forward on every tick. */
 type WithReqId = { reqId?: number };
 
 export type AiWorkerResponse =
   | ({ type: "ready"; modelId: string; backend: string; ctx: number } & WithReqId)
-  | { type: "loading"; modelId: string; progress?: number }
+  | ({ type: "loading"; modelId: string; progress?: number } & WithReqId)
   | ({ type: "error"; modelId?: string; message: string } & WithReqId)
   | { type: "token"; text: string; speed?: { tps: number; tokens: number } }
   | { type: "done"; text: string }
@@ -197,44 +83,153 @@ let currentModel: string | null = null;
 let currentCtx = DEFAULT_CTX;
 let activeBackend = "unavailable";
 let abortRun = false;
-/** Model id whose load/download is in flight, or null. Guards against
- * concurrent loads desyncing the single wllama instance. */
-let loadInFlight: string | null = null;
+/** The reqId of the load/download in flight, or null. Guards against
+ * concurrent loads desyncing the single wllama instance. The worker cannot
+ * observe the main thread's deadline, so a "cancel-load" message arrives when
+ * the main thread gives up waiting; it clears the guard only for the request
+ * that owns it, never for a newer load that has since taken over. */
+let loadInFlight: { reqId: number | undefined; modelId: string } | null = null;
+
+function isOwnedLoad(reqId: number | undefined, modelId: string): boolean {
+  return loadInFlight != null && loadInFlight.reqId === reqId && loadInFlight.modelId === modelId;
+}
 
 // ── runtime ──────────────────────────────────────────────────────────
+//
+// Two distinct wllama surfaces, deliberately kept apart:
+//
+//  * A single standalone CacheManager, created once. The OPFS cache it reads
+//    and writes is origin-wide, so one manager sees exactly the same files a
+//    fresh runtime would. Every cache list / delete / verify goes through it,
+//    which means we NEVER have to spin up a Wllama instance just to touch the
+//    cache. Spinning up throwaway Wllama instances for cache ops is what
+//    previously leaked live WASM proxies ("Module is already initialized").
+//
+//  * A fresh Wllama inference handle per load. wllama's exit() does not always
+//    fully unwind the Emscripten module, so re-loading many times on ONE
+//    long-lived handle accumulated orphaned state and aborted on the 4th
+//    cycle ("(ABORT)"). A clean handle per load never reaches that state, and
+//    the cache is preserved because it is the shared manager, not the handle.
+//
+// Only one inference handle is alive at a time: load/unload/delete each exit
+// the previous `instance` before creating or dropping it.
+
+let sharedCache: CacheManager | null = null;
+
+async function getSharedCache(): Promise<CacheManager> {
+  if (sharedCache) return sharedCache;
+  const mod = await import("@wllama/wllama/esm/index.js");
+  sharedCache = new mod.CacheManager();
+  return sharedCache;
+}
 
 async function createRuntime(parallelDownloads = 4): Promise<Wllama> {
-  const { Wllama: Ctor } = await import("@wllama/wllama/esm/index.js");
-  return new Ctor(
+  const mod = await import("@wllama/wllama/esm/index.js");
+  // A new inference handle on every load, wired to the one shared cache.
+  const cache = await getSharedCache();
+  return new mod.Wllama(
     { default: "/wasm/wllama.wasm" },
-    { allowOffline: true, suppressNativeLog: true, parallelDownloads },
+    { allowOffline: true, suppressNativeLog: true, parallelDownloads, cacheManager: cache },
   );
+}
+
+/** Free the current inference handle (if any) so at most one is alive. */
+async function exitInstance(): Promise<void> {
+  if (!instance) return;
+  const old = instance;
+  instance = null;
+  try {
+    await old.exit();
+  } catch {
+    /* already dead */
+  }
+}
+
+/**
+ * Exit one specific handle and hand back a brand-new one. Used after a load
+ * attempt that may have half-initialized the handle's Emscripten module (the
+ * GPU→CPU fallback); reusing that handle is what produced "(ABORT)". The
+ * download is not repeated because the new handle shares the same cache.
+ */
+async function replaceRuntime(prev: Wllama, threads: number): Promise<Wllama> {
+  try {
+    await prev.exit();
+  } catch {
+    /* half-initialized: already dead */
+  }
+  return createRuntime(threads);
 }
 
 function modelSpec(modelId: string): ModelSpec | undefined {
   return MODEL_BY_ID[modelId];
 }
 
+/**
+ * The repo basename ("lfm2.5-350m-gguf") identifies a model. It is absent from
+ * the OPFS filename (which is the weight file, e.g. LFM2.5-350M-QAD-Q4_0.gguf)
+ * but present in the entry's metadata.originalURL (the Hugging Face URL).
+ */
+function specNeedle(spec: ModelSpec): string {
+  return (spec.repo.split("/")[1] ?? spec.repo).toLowerCase();
+}
+
+/** Every text field a cache entry carries, lowercased for matching. */
+function entryHaystack(e: unknown): string {
+  const rec = e as {
+    name?: string;
+    url?: string;
+    metadata?: { originalURL?: string; mmprojURL?: string };
+  };
+  return [rec.name, rec.url, rec.metadata?.originalURL, rec.metadata?.mmprojURL]
+    .filter(Boolean)
+    .join("\n")
+    .toLowerCase();
+}
+
+function entryMatches(e: unknown, needle: string): boolean {
+  return entryHaystack(e).includes(needle);
+}
+
+/** The encoder (and any ONNX model) lives in the browser Cache API under
+ * transformers.js cache names; verify it by entry URL. */
+async function onnxCacheContains(needle: string): Promise<boolean> {
+  for (const key of await caches.keys()) {
+    if (!/transformers/i.test(key)) continue;
+    const cache = await caches.open(key);
+    if ((await cache.keys()).some((r) => r.url.toLowerCase().includes(needle)))
+      return true;
+  }
+  return false;
+}
+
+/**
+ * One OPFS-backed cache listing, returned once and shared by the "which
+ * models are here" question and the per-model match. null when the cache
+ * could not be read at all — callers treat that as "cannot prove deletion",
+ * never as "gone".
+ */
+async function listCacheEntries(): Promise<unknown[] | null> {
+  try {
+    const mgr = await getSharedCache();
+    return (await mgr.list()) ?? [];
+  } catch {
+    return null;
+  }
+}
+
+/** Whether this repo's weights are in the cache. null = unreadable. */
+async function cacheContains(spec: ModelSpec, entries?: unknown[] | null): Promise<boolean | null> {
+  const list = entries === undefined ? await listCacheEntries() : entries;
+  if (list === null) return null;
+  return list.some((e) => entryMatches(e, specNeedle(spec)));
+}
+
 async function computeCachedModels(): Promise<Set<string>> {
   const out = new Set<string>();
-  const gguf = MODEL_LIST.filter((m) => m.runtime === "gguf");
-  try {
-    const runtime = instance ?? (await createRuntime());
-    const mgr = (runtime as unknown as { cacheManager?: { list?: () => Promise<unknown[]> } })
-      .cacheManager;
-    const list = (await mgr?.list?.()) ?? [];
-    const names = list
-      .map((e) => {
-        const rec = e as { name?: string; url?: string };
-        return (rec.url ?? rec.name ?? "").toLowerCase();
-      })
-      .join("\n");
-    for (const m of gguf) {
-      const needle = m.repo.split("/")[1]?.toLowerCase() ?? m.repo.toLowerCase();
-      if (names.includes(needle)) out.add(m.id);
-    }
-  } catch {
-    /* cache unavailable */
+  const gguf = MODELS.filter((m) => m.runtime === "gguf");
+  const entries = await listCacheEntries();
+  if (entries !== null) {
+    for (const m of gguf) if (entries.some((e) => entryMatches(e, specNeedle(m)))) out.add(m.id);
   }
   try {
     if (typeof caches !== "undefined") {
@@ -244,7 +239,7 @@ async function computeCachedModels(): Promise<Set<string>> {
         const cache = await caches.open(key);
         const reqs = await cache.keys();
         const encoder = MODEL_BY_ID["minilm-6-v2"];
-        if (reqs.some((r) => r.url.includes(encoder.repo))) out.add("minilm-6-v2");
+        if (reqs.some((r) => r.url.toLowerCase().includes(encoder.repo))) out.add("minilm-6-v2");
       }
     }
   } catch {
@@ -256,6 +251,8 @@ async function computeCachedModels(): Promise<Set<string>> {
 async function loadModelInternal(
   modelId: string,
   allowDownload: boolean,
+  requestCtx?: number,
+  reqId?: number,
 ): Promise<{ ok: true; backend: string; ctx: number } | { ok: false; error: string }> {
   const spec = modelSpec(modelId) ?? modelSpec(DEFAULT_MODEL_ID)!;
   if (spec.runtime !== "gguf") {
@@ -265,7 +262,10 @@ async function loadModelInternal(
     };
   }
 
-  const nCtx = currentCtx;
+  // The context window is a per-load setting, not a global: the caller passes
+  // the user's current choice; clamp to this model's real ceiling so a stale
+  // selection from a bigger model cannot overflow this one.
+  const nCtx = requestCtx && requestCtx > 0 ? Math.min(requestCtx, spec.maxCtx) : currentCtx;
 
   if (!allowDownload) {
     const cached = await computeCachedModels();
@@ -274,17 +274,23 @@ async function loadModelInternal(
     }
   }
 
+  const caps = await detectRuntime();
+  const profile = buildInferenceProfile(caps, spec.weightsGb, spec.nLayers, nCtx);
+  const gpuOk = caps.webgpu && profile.n_gpu_layers > 0;
+
+  // A fresh inference handle per load: wllama's exit() does not always fully
+  // unwind the Emscripten module, so re-loading repeatedly on one handle
+  // accumulated orphaned state and aborted. The cache is preserved because it
+  // is the shared manager, not this handle.
+  await exitInstance();
+  let runtime = await createRuntime(profile.n_threads > 1 ? 6 : 3);
+  instance = runtime;
+
   try {
-    if (instance) await instance.exit().catch(() => {});
-    instance = null;
-
     const ctx = self as unknown as DedicatedWorkerGlobalScope;
-    ctx.postMessage({ type: "loading", modelId: spec.id } satisfies AiWorkerResponse);
-
-    const caps = await detectRuntime();
-    const profile = buildInferenceProfile(caps, spec.weightsGb, spec.nLayers, nCtx);
-    const gpuOk = caps.webgpu && profile.n_gpu_layers > 0;
-    const runtime = await createRuntime(profile.n_threads > 1 ? 6 : 3);
+    ctx.postMessage(
+      { type: "loading", modelId: spec.id, reqId } satisfies AiWorkerResponse,
+    );
 
     const load = async (useGpu: boolean) => {
       const p = { ...profile };
@@ -318,6 +324,7 @@ async function loadModelInternal(
                 type: "loading",
                 modelId: spec.id,
                 progress: loaded / total,
+                reqId,
               } satisfies AiWorkerResponse);
             }
           },
@@ -330,17 +337,24 @@ async function loadModelInternal(
       activeBackend = gpuOk ? "webgpu" : caps.wasmSimd || caps.wasm ? "wasm" : "unavailable";
     } catch (gpuErr) {
       if (!gpuOk) throw gpuErr;
+      // The failed GPU attempt may have half-initialized this handle's WASM
+      // module. Swap in a fresh handle (shared cache, so no re-download)
+      // rather than re-initializing the damaged one.
+      const fresh = await replaceRuntime(runtime, profile.n_threads > 1 ? 6 : 3);
+      instance = fresh;
+      runtime = fresh;
       await load(false);
       activeBackend = "wasm";
     }
 
-    instance = runtime;
     currentModel = spec.id;
     currentCtx = nCtx;
 
     return { ok: true, backend: activeBackend, ctx: nCtx };
   } catch (err) {
-    instance = null;
+    // Clear the resident-model state so the UI reads "not loaded". The cache
+    // is the shared manager, so it survives this handle being dropped.
+    await exitInstance();
     currentModel = null;
     activeBackend = "unavailable";
     return {
@@ -354,7 +368,9 @@ async function chatMessages(
   turns: { role: string; content: string }[],
   options: ChatOptions = {},
 ): Promise<string> {
-  if (!instance) throw new Error("assistant not loaded");
+  // The handle outlives the model, so "a model is loaded" means currentModel
+  // is set, not that the handle exists.
+  if (!instance || !currentModel) throw new Error("assistant not loaded");
   const spec = currentModel ? MODEL_BY_ID[currentModel] : undefined;
   if (spec && !spec.generative) {
     throw new Error(`${spec.label} makes embeddings, not prose.`);
@@ -448,12 +464,14 @@ ctx.addEventListener("message", async (event: MessageEvent<AiWorkerRequest & { r
         } satisfies AiWorkerResponse);
         return;
       }
-      loadInFlight = msg.modelId;
+      loadInFlight = { reqId, modelId: msg.modelId };
       let result;
       try {
-        result = await loadModelInternal(msg.modelId, msg.allowDownload);
+        result = await loadModelInternal(msg.modelId, msg.allowDownload, msg.nCtx, reqId);
       } finally {
-        loadInFlight = null;
+        // Only clear the guard if this request still owns it; a newer load
+        // may have taken over after a cancel.
+        if (loadInFlight && loadInFlight.reqId === reqId) loadInFlight = null;
       }
       if (result.ok) {
         ctx.postMessage({
@@ -471,6 +489,15 @@ ctx.addEventListener("message", async (event: MessageEvent<AiWorkerRequest & { r
           message: result.error,
         } satisfies AiWorkerResponse);
       }
+      return;
+    }
+
+    case "cancel-load": {
+      // The main thread's deadline expired. It cannot reach the wllama
+      // instance to stop a download (wllama exposes no abort API), so the
+      // best we can do is release the guard for the request that owns it.
+      // A newer load that started afterwards keeps its own guard intact.
+      if (isOwnedLoad(reqId, msg.modelId)) loadInFlight = null;
       return;
     }
 
@@ -512,8 +539,9 @@ ctx.addEventListener("message", async (event: MessageEvent<AiWorkerRequest & { r
     }
 
     case "unload": {
-      if (instance) await instance.exit().catch(() => {});
-      instance = null;
+      // Drop the inference handle; the shared cache manager outlives it, so
+      // the weights remain "on device" and can be re-loaded or deleted.
+      await exitInstance();
       currentModel = null;
       currentCtx = DEFAULT_CTX;
       activeBackend = "unavailable";
@@ -561,46 +589,20 @@ case "delete-model": {
           } satisfies AiWorkerResponse);
           return;
         }
-        const needle = (spec.repo.split("/")[1] ?? spec.repo).toLowerCase();
+        const needle = specNeedle(spec);
 
-        // Unload if this model is loaded
-        if (currentModel === spec.id && instance) {
-          await instance.exit().catch(() => {});
-          instance = null;
+        // Unload this model's inference handle if it is resident.
+        if (currentModel === spec.id) {
+          await exitInstance();
           currentModel = null;
           activeBackend = "unavailable";
         }
 
-        // Clear cached weights. We need a wllama instance for its cache
-        // manager, so reuse the live one or create a short-lived runtime.
+        // Delete through the shared cache manager: no Wllama instance needed,
+        // so no WASM to leak or re-initialize.
+        const cache = await getSharedCache();
         if (spec.runtime === "gguf") {
-          const matchEntry = (e: unknown) => {
-            const rec = e as { name?: string; url?: string };
-            return (rec.url ?? rec.name ?? "").toLowerCase().includes(needle);
-          };
-          type CacheMgr = { deleteMany?: (pred: (e: unknown) => boolean) => Promise<void> };
-          let mgr: CacheMgr | undefined = instance
-            ? (instance as unknown as { cacheManager?: CacheMgr }).cacheManager
-            : undefined;
-          let temp: Wllama | null = null;
-          if (!mgr) {
-            // No active instance — create a throwaway runtime to access the cache manager
-            try {
-              const { Wllama: Ctor } = await import("@wllama/wllama/esm/index.js");
-              temp = new Ctor(
-                { default: "/wasm/wllama.wasm" },
-                { allowOffline: true, suppressNativeLog: true, parallelDownloads: 1 },
-              );
-              mgr = (temp as unknown as { cacheManager?: CacheMgr }).cacheManager;
-              await mgr?.deleteMany?.(matchEntry);
-            } catch {
-              /* fall through — caches API below is a secondary path */
-            } finally {
-              await temp?.exit().catch(() => {});
-            }
-          } else {
-            await mgr.deleteMany?.(matchEntry);
-          }
+          await cache.deleteMany((e) => entryMatches(e, needle));
         }
 
         // Also clear from the Cache API (for ONNX/transformers models)
@@ -614,6 +616,32 @@ case "delete-model": {
           }
         }
 
+        // Do not claim success until the cache actually agrees.
+        const stillThere =
+          spec.runtime === "gguf"
+            ? await cacheContains(spec)
+            : typeof caches !== "undefined"
+              ? await onnxCacheContains(needle)
+              : null;
+
+        if (stillThere === true) {
+          ctx.postMessage({
+            type: "error",
+            reqId,
+            modelId: msg.modelId,
+            message: "delete could not remove the cached weights, try again",
+          } satisfies AiWorkerResponse);
+          return;
+        }
+        if (stillThere === null) {
+          ctx.postMessage({
+            type: "error",
+            reqId,
+            modelId: msg.modelId,
+            message: "could not confirm the delete (cache unavailable), try again",
+          } satisfies AiWorkerResponse);
+          return;
+        }
         ctx.postMessage({ type: "deleted", reqId, modelId: msg.modelId } satisfies AiWorkerResponse);
       } catch (err) {
         ctx.postMessage({

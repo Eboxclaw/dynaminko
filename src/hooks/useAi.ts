@@ -93,6 +93,9 @@ export function useAi() {
   const [temperature, setTemperature] = useState(0.4);
   const [maxTokens, setMaxTokens] = useState(8192);
   const [downloaded, setDownloaded] = useState<Set<string>>(new Set());
+  /** Models with an in-flight or interrupted download: the cache index says
+   * "missing" but progress says "started", which is exactly "partial". */
+  const [partial, setPartial] = useState<Set<string>>(new Set());
   const [speed, setSpeed] = useState<{ tps: number; tokens: number } | null>(null);
   // Probed after mount so the server and the first client render agree.
   const [profile, setProfile] = useState(UNKNOWN_PROFILE);
@@ -140,11 +143,23 @@ export function useAi() {
     void refreshDownloaded();
   }, [refreshDownloaded, status.phase]);
 
+  // A model that just finished downloading is complete from the cache's point
+  // of view; drop it from the partial set so Resume does not linger.
+  useEffect(() => {
+    setPartial((p) => {
+      const next = new Set([...p].filter((id) => !downloaded.has(id)));
+      return next.size === p.size ? p : next;
+    });
+  }, [downloaded]);
+
   /**
    * Progress only ever moves forward for the same model. wllama reports per
    * file, so progress can jump from 80% back to 0% mid-download when a new
    * file starts. We track the highest progress per model in a ref (outside
-   * React's render cycle) to prevent regression.
+   * React's render cycle) to prevent regression. While any model shows a
+   * non-zero progress fraction it also joins the "partial" set: if that
+   * download then fails, the model is not in the cache but the user knows a
+   * download was started, so the UI offers Resume instead of Download.
    */
   const applyStatus = useCallback((s: AiStatus) => {
     if (!mounted.current) return;
@@ -155,6 +170,7 @@ export function useAi() {
         return;
       }
       lastProgress.current[s.modelId] = s.progress;
+      setPartial((p) => (p.has(s.modelId!) ? p : new Set(p).add(s.modelId!)));
     }
     setStatus(s);
   }, []);
@@ -377,13 +393,19 @@ if (cloudCfg) {
    * Cache state per model, kept separate from "which model is the default".
    * A model that is resident in memory is by definition on this device, even
    * when the cache index has not caught up, so Download never reappears for it.
+   * "Partial" means this session started a download that did not finish: the
+   * cache holds no whole model, but the user has already paid for most of it,
+   * so the panel offers Resume instead of Download.
    */
   const install = useMemo(() => {
     const out: Record<string, InstallState> = {};
-    for (const m of MODELS)
-      out[m.id] = downloaded.has(m.id) || isReady(m.id) ? "complete" : "missing";
+    for (const m of MODELS) {
+      if (downloaded.has(m.id) || isReady(m.id)) out[m.id] = "complete";
+      else if (partial.has(m.id)) out[m.id] = "partial";
+      else out[m.id] = "missing";
+    }
     return out;
-  }, [downloaded, status]);
+  }, [downloaded, partial, status]);
 
   const actionFor = useCallback(
     (modelId: string): ModelAction =>
@@ -411,10 +433,25 @@ if (cloudCfg) {
       // Don't delete a model's file while wllama is writing it.
       if (opInFlight.current) return;
       const spec = MODEL_BY_ID[modelId];
-      await deleteModel(modelId);
-      if (!isReady(modelId) && mounted.current) {
-        setStatus({ phase: "idle" });
-        setBackend("unavailable");
+      try {
+        await deleteModel(modelId);
+      } catch (err) {
+        // The worker verifies the delete against the cache before reporting
+        // success; a rejection means the weights are still there.
+        toast.error(`${spec?.label ?? modelId}: ${err instanceof Error ? err.message : "delete failed"}`);
+        return;
+      }
+      if (mounted.current) {
+        setPartial((p) => {
+          if (!p.has(modelId)) return p;
+          const next = new Set(p);
+          next.delete(modelId);
+          return next;
+        });
+        if (!isReady(modelId)) {
+          setStatus({ phase: "idle" });
+          setBackend("unavailable");
+        }
       }
       toast.info(`${spec?.label ?? modelId} removed from device`);
       await refreshDownloaded();

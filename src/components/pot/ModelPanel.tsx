@@ -118,7 +118,10 @@ function ModelRow({
 }) {
   const m = MODEL_BY_ID[id];
   const doc = useDoc();
-  const selected = doc.settings.assistant.modelId === id;
+  // The behavior source of truth is settings.aiModelId (what useAi loads and
+  // answers with); assistant.modelId is kept in sync by every writer, so the
+  // two can never disagree in practice.
+  const selected = doc.settings.aiModelId === id;
   const state = ai.states[id];
   const actions = ai.actionsFor(id);
   const busy = state === "loading";
@@ -278,7 +281,7 @@ function LocalModels({ ai }: { ai: ReturnType<typeof useAi> }) {
   const doc = useDoc();
   const profile = ai.profile;
   const rec = recommendModel(profile);
-  const selected = doc.settings.assistant.modelId;
+  const selected = doc.settings.aiModelId;
   const spec = MODEL_BY_ID[selected];
   const budget = profile.ramGb ?? (profile.mobile ? 2 : 4);
   const estimate = memoryEstimateGb(selected, ai.ctx);
