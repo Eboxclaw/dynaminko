@@ -4,6 +4,8 @@
 
 import { useState } from "react";
 
+import { toast } from "sonner";
+
 import { HelpDot } from "@/components/pot/HelpDot";
 import { useAi } from "@/hooks/useAi";
 import { useDoc } from "@/hooks/useDoc";
@@ -130,11 +132,29 @@ function ModelRow({
         : "loading into memory"
       : null;
 
+  // Delete confirmation state
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+
+  // Detect quant migration: if the model spec uses QAD-Q4_0 and user has it cached
+  // (from an old Q4_K_M download), show a "new version available" notice.
+  const quantMigrated =
+    m.runtime === "gguf" &&
+    m.quant === "QAD-Q4_0" &&
+    state === "downloaded" &&
+    !ai.install[id] /* show when not currently loaded */;
+
   const run = (a: ModelAction) => {
     if (a === "download" || a === "resume") return void ai.load(id);
     if (a === "load") return void ai.activate(id);
     if (a === "unload") return void ai.stop();
-    if (a === "delete") return void ai.remove(id);
+    if (a === "delete") {
+      if (confirmingDelete) {
+        ai.remove(id);
+        setConfirmingDelete(false);
+      } else {
+        setConfirmingDelete(true);
+      }
+    }
   };
 
   return (
@@ -185,12 +205,43 @@ function ModelRow({
           {ai.status.phase === "error" && mine && (
             <p className="mt-1 text-[12px] text-loss">{ai.status.message}</p>
           )}
+          {quantMigrated && (
+            <p className="mt-1 text-[12px] text-ink-soft">
+              Updated version available · delete and re-download for better quality
+            </p>
+          )}
+          {confirmingDelete && (
+            <p className="mt-1 text-[10px] text-loss">
+              Delete this model's weights? It must be re-downloaded.
+            </p>
+          )}
         </div>
         <div className="flex shrink-0 flex-wrap justify-end gap-1">
           {actions.map((a) =>
             a === "unavailable" ? (
               <span key={a} className="eyebrow self-center text-ink-faint">
                 unavailable here
+              </span>
+            ) : a === "delete" && confirmingDelete ? (
+              <span key={a} className="flex gap-1">
+                <button
+                  type="button"
+                  onClick={() => setConfirmingDelete(false)}
+                  className="doodle-pill px-2.5 py-1 text-[11px] hover:border-ink"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => {
+                    ai.remove(id);
+                    setConfirmingDelete(false);
+                  }}
+                  className="doodle-pill px-2.5 py-1 text-[11px] bg-loss text-paper"
+                >
+                  Delete
+                </button>
               </span>
             ) : (
               <button

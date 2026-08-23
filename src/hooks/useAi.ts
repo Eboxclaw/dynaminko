@@ -53,6 +53,7 @@ import {
 import { patchAssistant } from "@/lib/store";
 import { useSettings } from "./useDoc";
 import { useDoc } from "./useDoc";
+import { toast } from "sonner";
 
 /** Subscribes to the encoder without polling. */
 function useEncoder() {
@@ -161,6 +162,8 @@ export function useAi() {
           setLoadedCtx(loadedContext());
           setBackend(activeBackend());
         }
+        const spec = MODEL_BY_ID[modelId];
+        toast.success(`${spec?.label ?? modelId} is downloaded and ready`);
         patchAssistant({ modelId, provider: "local" });
         setSettings({ aiModelId: modelId, aiEnabled: true });
         void refreshDownloaded();
@@ -209,6 +212,7 @@ export function useAi() {
       if (!isReady(modelId)) return { ok: false, error: "the model did not reach a ready state" };
       setLoadedCtx(loadedContext());
       setBackend(activeBackend());
+      toast.success(`${MODEL_BY_ID[modelId]?.label ?? modelId} is loaded`);
       setSettings({ aiEnabled: true, aiModelId: modelId });
       void refreshDownloaded();
       return { ok: true };
@@ -379,11 +383,13 @@ if (cloudCfg) {
   /** Removes cached weights. Unloads first when that model is resident. */
   const remove = useCallback(
     async (modelId: string) => {
+      const spec = MODEL_BY_ID[modelId];
       await deleteModel(modelId);
       if (!isReady(modelId) && mounted.current) {
         setStatus({ phase: "idle" });
         setBackend("unavailable");
       }
+      toast.info(`${spec?.label ?? modelId} removed from device`);
       void refreshDownloaded();
     },
     [refreshDownloaded],

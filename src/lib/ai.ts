@@ -51,14 +51,14 @@ const MODEL_LIST: Omit<ModelSpec, "backend">[] = [
     id: "lfm2-2_6",
     label: "LFM 2.5 2.6B",
     repo: "LiquidAI/LFM2.5-2.6B-GGUF",
-    quant: "Q4_K_M",
+    quant: "QAD-Q4_0",
     runtime: "gguf",
-    serve: "llama serve -hf LiquidAI/LFM2.5-2.6B-GGUF:Q4_K_M",
+    serve: "llama serve -hf LiquidAI/LFM2.5-2.6B-GGUF:QAD-Q4_0",
     blurb: "Strongest and slowest. Desktop standard.",
     role: "Complex reasoning and generation, when it is actually needed",
     capabilities: ["assist", "reason", "extract"],
     desktopOnly: true,
-    weightsGb: 1.8,
+    weightsGb: 1.59,
     minRamGb: 6,
     vision: false,
     reasoning: true,
@@ -71,13 +71,13 @@ const MODEL_LIST: Omit<ModelSpec, "backend">[] = [
     id: "lfm2-1_2-instruct",
     label: "LFM 2.5 1.2B instruct",
     repo: "LiquidAI/LFM2.5-1.2B-Instruct-GGUF",
-    quant: "Q4_K_M",
+    quant: "QAD-Q4_0",
     runtime: "gguf",
-    serve: "llama serve -hf LiquidAI/LFM2.5-1.2B-Instruct-GGUF:Q4_K_M",
+    serve: "llama serve -hf LiquidAI/LFM2.5-1.2B-Instruct-GGUF:QAD-Q4_0",
     blurb: "Better reasoning about why a trade happened.",
     role: "Lightweight general assistant",
     capabilities: ["assist", "reason", "extract"],
-    weightsGb: 0.85,
+    weightsGb: 0.696,
     minRamGb: 4,
     vision: false,
     reasoning: true,
@@ -90,13 +90,13 @@ const MODEL_LIST: Omit<ModelSpec, "backend">[] = [
     id: "lfm2-350",
     label: "LFM 2.5 350M",
     repo: "LiquidAI/LFM2.5-350M-GGUF",
-    quant: "Q4_K_M",
+    quant: "QAD-Q4_0",
     runtime: "gguf",
-    serve: "llama serve -hf LiquidAI/LFM2.5-350M-GGUF:Q4_K_M",
+    serve: "llama serve -hf LiquidAI/LFM2.5-350M-GGUF:QAD-Q4_0",
     blurb: "Faster than the VL model, text-only, still follows FACTS and grounded turns well.",
     role: "On-device assistant. Default model.",
     capabilities: ["assist", "extract"],
-    weightsGb: 0.28,
+    weightsGb: 0.219,
     minRamGb: 1.5,
     vision: false,
     reasoning: false,
@@ -124,6 +124,25 @@ const MODEL_LIST: Omit<ModelSpec, "backend">[] = [
     maxCtx: 32128,
     nLayers: 28,
     sampling: { temperature: 0.3, minP: 0.15, repeatPenalty: 1.05, penaltyLastN: 64 },
+  },
+  {
+    id: "lfm2-1_2-thinking",
+    label: "LFM 2.5 1.2B Thinking",
+    repo: "LiquidAI/LFM2.5-1.2B-Thinking-GGUF",
+    quant: "Q4_K_M",
+    runtime: "gguf",
+    serve: "llama serve -hf LiquidAI/LFM2.5-1.2B-Thinking-GGUF:Q4_K_M",
+    blurb: "Chain-of-thought for deeper reasoning on trades.",
+    role: "Thoughtful analysis and reasoning",
+    capabilities: ["assist", "reason", "extract"],
+    weightsGb: 0.731,
+    minRamGb: 4,
+    vision: false,
+    reasoning: true,
+    generative: true,
+    maxCtx: 32768,
+    nLayers: 16,
+    sampling: { temperature: 0.05, minP: 0.15, repeatPenalty: 1.05, penaltyLastN: 64 },
   },
   {
     id: "minilm-6-v2",
@@ -157,8 +176,8 @@ export const CAPABILITY_MODELS: Record<Capability, string[]> = {
   encode: ["minilm-6-v2"],
   extract: ["lfm2-350", "lfm2-1_2-instruct", "lfm2-2_6"],
   vision: ["lfm2-450-vl"],
-  assist: ["lfm2-350", "lfm2-1_2-instruct", "lfm2-2_6"],
-  reason: ["lfm2-1_2-instruct", "lfm2-2_6"],
+  assist: ["lfm2-350", "lfm2-1_2-thinking", "lfm2-1_2-instruct", "lfm2-2_6"],
+  reason: ["lfm2-1_2-thinking", "lfm2-1_2-instruct", "lfm2-2_6"],
 };
 
 export function modelFor(cap: Capability, downloaded?: Set<string>): ModelSpec | undefined {
@@ -199,7 +218,7 @@ export function deviceProfile(): DeviceProfile {
   };
 }
 
-const RECOMMEND_ORDER = ["lfm2-350", "lfm2-1_2-instruct", "lfm2-450-vl", "lfm2-2_6"];
+const RECOMMEND_ORDER = ["lfm2-350", "lfm2-1_2-thinking", "lfm2-1_2-instruct", "lfm2-450-vl", "lfm2-2_6"];
 
 export function recommendModel(profile = deviceProfile()): { id: string; reason: string } {
   if (!profile.probed) {
