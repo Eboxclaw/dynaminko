@@ -1,14 +1,14 @@
 // Embedding abstraction.
 //
-// One provider: the LFM 2.5 Encoder-230M. It does everything the old MiniLM
-// tier did (vectors, semantics, classification) at higher capacity, so the
-// two-tier cheap-then-escalate design collapsed to a single always-warm
-// encoder. Routing, retrieval and tool discovery all rank through this.
+// One provider: all-MiniLM-L6-v2 (ONNX). The small, universal router encoder:
+// 384-dim, mean-pooled, runs on both WASM and WebGPU, ~90 MB. It is the
+// always-warm encoder every ranking surface ranks through. The heavier LFM
+// encoders stay out of the browser: routing is an accelerator, not a gate.
 //
 // One shared runtime: Transformers.js serialises ONNX sessions, so every caller
 // goes through this module instead of creating its own pipeline.
 
-export type EmbeddingProviderId = "lfm-encoder-230m";
+export type EmbeddingProviderId = "minilm-6-v2";
 
 export type EmbeddingProviderSpec = {
   id: EmbeddingProviderId;
@@ -23,14 +23,14 @@ export type EmbeddingProviderSpec = {
 
 export const EMBEDDING_PROVIDERS: EmbeddingProviderSpec[] = [
   {
-    id: "lfm-encoder-230m",
-    label: "LFM 2.5 Encoder 230M",
-    repo: "LiquidAI/LFM2.5-Encoder-230M",
-    dtype: "q8",
-    dimensions: 768,
-    sizeMb: 180,
+    id: "minilm-6-v2",
+    label: "All MiniLM L6 v2",
+    repo: "onnx-community/all-MiniLM-L6-v2-ONNX",
+    dtype: "fp32",
+    dimensions: 384,
+    sizeMb: 90,
     tier: "default",
-    blurb: "Bidirectional 8k encoder. Routing, retrieval and classification.",
+    blurb: "Light 6-layer BERT encoder. Routing, retrieval and classification.",
   },
 ];
 
@@ -38,7 +38,7 @@ export const PROVIDER_BY_ID = Object.fromEntries(
   EMBEDDING_PROVIDERS.map((p) => [p.id, p]),
 ) as Record<EmbeddingProviderId, EmbeddingProviderSpec>;
 
-export const DEFAULT_EMBEDDING_ID: EmbeddingProviderId = "lfm-encoder-230m";
+export const DEFAULT_EMBEDDING_ID: EmbeddingProviderId = "minilm-6-v2";
 
 export type ProviderState =
   "missing" | "downloaded" | "loading" | "loaded" | "unavailable" | "error";

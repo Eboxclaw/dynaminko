@@ -283,7 +283,7 @@ function LocalModels({ ai }: { ai: ReturnType<typeof useAi> }) {
             {enc.error && <span className="mt-1 block text-[12px] text-loss">{enc.error}</span>}
           </span>
           <HelpDot label="About the encoder">
-            ~180 MB. Semantic routing, retrieval and classification. Download once, always warm on
+            ~90 MB. Semantic routing, retrieval and classification. Download once, always warm on
             this device.
           </HelpDot>
           {enc.state === "loaded" ? (

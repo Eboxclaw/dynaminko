@@ -126,23 +126,23 @@ const MODEL_LIST: Omit<ModelSpec, "backend">[] = [
     sampling: { temperature: 0.3, minP: 0.15, repeatPenalty: 1.05, penaltyLastN: 64 },
   },
   {
-    id: "lfm2-230-encoder",
-    label: "LFM 2.5 230M encoder",
-    repo: "LiquidAI/LFM2.5-Encoder-230M",
+    id: "minilm-6-v2",
+    label: "All MiniLM L6 v2 encoder",
+    repo: "onnx-community/all-MiniLM-L6-v2-ONNX",
     quant: "fp32",
     runtime: "transformers",
     serve:
-      'AutoModelForMaskedLM.from_pretrained("LiquidAI/LFM2.5-Encoder-230M", trust_remote_code=True)',
+      'AutoModel.from_pretrained("onnx-community/all-MiniLM-L6-v2-ONNX")',
     blurb: "Semantic routing, retrieval and tagging. Never writes prose.",
     role: "Routing, retrieval, tool and skill discovery, light classification",
     capabilities: ["encode"],
-    weightsGb: 0.18,
+    weightsGb: 0.09,
     minRamGb: 0,
     vision: false,
     reasoning: false,
     generative: false,
-    maxCtx: 8192,
-    nLayers: 24,
+    maxCtx: 512,
+    nLayers: 6,
   },
 ];
 
@@ -151,10 +151,10 @@ export const MODEL_BY_ID: Record<string, ModelSpec> = Object.fromEntries(
   MODELS.map((m) => [m.id, m]),
 );
 export const DEFAULT_MODEL_ID = "lfm2-350";
-export const ENCODER_ID = "lfm2-230-encoder";
+export const ENCODER_ID = "minilm-6-v2";
 
 export const CAPABILITY_MODELS: Record<Capability, string[]> = {
-  encode: ["lfm2-230-encoder"],
+  encode: ["minilm-6-v2"],
   extract: ["lfm2-350", "lfm2-1_2-instruct", "lfm2-2_6"],
   vision: ["lfm2-450-vl"],
   assist: ["lfm2-350", "lfm2-1_2-instruct", "lfm2-2_6"],

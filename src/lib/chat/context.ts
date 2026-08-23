@@ -102,3 +102,55 @@ export function factLines(d = digest()): string {
     `memory: ${d.memory.entries ? `${d.memory.chars}/${d.memory.limit} chars · ${d.memory.entries} notes` : `empty (0/${d.memory.limit} chars)`}`,
   ].join("\n");
 }
+
+/**
+ * Async enrichment of FACTS with live portfolio data from the IDB cache.
+ * Called once per turn before buildTurn; the lines merge straight into the
+ * `state` field so the model sees wallet holdings, net worth and open perps
+ * without needing a tool hop. When cache is cold the lines are absent
+ * (the FACTS numbers from factLines() still describe signal-history data).
+ */
+export async function portfolioFactLines(): Promise<string> {
+  try {
+    const { readCachedSnapshot, readCachedVenueReports } = await import("@/lib/store");
+    const { buildPortfolio } = await import("@/lib/portfolio");
+    const { composeNetWorth, perpExposure } = await import("@/lib/exposure");
+
+    const snapshot = await readCachedSnapshot();
+    const reports = await readCachedVenueReports();
+
+    if (!snapshot) return "";
+
+    const portfolio = buildPortfolio(snapshot, []);
+    const netWorth = composeNetWorth(portfolio, reports);
+    const perps = perpExposure(reports);
+
+    const lines: string[] = [];
+
+    if (portfolio.holdings.length > 0) {
+      lines.push(`wallet_holdings: ${portfolio.holdings.length} tokens · $${Math.round(portfolio.total)}`);
+      lines.push(`sectors: ${portfolio.slices.length} baskets`);
+    }
+
+    if (netWorth.net > 0) {
+      lines.push(`net_worth: $${Math.round(netWorth.net)} (wallet $${Math.round(netWorth.wallet)} + venues $${Math.round(netWorth.venueEquity)})`);
+    }
+
+    if (perps.length > 0) {
+      lines.push(`open_positions: ${perps.length} open perps across ${new Set(perps.map((p) => p.venue)).size} venues`);
+      lines.push(`top_positions: ${perps.slice(0, 3).map((p) => `${p.displaySymbol} ${p.side} $${Math.round(p.notional ?? 0)}`).join(" · ")}`);
+    }
+
+    const venueSpots = reports
+      .flatMap((r) => r.positions ?? [])
+      .filter((p) => p.kind === "spot");
+    if (venueSpots.length > 0) {
+      const totalSpot = venueSpots.reduce((s, p) => s + ((p.markPrice ?? 0) * (p.size ?? 0)), 0);
+      lines.push(`venue_spots: ${venueSpots.length} spot positions · $${Math.round(totalSpot)}`);
+    }
+
+    return lines.join("\n");
+  } catch {
+    return "";
+  }
+}

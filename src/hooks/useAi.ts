@@ -42,7 +42,7 @@ import {
   unloadEncoder,
   type EncoderState,
 } from "@/lib/ai/encoder";
-import { cloudChatMessages, CLOUD_BY_ID, type CloudConfig } from "@/lib/ai/cloud";
+import { cloudChatMessages, zaiChatMessages, CLOUD_BY_ID, type CloudConfig } from "@/lib/ai/cloud";
 import {
   deriveCapability,
   modelAction,
@@ -236,16 +236,17 @@ export function useAi() {
       setOutput("");
       setSpeed(null);
       try {
-        if (cloudCfg) {
-          const controller = new AbortController();
-          cloudAbort.current = controller;
-          const started = performance.now();
-          const text = await cloudChatMessages(cloudCfg, messages, {
-            temperature: options.temperature ?? temperature,
-            maxTokens: options.maxTokens ?? maxTokens,
-            responseSchema: options.responseSchema,
-            signal: controller.signal,
-            onToken: (partial) => {
+if (cloudCfg) {
+	          const controller = new AbortController();
+	          cloudAbort.current = controller;
+	          const started = performance.now();
+	          const chatFn = cloudCfg.id === "zai" ? zaiChatMessages : cloudChatMessages;
+	          const text = await chatFn(cloudCfg, messages, {
+	            temperature: options.temperature ?? temperature,
+	            maxTokens: options.maxTokens ?? maxTokens,
+	            responseSchema: options.responseSchema,
+	            signal: controller.signal,
+	            onToken: (partial) => {
               if (!mounted.current) return;
               setOutput(partial);
               const secs = (performance.now() - started) / 1000;

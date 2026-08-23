@@ -57,10 +57,10 @@ with duration, tool count and whether a model was involved.
 
 ## Embedding
 
-One provider: the LFM 2.5 Encoder-230M (768 dimensions, 180 MB Q8). It does
-everything the old MiniLM tier did — vectors, semantics, classification — at
-higher capacity, so the two-tier cheap-then-escalate design collapsed to a
-single always-warm encoder. The encoder is warmed on the first message and
-never goes cold; routing always has vectors when it needs them. Nothing
-downloads automatically, and routing degrades to keywords when the encoder is
-absent.
+One provider: all-MiniLM-L6-v2 (ONNX, 384 dimensions, ~90 MB fp32). It is the
+always-warm router encoder: vectors, semantics and light classification for
+routing, retrieval and tool discovery. The heavier LFM encoders stay out of
+the browser; routing is an accelerator, not a gate. The encoder is warmed on
+the first message and never goes cold; routing always has vectors when it
+needs them. Nothing downloads automatically, and routing degrades to keywords
+when the encoder is absent.

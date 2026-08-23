@@ -152,6 +152,11 @@ export type Settings = {
   /** symbol -> basket, chosen by the user, wins over the registry */
   basketOverrides: Record<string, string>;
   assistant: AssistantConfig;
+  /** Venue referral codes and affiliate settings. null venue = not configured. */
+  referrals: {
+    hyperliquid?: { referralCode: string };
+    nado?: { referralCode?: string };
+  };
 };
 
 export type PotDoc = {
@@ -186,6 +191,7 @@ export const EMPTY_DOC: PotDoc = {
     notifications: false,
     automation: {},
     basketOverrides: {},
+    referrals: {},
     assistant: {
       provider: "local",
       modelId: "lfm2-350",
@@ -637,4 +643,58 @@ export function setAutomation(id: string, on: boolean) {
   update((d) => {
     d.settings.automation = { ...d.settings.automation, [id]: on };
   });
+}
+
+/**
+ * Update referral settings for a specific venue. Merges shallowly so setting
+ * a Hyperliquid code does not clear any other venue's config. Pass an empty
+ * object to clear the venue entry.
+ */
+export function patchReferralSettings(
+  venue: "hyperliquid" | "nado",
+  patch: Record<string, string>,
+) {
+  update((d) => {
+    const current = d.settings.referrals[venue] ?? {};
+    const next = { ...current, ...patch };
+    d.settings.referrals = {
+      ...d.settings.referrals,
+      [venue]: Object.keys(next).length > 0 ? next : undefined,
+    };
+  });
+}
+
+// ── cached live data accessors (for tools, not React hooks) ─────────────
+//
+// The wallet-reader worker caches snapshot + venue reports in IndexedDB.
+// These accessors let the tool layer read the latest cached data without
+// being inside a React hook or spawning a worker. Returns null when no
+// cache exists yet (first load) — the tool streams null through, never
+// throws. Imports are dynamic because store.ts has no static imports.
+
+const SNAPSHOT_CACHE_PREFIX = "snapshot:";
+const VENUES_CACHE_PREFIX = "venues:";
+
+/**
+ * Read the most recent wallet snapshot from the IndexedDB cache.
+ * Returns null when no cached snapshot exists.
+ */
+export async function readCachedSnapshot(): Promise<import("@/lib/chain/blockscout").WalletSnapshot | null> {
+  const doc = getDoc();
+  if (!doc.activeWallet) return null;
+  const key = `${SNAPSHOT_CACHE_PREFIX}${doc.activeWallet}`;
+  const { idbGet } = await import("@/lib/cache/idb");
+  return (await idbGet<import("@/lib/chain/blockscout").WalletSnapshot>(key)) ?? null;
+}
+
+/**
+ * Read the most recent venue reports from the IndexedDB cache.
+ * Returns an empty array when no cached reports exist.
+ */
+export async function readCachedVenueReports(): Promise<import("@/lib/venues/types").VenueReport[]> {
+  const doc = getDoc();
+  if (!doc.activeWallet) return [];
+  const key = `${VENUES_CACHE_PREFIX}${doc.activeWallet}`;
+  const { idbGet } = await import("@/lib/cache/idb");
+  return (await idbGet<import("@/lib/venues/types").VenueReport[]>(key)) ?? [];
 }

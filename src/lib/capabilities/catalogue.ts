@@ -255,16 +255,18 @@ export const DEFAULT_HOP_IDS = [
   "indicators.potIndex",
   "indicators.motiveStats",
   "session.search",
+  "portfolio.netWorth",
+  "portfolio.positions-perps",
 ] as const;
 
 /**
  * Never offered to the model-chosen hop, from either the default set or the
  * semantic selection: journal.index and journal.filter return unbounded card
- * sets (the one result guaranteed to flood the context), and portfolio.read
- * is not wired yet. They stay in the capability book and remain invocable as
- * explicit commands; the model just never picks them blind.
+ * sets (the one result guaranteed to flood the context). They stay in the
+ * capability book and remain invocable as explicit commands; the model just
+ * never picks them blind.
  */
-export const HOP_EXCLUDED_IDS = ["journal.index", "journal.filter", "portfolio.read"] as const;
+export const HOP_EXCLUDED_IDS = ["journal.index", "journal.filter"] as const;
 
 export type CapabilitySelection = {
   selected: CapabilityDefinition[];

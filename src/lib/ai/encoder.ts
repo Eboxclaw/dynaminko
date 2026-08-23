@@ -2,7 +2,7 @@
 // vectors so routing, retrieval and tool discovery can be semantic without
 // waking a generative model.
 //
-// This is a thin facade over the single LFM 2.5 Encoder-230M in
+// This is a thin facade over the single all-MiniLM-L6-v2 in
 // `embedding.ts`. It is WARMED on first message and never goes cold — routing
 // always has vectors when it needs them.
 
@@ -32,44 +32,44 @@ export type { RankStats };
 export type EncoderState =
   "missing" | "downloaded" | "loading" | "loaded" | "unavailable" | "error";
 
-const LFM_ID: EmbeddingProviderId = "lfm-encoder-230m";
+const EMBED_ID: EmbeddingProviderId = "minilm-6-v2";
 
 export const onEncoderChange = onEmbeddingChange;
 
 export function encoderState(): EncoderState {
-  return providerState(LFM_ID);
+  return providerState(EMBED_ID);
 }
 export function encoderError(): string | null {
-  return providerError(LFM_ID);
+  return providerError(EMBED_ID);
 }
 export function encoderProgress(): number {
-  return providerProgress(LFM_ID);
+  return providerProgress(EMBED_ID);
 }
 export function encoderBackend(): "webgpu" | "wasm" | null {
-  return providerBackend(LFM_ID);
+  return providerBackend(EMBED_ID);
 }
 export function encoderReady(): boolean {
-  return providerReady(LFM_ID);
+  return providerReady(EMBED_ID);
 }
 
 export async function encoderCached(): Promise<boolean> {
-  return providerCached(LFM_ID);
+  return providerCached(EMBED_ID);
 }
 
 export async function downloadSemanticProvider(onProgress?: (fraction: number) => void) {
-  return downloadProvider(LFM_ID, onProgress);
+  return downloadProvider(EMBED_ID, onProgress);
 }
 
 export async function activateSemantic(onProgress?: (fraction: number) => void) {
-  return loadDownloadedProvider(LFM_ID, onProgress);
+  return loadDownloadedProvider(EMBED_ID, onProgress);
 }
 
 export async function ensureEncoderIfCached() {
-  return ensureProviderIfCached(LFM_ID);
+  return ensureProviderIfCached(EMBED_ID);
 }
 
 export function unloadEncoder() {
-  unloadProvider(LFM_ID);
+  unloadProvider(EMBED_ID);
 }
 
 export const cosine = cosineOf;

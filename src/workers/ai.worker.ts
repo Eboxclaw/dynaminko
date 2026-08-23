@@ -102,14 +102,14 @@ const MODEL_LIST: ModelSpec[] = [
     sampling: { temperature: 0.3, minP: 0.15, repeatPenalty: 1.05, penaltyLastN: 64 },
   },
   {
-    id: "lfm2-230-encoder",
-    label: "LFM 2.5 230M encoder",
-    repo: "LiquidAI/LFM2.5-Encoder-230M",
+    id: "minilm-6-v2",
+    label: "All MiniLM L6 v2 encoder",
+    repo: "onnx-community/all-MiniLM-L6-v2-ONNX",
     quant: "fp32",
     runtime: "transformers",
-    weightsGb: 0.18,
-    nLayers: 24,
-    maxCtx: 8192,
+    weightsGb: 0.09,
+    nLayers: 6,
+    maxCtx: 512,
     desktopOnly: false,
     minRamGb: 0,
     vision: false,
@@ -204,8 +204,8 @@ async function computeCachedModels(): Promise<Set<string>> {
         if (!/transformers/i.test(key)) continue;
         const cache = await caches.open(key);
         const reqs = await cache.keys();
-        const encoder = MODEL_BY_ID["lfm2-230-encoder"];
-        if (reqs.some((r) => r.url.includes(encoder.repo))) out.add("lfm2-230-encoder");
+        const encoder = MODEL_BY_ID["minilm-6-v2"];
+        if (reqs.some((r) => r.url.includes(encoder.repo))) out.add("minilm-6-v2");
       }
     }
   } catch {

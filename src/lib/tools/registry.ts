@@ -1,8 +1,12 @@
 // The single source of truth for what the app can do deterministically.
 // The Agents tab renders this; skills execute against it.
 
-import { addAlert, patchAlert, removeAlert, getDoc } from "@/lib/store";
+import { addAlert, patchAlert, removeAlert, getDoc, readCachedSnapshot, readCachedVenueReports } from "@/lib/store";
 import { request as requestNotifications } from "@/lib/notify";
+import { buildPortfolio } from "@/lib/portfolio";
+import { composeNetWorth, perpExposure } from "@/lib/exposure";
+import { readVelodrome } from "@/lib/venues/velodrome";
+import { readNado } from "@/lib/venues/nado";
 
 import * as ind from "./indicators";
 import * as journal from "./journal";
@@ -303,17 +307,60 @@ export const TOOLS: ToolDef[] = [
     run: () => requestNotifications(),
   }),
 
-  // ── portfolio & chain (read paths already wired elsewhere) ────────────
+  // ── portfolio & chain (read paths wired from cached snapshot/venue data) ─
   def({
     id: "portfolio.read",
     group: "portfolio",
     action: "read",
     label: "Read portfolio",
-    purpose: "Holdings, baskets and quotes for the active wallet.",
+    purpose: "Live wallet holdings, basket slices and total value for the active wallet.",
     access: "READ",
     inputs: "none",
     output: "Portfolio",
     live: true,
+    run: async () => {
+      const snapshot = await readCachedSnapshot();
+      if (!snapshot) return { holdings: [], total: 0, priced: false, slices: [], message: "no wallet snapshot cached yet; sync your wallet first" };
+      // Quotes are best-effort from the IDB cache; the price pipeline caches
+      // in IndexedDB under the same key prefix.
+      const { idbGet } = await import("@/lib/cache/idb");
+      const quotes = (await idbGet<import("@/lib/prices").Quote[]>("quotes:latest")) ?? [];
+      const overrides = getDoc().settings.basketOverrides;
+      return buildPortfolio(snapshot, quotes, overrides);
+    },
+  }),
+  def({
+    id: "portfolio.netWorth",
+    group: "portfolio",
+    action: "netWorth",
+    label: "Net worth",
+    purpose: "Wallet balance plus venue account equity combined.",
+    access: "READ",
+    inputs: "none",
+    output: "{ wallet, venueEquity, net }",
+    live: true,
+    run: async () => {
+      const snapshot = await readCachedSnapshot();
+      const reports = await readCachedVenueReports();
+      if (!snapshot) return { wallet: 0, venueEquity: 0, net: 0, message: "no wallet snapshot cached yet" };
+      const portfolio = buildPortfolio(snapshot, []);
+      return composeNetWorth(portfolio, reports);
+    },
+  }),
+  def({
+    id: "portfolio.positions-perps",
+    group: "portfolio",
+    action: "positions-perps",
+    label: "Open perp positions",
+    purpose: "Active open perpetual positions across venues with unrealized PnL.",
+    access: "READ",
+    inputs: "none",
+    output: "ActiveTrade[]",
+    live: true,
+    run: async () => {
+      const reports = await readCachedVenueReports();
+      return perpExposure(reports);
+    },
   }),
   def({
     id: "chain.transfers",
@@ -324,7 +371,7 @@ export const TOOLS: ToolDef[] = [
     access: "EXTERNAL",
     inputs: "{ address: string, chainId: number }",
     output: "ChainTransfer[]",
-    live: true,
+    live: false,
   }),
   def({
     id: "market.quote",
@@ -335,7 +382,7 @@ export const TOOLS: ToolDef[] = [
     access: "EXTERNAL",
     inputs: "{ symbols: string[] }",
     output: "Quote[]",
-    live: true,
+    live: false,
   }),
   def({
     id: "log.read",
@@ -351,8 +398,21 @@ export const TOOLS: ToolDef[] = [
   }),
 ];
 
-/** Venue groups: read/parse only for now, execution deliberately out of scope. */
+/** Venue groups: read/parse only for now, execution deliberately out of scope. Velodrome and Nado have live readers; Inkyswap and Tydro still pending. */
 const VENUES = ["velodrome", "inkyswap", "hyperliquid", "nado", "tydro"] as const;
+
+/** Which venues have a real reader wired up right now. */
+const LIVE_VENUE_READERS = new Set(["velodrome", "hyperliquid", "nado"]);
+
+/** The wallet address to use for venue reads. Falls back to active wallet. */
+function activeAddress(getDoc: () => import("@/lib/store").PotDoc): string | null {
+  const doc = getDoc();
+  if (!doc.activeWallet) return null;
+  const sep = doc.activeWallet.indexOf(":");
+  return sep >= 0 ? doc.activeWallet.slice(sep + 1) : doc.activeWallet;
+}
+
+const INK_CHAIN_ID = 57073;
 
 for (const venue of VENUES) {
   TOOLS.push(
@@ -365,7 +425,22 @@ for (const venue of VENUES) {
       access: "EXTERNAL",
       inputs: "{ address: string }",
       output: "VenuePosition[]",
-      live: venue === "hyperliquid",
+      live: LIVE_VENUE_READERS.has(venue),
+      run: LIVE_VENUE_READERS.has(venue)
+        ? async (i: { address?: string }) => {
+            const address = i?.address || activeAddress(getDoc);
+            if (!address) return [];
+            const reader =
+              venue === "velodrome" ? readVelodrome
+              : venue === "nado" ? readNado
+              : venue === "hyperliquid"
+                ? (await import("@/lib/venues/hyperliquid")).readHyperliquid
+                : null;
+            if (!reader) return [];
+            const report = await reader(address, INK_CHAIN_ID);
+            return report.positions ?? [];
+          }
+        : undefined,
     }),
     def({
       id: `${venue}.execute`,

@@ -2,13 +2,13 @@
 
 Routing uses deterministic syntax and aliases first, then ranks the shared capability catalogue with the loaded semantic encoder when available. Semantic scores are advisory. Execution still goes through command/tool policy and approval checks.
 
-## Encoder tiering
+## Single encoder
 
-MiniLM (23 MB) embeds by default; the LFM 230M encoder escalates when the top score is below 0.55; scores at or above 0.75 are strong. When no encoder is available the keyword fallback ranks and the turn carries on: the encoder is an accelerator, never a dependency.
+One encoder does the ranking: all-MiniLM-L6-v2 (ONNX, 384-dim, ~90 MB), loaded in the browser and warm whenever resident. There is no second, heavier tier: the heavier LFM encoders were dropped from the router because they do not fit a light mobile client. The router ranks the shared capability catalogue with it; scores at or above 0.75 are strong. When no encoder is available the keyword fallback ranks and the turn carries on: the encoder is an accelerator, never a dependency.
 
 ## Hot encoder
 
-Opening the console loads whatever encoder is already cached, in idle time: MiniLM everywhere, the 230M on desktop only (on phones it stays a manual model-panel choice for RAM). Once resident, the journal card pool prewarms (`prewarmRetrieval` via requestIdleCallback) so the first question hits warm vectors. Nothing downloads silently: with nothing cached, the first message shows a one-time chip offering the 23 MB MiniLM install; the choice (install or not now) sticks in localStorage and never nags again. First-use cost stays flat: a fresh device answers instantly on the keyword fallback whether or not the chip is accepted.
+Opening the console loads whatever encoder is already cached, in idle time. Once resident, the journal card pool prewarms (`prewarmRetrieval` via requestIdleCallback) so the first question hits warm vectors. Nothing downloads silently: with nothing cached, the first message shows a one-time chip offering the ~90 MB MiniLM install; the choice (install or not now) sticks in localStorage and never nags again. First-use cost stays flat: a fresh device answers instantly on the keyword fallback whether or not the chip is accepted.
 
 ## Vector cache
 

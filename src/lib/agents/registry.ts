@@ -66,7 +66,7 @@ export const AGENTS: AgentDef[] = [
     trigger: "only when you ask",
     tools: ["read-portfolio", "read-signals", "write-draft-entry"],
     skills: ["tidy", "reason", "review"],
-    live: false,
+    live: true,
   },
 ];
 

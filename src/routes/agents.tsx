@@ -52,7 +52,7 @@ import { encoderReady } from "@/lib/ai/encoder";
 
 import { AGENTS, automationOn } from "@/lib/agents/registry";
 import { COMMANDS, parseCommand, suggestions, type Suggestion } from "@/lib/chat/commands";
-import { factLines } from "@/lib/chat/context";
+import { factLines, portfolioFactLines } from "@/lib/chat/context";
 import { newMessage, type ChatMessage } from "@/lib/chat/session";
 import {
   bootstrapSessions,
@@ -242,7 +242,7 @@ function ChatConsole({
   }, []);
 
   // Hot encoder: whatever is already cached loads in idle time, then the
-  // journal pool prewarms so the first question hits warm vectors. The 180MB
+  // journal pool prewarms so the first question hits warm vectors. The 90MB
   // download stays manual on phones (RAM), but shapes the semantic offer.
   useEffect(() => {
     let cancelled = false;
@@ -253,10 +253,10 @@ function ChatConsole({
     idle(() => {
       if (cancelled) return;
       void (async () => {
-        const cached = await providerCached("lfm-encoder-230m");
+        const cached = await providerCached("minilm-6-v2");
         if (cached && deviceProfile().mobile) return;
         if (cached) {
-          await loadDownloadedProvider("lfm-encoder-230m");
+          await loadDownloadedProvider("minilm-6-v2");
           if (!cancelled) idle(() => void prewarmRetrieval());
         }
       })();
@@ -269,7 +269,7 @@ function ChatConsole({
   const installSemantic = async () => {
     setSemanticChip("downloading");
     try {
-      await downloadProvider("lfm-encoder-230m", setChipProgress);
+      await downloadProvider("minilm-6-v2", setChipProgress);
       try {
         localStorage.setItem("pot.semanticChip", "done");
       } catch {
@@ -575,18 +575,21 @@ function ChatConsole({
       }
 
       const budgetTokens = Math.floor(ai.ctx * 0.75);
-      const buildInput = {
-        instructions: system,
-        // The web toggle is part of the turn's state, not the app digest:
-        // the model learns search is available (or why it is not) from the
-        // same labeled lines it trusts for everything else.
-        state: `${factLines()}\nweb_search: ${
+      const portfolioLines = ground && !conversational ? await portfolioFactLines().catch(() => "") : "";
+      const stateLines = [
+        factLines(),
+        ...(portfolioLines ? [portfolioLines] : []),
+        `web_search: ${
           web
             ? "active this turn, prefer web.search for news and external facts"
             : intentExternal === true
               ? "disabled (Web toggle) — this question probably needs the web, enable it on the next turn"
               : "disabled (Web toggle)"
         }`,
+      ].join("\n");
+      const buildInput = {
+        instructions: system,
+        state: stateLines,
         memory: memoryPrompt(),
         capabilitiesDigest: capabilityDigest(),
         selectedCapabilities: selection.selected,
@@ -858,7 +861,7 @@ function ChatConsole({
     // One-time semantic engine offer: only when nothing is cached and no
     // encoder is resident. Dismissed or done stays that way.
     if (semanticChip === "hidden" && !encoderReady()) {
-      void providerCached("lfm-encoder-230m").then(async (cached) => {
+      void providerCached("minilm-6-v2").then(async (cached) => {
         if (cached) return;
         try {
           if (localStorage.getItem("pot.semanticChip")) return;
@@ -1096,7 +1099,7 @@ function ChatConsole({
       }
     }
     if (routed.kind === "none") {
-      // Second pass: the 230M encoder, not a generative model. The encoder is
+      // Second pass: the MiniLM encoder, not a generative model. The encoder is
       // an accelerator — when it is absent or fails the turn simply carries on.
       turn.stage("semantic", ai.capability.routeFallback ? "keyword fallback" : "encoder");
       const semantic = await routeSemantic(text);
@@ -1199,7 +1202,7 @@ function ChatConsole({
               <p className="text-[13px]">
                 {semanticChip === "downloading"
                   ? `semantic engine · ${Math.round(chipProgress * 100)}%`
-                  : "Make routing semantic? 180 MB, downloaded once, then always ready on this device."}
+                  : "Make routing semantic? 90 MB, downloaded once, then always ready on this device."}
               </p>
               {semanticChip === "offer" && (
                 <>
