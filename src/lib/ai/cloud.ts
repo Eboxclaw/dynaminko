@@ -70,9 +70,11 @@ export const CLOUD_PROVIDERS: CloudProviderSpec[] = [
   {
     id: "zai",
     label: "Z.ai",
-    baseUrl: "https://api.z.ai/v1",
+    // Z.ai's chat endpoint is OpenAI-compatible (Bearer auth, /chat/completions),
+    // not the Anthropic Messages API. The v4 base already includes /chat/completions.
+    baseUrl: "https://api.z.ai/api/paas/v4",
     model: "glm-5.3",
-    blurb: "Anthropic-format API powered by GLM-5.3.",
+    blurb: "Z.ai's OpenAI-compatible chat endpoint, powered by GLM-5.3.",
     corsRisky: false,
     keysUrl: "https://z.ai/keys",
   },
@@ -199,94 +201,4 @@ export async function cloudChat(
     ],
     options,
   );
-}
-
-// ── Anthropic-format providers (Z.ai) ─────────────────────────────────
-//
-// Anthropic's Messages API uses SSE events with a different schema than
-// OpenAI. Each SSE line is `data: {"type":"...","delta":{"text":"..."}}`.
-// The request uses `x-api-key` header instead of `Bearer`.
-
-/** Only the fields zaiChatMessages cares about from an Anthropic SSE chunk. */
-type AnthropicDelta = {
-  type: "content_block_delta" | "content_block_stop" | "message_stop" | "ping" | "error";
-  delta?: { text?: string; type?: "text_delta" };
-  error?: { message: string };
-};
-
-/**
- * Streaming chat call against an Anthropic-format endpoint.
- * Used by Z.ai and similar providers that mirror the Anthropic Messages API
- * rather than OpenAI's chat completions format.
- */
-export async function zaiChatMessages(
-  cfg: CloudConfig,
-  messages: Array<{ role: "system" | "user" | "assistant"; content: string }>,
-  options: CloudChatOptions = {},
-): Promise<string> {
-  const spec = CLOUD_BY_ID[cfg.id];
-  const base = (cfg.baseUrl || spec.baseUrl).replace(/\/$/, "");
-  const model = cfg.model || spec.model;
-
-  // Anthropic messages format: system is a top-level field, not a message role
-  const systemMsg = messages.find((m) => m.role === "system")?.content ?? "";
-  const chatMessages = messages
-    .filter((m) => m.role !== "system")
-    .map((m) => ({ role: m.role, content: m.content }));
-
-  const res = await fetch(`${base}/messages`, {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      "x-api-key": cfg.apiKey,
-      "anthropic-version": "2023-06-01",
-    },
-    signal: options.signal,
-    body: JSON.stringify({
-      model,
-      max_tokens: options.maxTokens ?? 512,
-      temperature: options.temperature ?? 0.4,
-      ...(systemMsg ? { system: systemMsg } : {}),
-      messages: chatMessages,
-      stream: true,
-    }),
-  });
-
-  if (!res.ok || !res.body) {
-    const text = await res.text().catch(() => "");
-    throw new Error(`${spec.label} refused the call (${res.status}). ${text.slice(0, 180)}`);
-  }
-
-  const reader = res.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = "";
-  let out = "";
-
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
-    const lines = buffer.split("\n");
-    buffer = lines.pop() ?? "";
-    for (const line of lines) {
-      const trimmed = line.trim();
-      if (!trimmed.startsWith("data:")) continue;
-      const payload = trimmed.slice(5).trim();
-      if (!payload) continue;
-      try {
-        const delta: AnthropicDelta = JSON.parse(payload);
-        if (delta.type === "content_block_delta" && delta.delta?.text) {
-          out += delta.delta.text;
-          options.onToken?.(out);
-        }
-        if (delta.type === "error" && delta.error?.message) {
-          throw new Error(`${spec.label} error: ${delta.error.message}`);
-        }
-        // content_block_stop and message_stop are normal end signals, not errors
-      } catch {
-        /* keep streaming — a partial frame is not fatal */
-      }
-    }
-  }
-  return out.trim();
 }

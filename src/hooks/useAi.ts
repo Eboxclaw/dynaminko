@@ -43,7 +43,7 @@ import {
   unloadEncoder,
   type EncoderState,
 } from "@/lib/ai/encoder";
-import { cloudChatMessages, zaiChatMessages, CLOUD_BY_ID, type CloudConfig } from "@/lib/ai/cloud";
+import { cloudChatMessages, CLOUD_BY_ID, type CloudConfig } from "@/lib/ai/cloud";
 import {
   deriveCapability,
   modelAction,
@@ -268,8 +268,9 @@ if (cloudCfg) {
 	          const controller = new AbortController();
 	          cloudAbort.current = controller;
 	          const started = performance.now();
-	          const chatFn = cloudCfg.id === "zai" ? zaiChatMessages : cloudChatMessages;
-	          const text = await chatFn(cloudCfg, messages, {
+	          // Every cloud provider is OpenAI-compatible (Z.ai included), so the
+	          // shared client covers all of them. No per-provider branching.
+	          const text = await cloudChatMessages(cloudCfg, messages, {
 	            temperature: options.temperature ?? temperature,
 	            maxTokens: options.maxTokens ?? maxTokens,
 	            responseSchema: options.responseSchema,
