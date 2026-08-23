@@ -493,49 +493,82 @@ ctx.addEventListener("message", async (event: MessageEvent<AiWorkerRequest>) => 
       return;
     }
 
-    case "delete-model": {
-      try {
-        const spec = MODEL_BY_ID[msg.modelId];
-        if (!spec) {
-          ctx.postMessage({
-            type: "error",
-            message: `unknown model: ${msg.modelId}`,
-          } satisfies AiWorkerResponse);
-          return;
-        }
-        if (currentModel === spec.id && instance) {
-          await instance.exit().catch(() => {});
-          instance = null;
-          currentModel = null;
-          activeBackend = "unavailable";
-        }
-        const needle = (spec.repo.split("/")[1] ?? spec.repo).toLowerCase();
-        if (spec.runtime === "gguf" && instance) {
-          const mgr = (
-            instance as unknown as {
-              cacheManager?: { deleteMany?: (pred: (e: unknown) => boolean) => Promise<void> };
-            }
-          ).cacheManager;
-          await mgr?.deleteMany?.((e) => {
-            const rec = e as { name?: string; url?: string };
-            return (rec.url ?? rec.name ?? "").toLowerCase().includes(needle);
-          });
-        } else if (typeof caches !== "undefined") {
-          for (const key of await caches.keys()) {
-            if (!/transformers/i.test(key)) continue;
-            const cache = await caches.open(key);
-            for (const req of await cache.keys()) {
-              if (req.url.toLowerCase().includes(needle)) await cache.delete(req);
-            }
-          }
-        }
-        ctx.postMessage({ type: "deleted", modelId: msg.modelId } satisfies AiWorkerResponse);
-      } catch (err) {
-        ctx.postMessage({
-          type: "error",
-          message: err instanceof Error ? err.message : "delete-model failed",
-        } satisfies AiWorkerResponse);
-      }
+case "delete-model": {
+	      try {
+	        const spec = MODEL_BY_ID[msg.modelId];
+	        if (!spec) {
+	          ctx.postMessage({
+	            type: "error",
+	            message: `unknown model: ${msg.modelId}`,
+	          } satisfies AiWorkerResponse);
+	          return;
+	        }
+	        const needle = (spec.repo.split("/")[1] ?? spec.repo).toLowerCase();
+
+	        // Unload if this model is loaded
+	        if (currentModel === spec.id && instance) {
+	          await instance.exit().catch(() => {});
+	          instance = null;
+	          currentModel = null;
+	          activeBackend = "unavailable";
+	        }
+
+	        // Clear cached weights. We need a wllama instance for its cache
+	        // manager, so create a short-lived runtime if none is active.
+	        if (spec.runtime === "gguf") {
+	          let mgr: { deleteMany?: (pred: (e: unknown) => boolean) => Promise<void> } | undefined;
+	          if (instance) {
+	            mgr = (instance as unknown as {
+	              cacheManager?: typeof mgr;
+	            }).cacheManager;
+	          }
+	          if (!mgr) {
+	            // No active instance — create a throwaway runtime to access the cache manager
+	            try {
+	              const { Wllama: Ctor } = await import("@wllama/wllama/esm/index.js");
+	              const temp = new Ctor(
+	                { default: "/wasm/wllama.wasm" },
+	                { allowOffline: true, suppressNativeLog: true, parallelDownloads: 1 },
+	              );
+	              // Cache manager is available even without loading a model
+	              mgr = (temp as unknown as {
+	                cacheManager?: typeof mgr;
+	              }).cacheManager;
+	              await mgr?.deleteMany?.((e: unknown) => {
+	                const rec = e as { name?: string; url?: string };
+	                return (rec.url ?? rec.name ?? "").toLowerCase().includes(needle);
+	              });
+	              await temp.exit().catch(() => {});
+	              mgr = undefined;
+	            } catch {
+	              // fall through to caches API below
+	            }
+	          } else {
+	            await mgr.deleteMany?.((e: unknown) => {
+	              const rec = e as { name?: string; url?: string };
+	              return (rec.url ?? rec.name ?? "").toLowerCase().includes(needle);
+	            });
+	          }
+	        }
+
+	        // Also clear from the Cache API (for ONNX/transformers models)
+	        if (typeof caches !== "undefined") {
+	          for (const key of await caches.keys()) {
+	            if (!/transformers/i.test(key)) continue;
+	            const cache = await caches.open(key);
+	            for (const req of await cache.keys()) {
+	              if (req.url.toLowerCase().includes(needle)) await cache.delete(req);
+	            }
+	          }
+	        }
+
+	        ctx.postMessage({ type: "deleted", modelId: msg.modelId } satisfies AiWorkerResponse);
+	      } catch (err) {
+	        ctx.postMessage({
+	          type: "error",
+	          message: err instanceof Error ? err.message : "delete-model failed",
+	        } satisfies AiWorkerResponse);
+	      }
       return;
     }
 

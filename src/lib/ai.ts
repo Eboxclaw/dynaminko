@@ -273,8 +273,46 @@ let sLoadedModelId: string | null = null;
 let sLoadedContext = DEFAULT_CTX;
 let sActiveBackend: Backend = "unavailable";
 
-let nextId = 0;
-const pending = new Map<number, { resolve: (v: unknown) => void; reject: (e: Error) => void }>();
+/**
+ * Per-response-type promise queues. Instead of a shared pending map where
+ * every response resolves all promises, each response type resolves only
+ * its own queue. This prevents "ready" from resolving a concurrent
+ * "cached-models" promise (or vice versa).
+ */
+type PendingEntry = {
+  resolve: (v: unknown) => void;
+  reject: (e: Error) => void;
+};
+
+const responseQueues: Record<string, PendingEntry[]> = {
+  "ready": [],
+  "cached-models": [],
+  "deleted": [],
+  "error": [],
+};
+
+function dequeue(type: string, value: unknown) {
+  const queue = responseQueues[type];
+  if (!queue) return;
+  const p = queue.shift();
+  if (p) p.resolve(value);
+  // don't clear the whole queue — one response resolves one promise
+}
+
+function enqueue(type: string): Promise<unknown> {
+  return new Promise((resolve, reject) => {
+    responseQueues[type] = responseQueues[type] ?? [];
+    responseQueues[type].push({ resolve, reject });
+  });
+}
+
+/** Notify all pending callbacks that the worker died. */
+function rejectAllQueues(err: Error) {
+  for (const queue of Object.values(responseQueues)) {
+    for (const p of queue) p.reject(err);
+    queue.length = 0;
+  }
+}
 
 function getWorker(): Worker | null {
   if (worker) return worker;
@@ -292,14 +330,33 @@ function getWorker(): Worker | null {
           sLoadedModelId = msg.modelId;
           sLoadedContext = msg.ctx;
           sActiveBackend = msg.backend as Backend;
-          // Resolve any pending load request
-          for (const [, p] of pending) p.resolve({ status: "ready", modelId: msg.modelId });
-          pending.clear();
+          // Only resolve the ready queue — don't touch cached-models or deleted promises
+          dequeue("ready", { status: "ready", modelId: msg.modelId });
           return;
         }
         case "error": {
-          for (const [, p] of pending) p.reject(new Error(msg.message));
-          pending.clear();
+          // Route errors to the right queue based on context:
+          // error always rejects the ready queue (load failure)
+          dequeue("ready", undefined);
+          // Also reject any pending load operation
+          const err = new Error(msg.message);
+          for (const q of Object.values(responseQueues)) {
+            if (q.length > 0) {
+              q[0].reject(err);
+              q.shift();
+            }
+          }
+          return;
+        }
+        case "loading": {
+          // Route progress to the active load callback (if any)
+          if (activeStatusCallback && msg.modelId === activeStatusModelId) {
+            activeStatusCallback({
+              phase: "downloading",
+              progress: msg.progress ?? 0,
+              modelId: msg.modelId,
+            });
+          }
           return;
         }
         case "unloaded": {
@@ -310,8 +367,7 @@ function getWorker(): Worker | null {
           return;
         }
         case "cached-models": {
-          for (const [, p] of pending) p.resolve(new Set(msg.ids));
-          pending.clear();
+          dequeue("cached-models", new Set(msg.ids));
           return;
         }
         case "deleted": {
@@ -321,8 +377,7 @@ function getWorker(): Worker | null {
             sLoadedModelId = null;
             sActiveBackend = "unavailable";
           }
-          for (const [, p] of pending) p.resolve(undefined);
-          pending.clear();
+          dequeue("deleted", undefined);
           return;
         }
         // token/done are handled via callbacks, not promises
@@ -338,8 +393,7 @@ function getWorker(): Worker | null {
       sReady = false;
       sLoadedModelId = null;
       sActiveBackend = "unavailable";
-      for (const [, p] of pending) p.reject(new Error("AI worker crashed"));
-      pending.clear();
+      rejectAllQueues(new Error("AI worker crashed"));
     });
   } catch (err) {
     console.warn("AI worker creation failed:", err);
@@ -347,25 +401,47 @@ function getWorker(): Worker | null {
   return worker;
 }
 
-function postAndWait<T>(msg: AiWorkerRequest): Promise<T> {
+/**
+ * Post a message and wait for a specific response type.
+ * Only that response type's queue is checked — other response types
+ * never resolve or reject this promise.
+ */
+function postAndWait<T>(msg: AiWorkerRequest, responseType: string): Promise<T> {
   return new Promise<T>((resolve, reject) => {
     const w = getWorker();
     if (!w) {
       reject(new Error("AI worker unavailable (SSR or unsupported browser)"));
       return;
     }
-    const id = nextId++;
-    pending.set(id, { resolve: resolve as (v: unknown) => void, reject });
+
+    // Enqueue first so we don't miss a response that arrives synchronously
+    const p = enqueue(responseType);
     w.postMessage(msg);
 
+    p.then(resolve as (v: unknown) => void).catch(reject);
+
     // Timeout to prevent hanging (matches the wall-clock deadline in AGENTS.md)
-    setTimeout(() => {
-      const p = pending.get(id);
-      if (p) {
-        pending.delete(id);
-        p.reject(new Error("AI worker request timed out"));
+    let settled = false;
+    const timer = setTimeout(() => {
+      if (!settled) {
+        settled = true;
+        reject(new Error("AI worker request timed out"));
       }
     }, 120_000);
+
+    // Wrap resolve/reject to clear the timer
+    const origResolve = resolve;
+    const origReject = reject;
+    const finalize = (fn: (v: unknown) => void, v: unknown) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      fn(v);
+    };
+    p.then(
+      (v) => finalize(origResolve as (v: unknown) => void, v),
+      (e) => finalize(origReject, e),
+    );
   });
 }
 
@@ -392,12 +468,22 @@ export function invalidateCachedModels() {
 }
 
 export function cachedModels(): Promise<Set<string>> {
-  return postAndWait<Set<string>>({ type: "cached-models" });
+  return postAndWait<Set<string>>({ type: "cached-models" }, "cached-models");
 }
 
 export async function deleteModel(modelId: string): Promise<void> {
-  await postAndWait<void>({ type: "delete-model", modelId });
+  await postAndWait<void>({ type: "delete-model", modelId }, "deleted");
 }
+
+// ── download progress (non-promise, callback-based) ─────────────────
+
+/**
+ * The onStatus callback for the currently-loading model, if any.
+ * Set before posting a "load" message; cleared when "ready" or "error" arrives.
+ * The worker's progressCallback fires "loading" messages that this handler invokes.
+ */
+let activeStatusCallback: ((s: AiStatus) => void) | null = null;
+let activeStatusModelId: string | null = null;
 
 export async function downloadModel(
   modelId: string,
@@ -405,15 +491,35 @@ export async function downloadModel(
   _options: { nCtx?: number } = {},
 ): Promise<LifecycleResult> {
   onStatus({ phase: "downloading", progress: 0, modelId });
+
+  // Register the status callback so "loading" progress messages route to it
+  activeStatusCallback = onStatus;
+  activeStatusModelId = modelId;
+
   try {
-    await postAndWait<void>({ type: "load", modelId, allowDownload: true });
+    await postAndWait<{ status: string; modelId: string }>(
+      { type: "load", modelId, allowDownload: true },
+      "ready",
+    );
     onStatus({ phase: "ready", modelId });
     return { status: "ready", modelId };
   } catch (err) {
     const message = err instanceof Error ? err.message : "download failed";
     onStatus({ phase: "error", message, modelId });
     return { status: "error", modelId, message };
+  } finally {
+    activeStatusCallback = null;
+    activeStatusModelId = null;
   }
+}
+
+/** Also exported for useAi's load callback (non-download load path). */
+export function setActiveStatusCallback(
+  cb: ((s: AiStatus) => void) | null,
+  modelId: string | null,
+) {
+  activeStatusCallback = cb;
+  activeStatusModelId = modelId;
 }
 
 export async function loadDownloadedModel(

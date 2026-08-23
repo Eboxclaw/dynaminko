@@ -19,6 +19,7 @@ import {
   stopGeneration,
   unload,
   UNKNOWN_PROFILE,
+  setActiveStatusCallback,
   type AiStatus,
   type ChatOptions,
   type ModelState,
@@ -100,6 +101,9 @@ export function useAi() {
   const encoder = useEncoder();
   const mounted = useRef(true);
   const cloudAbort = useRef<AbortController | null>(null);
+  /** Monotonic progress tracker: keeps the highest progress seen per model so
+   * wllama's per-file download reporting doesn't cause the bar to jump backward. */
+  const lastProgress = useRef<Record<string, number>>({});
 
   const assistant = doc.settings.assistant;
   const cloudId = assistant.cloudId;
@@ -135,18 +139,21 @@ export function useAi() {
 
   /**
    * Progress only ever moves forward for the same model. wllama reports per
-   * file, so a naive assignment can visibly jump back to 0 mid-download.
+   * file, so progress can jump from 80% back to 0% mid-download when a new
+   * file starts. We track the highest progress per model in a ref (outside
+   * React's render cycle) to prevent regression.
    */
   const applyStatus = useCallback((s: AiStatus) => {
     if (!mounted.current) return;
-    setStatus((prev) =>
-      s.phase === "downloading" &&
-      prev.phase === "downloading" &&
-      prev.modelId === s.modelId &&
-      prev.progress > s.progress
-        ? prev
-        : s,
-    );
+    if (s.phase === "downloading" && s.modelId) {
+      const prev = lastProgress.current[s.modelId] ?? 0;
+      if (s.progress < prev) {
+        // wllama started a new file — keep the old value
+        return;
+      }
+      lastProgress.current[s.modelId] = s.progress;
+    }
+    setStatus(s);
   }, []);
 
   /** Download path. It may fetch weights, and it leaves the model loaded. */
@@ -166,7 +173,7 @@ export function useAi() {
         toast.success(`${spec?.label ?? modelId} is downloaded and ready`);
         patchAssistant({ modelId, provider: "local" });
         setSettings({ aiModelId: modelId, aiEnabled: true });
-        void refreshDownloaded();
+        await refreshDownloaded();
       } catch {
         /* status already carries the error */
       }
@@ -195,6 +202,8 @@ export function useAi() {
     async (modelId: string): Promise<{ ok: boolean; error?: string }> => {
       patchAssistant({ modelId, provider: "local" });
       setSettings({ aiModelId: modelId });
+      // Register progress callback so load progress shows in the UI
+      setActiveStatusCallback(applyStatus, modelId);
       try {
         const result = await rotateToDownloadedModel(modelId, applyStatus, { nCtx: ctx });
         if (
@@ -208,13 +217,15 @@ export function useAi() {
         const message = err instanceof Error ? err.message : "the model failed to load";
         if (mounted.current) setStatus({ phase: "error", message, modelId });
         return { ok: false, error: message };
+      } finally {
+        setActiveStatusCallback(null, null);
       }
       if (!isReady(modelId)) return { ok: false, error: "the model did not reach a ready state" };
       setLoadedCtx(loadedContext());
       setBackend(activeBackend());
       toast.success(`${MODEL_BY_ID[modelId]?.label ?? modelId} is loaded`);
       setSettings({ aiEnabled: true, aiModelId: modelId });
-      void refreshDownloaded();
+      await refreshDownloaded();
       return { ok: true };
     },
     [applyStatus, ctx, refreshDownloaded, setSettings],
@@ -390,7 +401,7 @@ if (cloudCfg) {
         setBackend("unavailable");
       }
       toast.info(`${spec?.label ?? modelId} removed from device`);
-      void refreshDownloaded();
+      await refreshDownloaded();
     },
     [refreshDownloaded],
   );
