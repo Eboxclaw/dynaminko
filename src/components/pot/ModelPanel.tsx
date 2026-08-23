@@ -123,6 +123,12 @@ function ModelRow({
   const actions = ai.actionsFor(id);
   const busy = state === "loading";
   const mine = ai.status.modelId === id;
+  // Only one model operation may run at a time: while a download or load
+  // is in flight, disable every row's buttons so a second click can't
+  // desync the runtime. The worker enforces this too.
+  const opInFlight =
+    ai.status.phase === "downloading" || ai.status.phase === "loading";
+  const blocked = opInFlight && !mine;
   const pct =
     mine && ai.status.phase === "downloading" ? Math.round(ai.status.progress * 100) : null;
   const workLabel =
@@ -233,7 +239,7 @@ function ModelRow({
                 </button>
                 <button
                   type="button"
-                  disabled={busy}
+                  disabled={busy || blocked}
                   onClick={() => {
                     ai.remove(id);
                     setConfirmingDelete(false);
@@ -247,7 +253,7 @@ function ModelRow({
               <button
                 key={a}
                 type="button"
-                disabled={busy}
+                disabled={busy || blocked}
                 onClick={() => run(a)}
                 className={cn(
                   "doodle-pill px-2.5 py-1 text-[11px] disabled:opacity-40",

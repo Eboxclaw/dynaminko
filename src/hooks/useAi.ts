@@ -104,6 +104,9 @@ export function useAi() {
   /** Monotonic progress tracker: keeps the highest progress seen per model so
    * wllama's per-file download reporting doesn't cause the bar to jump backward. */
   const lastProgress = useRef<Record<string, number>>({});
+  /** True while a load/download/activate is running. Prevents a second
+   * model op from starting while one is in flight (fast double-click). */
+  const opInFlight = useRef(false);
 
   const assistant = doc.settings.assistant;
   const cloudId = assistant.cloudId;
@@ -159,6 +162,10 @@ export function useAi() {
   /** Download path. It may fetch weights, and it leaves the model loaded. */
   const load = useCallback(
     async (modelId = settings.aiModelId) => {
+      // Never start a second op while one is running: two downloads would
+      // fight over the single wllama instance and corrupt the cache index.
+      if (opInFlight.current) return;
+      opInFlight.current = true;
       try {
         const result = await downloadModel(modelId, applyStatus, {
           nCtx: ctx,
@@ -176,6 +183,8 @@ export function useAi() {
         await refreshDownloaded();
       } catch {
         /* status already carries the error */
+      } finally {
+        opInFlight.current = false;
       }
     },
     [applyStatus, ctx, refreshDownloaded, settings.aiModelId, setSettings],
@@ -200,6 +209,9 @@ export function useAi() {
    */
   const activate = useCallback(
     async (modelId: string): Promise<{ ok: boolean; error?: string }> => {
+      // Never start a second op while one is running (see load above).
+      if (opInFlight.current) return { ok: false, error: "another model operation is in progress" };
+      opInFlight.current = true;
       patchAssistant({ modelId, provider: "local" });
       setSettings({ aiModelId: modelId });
       // Register progress callback so load progress shows in the UI
@@ -219,6 +231,7 @@ export function useAi() {
         return { ok: false, error: message };
       } finally {
         setActiveStatusCallback(null, null);
+        opInFlight.current = false;
       }
       if (!isReady(modelId)) return { ok: false, error: "the model did not reach a ready state" };
       setLoadedCtx(loadedContext());
@@ -394,6 +407,8 @@ if (cloudCfg) {
   /** Removes cached weights. Unloads first when that model is resident. */
   const remove = useCallback(
     async (modelId: string) => {
+      // Don't delete a model's file while wllama is writing it.
+      if (opInFlight.current) return;
       const spec = MODEL_BY_ID[modelId];
       await deleteModel(modelId);
       if (!isReady(modelId) && mounted.current) {

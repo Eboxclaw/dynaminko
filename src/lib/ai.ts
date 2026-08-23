@@ -274,44 +274,40 @@ let sLoadedContext = DEFAULT_CTX;
 let sActiveBackend: Backend = "unavailable";
 
 /**
- * Per-response-type promise queues. Instead of a shared pending map where
- * every response resolves all promises, each response type resolves only
- * its own queue. This prevents "ready" from resolving a concurrent
- * "cached-models" promise (or vice versa).
+ * Request/response correlation. Every request carries a `reqId`; the worker
+ * echoes it back on the matching response. A response settles ONLY the
+ * promise that requested it — an "error" for a load can never resolve a
+ * concurrent "cached-models" promise, and a failed load REJECTS its promise
+ * instead of resolving it with a fake success.
  */
 type PendingEntry = {
   resolve: (v: unknown) => void;
   reject: (e: Error) => void;
 };
 
-const responseQueues: Record<string, PendingEntry[]> = {
-  "ready": [],
-  "cached-models": [],
-  "deleted": [],
-  "error": [],
-};
+let nextReqId = 0;
+const pending = new Map<number, PendingEntry>();
 
-function dequeue(type: string, value: unknown) {
-  const queue = responseQueues[type];
-  if (!queue) return;
-  const p = queue.shift();
-  if (p) p.resolve(value);
-  // don't clear the whole queue — one response resolves one promise
+function settle(reqId: number | undefined, resolve: (v: unknown) => void, value: unknown) {
+  if (reqId == null) return;
+  const p = pending.get(reqId);
+  if (!p) return;
+  pending.delete(reqId);
+  p.resolve(value);
 }
 
-function enqueue(type: string): Promise<unknown> {
-  return new Promise((resolve, reject) => {
-    responseQueues[type] = responseQueues[type] ?? [];
-    responseQueues[type].push({ resolve, reject });
-  });
+function settleError(reqId: number | undefined, message: string) {
+  if (reqId == null) return;
+  const p = pending.get(reqId);
+  if (!p) return;
+  pending.delete(reqId);
+  p.reject(new Error(message));
 }
 
-/** Notify all pending callbacks that the worker died. */
-function rejectAllQueues(err: Error) {
-  for (const queue of Object.values(responseQueues)) {
-    for (const p of queue) p.reject(err);
-    queue.length = 0;
-  }
+/** Reject everything when the worker process itself dies. */
+function rejectAllPending(err: Error) {
+  for (const p of pending.values()) p.reject(err);
+  pending.clear();
 }
 
 function getWorker(): Worker | null {
@@ -330,26 +326,24 @@ function getWorker(): Worker | null {
           sLoadedModelId = msg.modelId;
           sLoadedContext = msg.ctx;
           sActiveBackend = msg.backend as Backend;
-          // Only resolve the ready queue — don't touch cached-models or deleted promises
-          dequeue("ready", { status: "ready", modelId: msg.modelId });
+          settle(msg.reqId, (v) => v, { status: "ready", modelId: msg.modelId });
           return;
         }
         case "error": {
-          // Route errors to the right queue based on context:
-          // error always rejects the ready queue (load failure)
-          dequeue("ready", undefined);
-          // Also reject any pending load operation
-          const err = new Error(msg.message);
-          for (const q of Object.values(responseQueues)) {
-            if (q.length > 0) {
-              q[0].reject(err);
-              q.shift();
-            }
+          // The reqId tells us which request failed; a load failure must
+          // REJECT its promise, not resolve it with a fake success.
+          const wasPending = msg.reqId != null && pending.has(msg.reqId);
+          settleError(msg.reqId, msg.message);
+          // A load error also drops the global "ready" state.
+          if (wasPending && (msg.modelId ? sLoadedModelId === msg.modelId : true)) {
+            sReady = false;
+            sActiveBackend = "unavailable";
+            if (sLoadedModelId === msg.modelId) sLoadedModelId = null;
           }
           return;
         }
         case "loading": {
-          // Route progress to the active load callback (if any)
+          // Progress notification — not a response to a request.
           if (activeStatusCallback && msg.modelId === activeStatusModelId) {
             activeStatusCallback({
               phase: "downloading",
@@ -367,7 +361,7 @@ function getWorker(): Worker | null {
           return;
         }
         case "cached-models": {
-          dequeue("cached-models", new Set(msg.ids));
+          settle(msg.reqId, (v) => v, new Set(msg.ids));
           return;
         }
         case "deleted": {
@@ -377,7 +371,7 @@ function getWorker(): Worker | null {
             sLoadedModelId = null;
             sActiveBackend = "unavailable";
           }
-          dequeue("deleted", undefined);
+          settle(msg.reqId, (v) => v, undefined);
           return;
         }
         // token/done are handled via callbacks, not promises
@@ -393,7 +387,7 @@ function getWorker(): Worker | null {
       sReady = false;
       sLoadedModelId = null;
       sActiveBackend = "unavailable";
-      rejectAllQueues(new Error("AI worker crashed"));
+      rejectAllPending(new Error("AI worker crashed"));
     });
   } catch (err) {
     console.warn("AI worker creation failed:", err);
@@ -402,11 +396,11 @@ function getWorker(): Worker | null {
 }
 
 /**
- * Post a message and wait for a specific response type.
- * Only that response type's queue is checked — other response types
- * never resolve or reject this promise.
+ * Post a message and wait for the response that carries this request's
+ * reqId. No other response can settle this promise — that is the fix for
+ * the old shared-pending-map bug.
  */
-function postAndWait<T>(msg: AiWorkerRequest, responseType: string): Promise<T> {
+function postAndWait<T>(msg: AiWorkerRequest): Promise<T> {
   return new Promise<T>((resolve, reject) => {
     const w = getWorker();
     if (!w) {
@@ -414,34 +408,32 @@ function postAndWait<T>(msg: AiWorkerRequest, responseType: string): Promise<T> 
       return;
     }
 
-    // Enqueue first so we don't miss a response that arrives synchronously
-    const p = enqueue(responseType);
-    w.postMessage(msg);
-
-    p.then(resolve as (v: unknown) => void).catch(reject);
-
-    // Timeout to prevent hanging (matches the wall-clock deadline in AGENTS.md)
+    const reqId = nextReqId++;
     let settled = false;
-    const timer = setTimeout(() => {
-      if (!settled) {
-        settled = true;
-        reject(new Error("AI worker request timed out"));
-      }
-    }, 120_000);
 
-    // Wrap resolve/reject to clear the timer
-    const origResolve = resolve;
-    const origReject = reject;
-    const finalize = (fn: (v: unknown) => void, v: unknown) => {
+    const doResolve = (v: unknown) => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
-      fn(v);
+      pending.delete(reqId);
+      resolve(v as T);
     };
-    p.then(
-      (v) => finalize(origResolve as (v: unknown) => void, v),
-      (e) => finalize(origReject, e),
-    );
+    const doReject = (e: Error) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      pending.delete(reqId);
+      reject(e);
+    };
+
+    // Register before posting so a response that arrives synchronously
+    // still finds its waiter.
+    pending.set(reqId, { resolve: doResolve, reject: doReject });
+
+    // Timeout to prevent hanging (matches the wall-clock deadline in AGENTS.md)
+    const timer = setTimeout(() => doReject(new Error("AI worker request timed out")), 120_000);
+
+    w.postMessage({ ...msg, reqId });
   });
 }
 
@@ -468,11 +460,11 @@ export function invalidateCachedModels() {
 }
 
 export function cachedModels(): Promise<Set<string>> {
-  return postAndWait<Set<string>>({ type: "cached-models" }, "cached-models");
+  return postAndWait<Set<string>>({ type: "cached-models" });
 }
 
 export async function deleteModel(modelId: string): Promise<void> {
-  await postAndWait<void>({ type: "delete-model", modelId }, "deleted");
+  await postAndWait<void>({ type: "delete-model", modelId });
 }
 
 // ── download progress (non-promise, callback-based) ─────────────────
@@ -497,10 +489,11 @@ export async function downloadModel(
   activeStatusModelId = modelId;
 
   try {
-    await postAndWait<{ status: string; modelId: string }>(
-      { type: "load", modelId, allowDownload: true },
-      "ready",
-    );
+    await postAndWait<{ status: string; modelId: string }>({
+      type: "load",
+      modelId,
+      allowDownload: true,
+    });
     onStatus({ phase: "ready", modelId });
     return { status: "ready", modelId };
   } catch (err) {
@@ -610,7 +603,6 @@ export function chatMessages(
       return;
     }
 
-    const id = nextId++;
     let out = "";
     let lastSpeed: { tps: number; tokens: number } | null = null;
 

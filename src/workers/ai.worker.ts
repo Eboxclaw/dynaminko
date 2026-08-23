@@ -13,6 +13,22 @@ import type { Wllama } from "@wllama/wllama/esm/index.js";
 import { buildInferenceProfile, detectRuntime } from "@/lib/ai/runtime";
 import { readDelta } from "@/lib/ai/stream";
 
+// ── worker global shims ───────────────────────────────────────────────
+//
+// wllama resolves the WASM binary path with `document.baseURI`
+// (absoluteUrl in @wllama/wllama/src/utils.ts). Web Workers have no
+// document, so every runtime creation threw "document is not defined"
+// and the whole download pipeline died before the first byte. Patch a
+// minimal document shim in once, before wllama's dynamic import runs.
+const g = globalThis as { document?: { baseURI?: string } };
+if (!g.document || !g.document.baseURI) {
+  g.document = Object.create(g.document ?? null) as Document;
+  Object.defineProperty(g.document, "baseURI", {
+    get: () => self.location.href,
+    configurable: true,
+  });
+}
+
 // ── model config (mirrors ai.ts MODEL_LIST) ──────────────────────────
 
 type Capability = "encode" | "extract" | "vision" | "assist" | "reason";
@@ -151,14 +167,19 @@ export type AiWorkerRequest =
   | { type: "cached-models" }
   | { type: "delete-model"; modelId: string };
 
+/** reqId is stamped by the main thread on requests and echoed back on the
+ * responses that settle a request's promise. Progress/streaming messages
+ * (loading, token, done) carry no reqId and are not request responses. */
+type WithReqId = { reqId?: number };
+
 export type AiWorkerResponse =
-  | { type: "ready"; modelId: string; backend: string; ctx: number }
+  | ({ type: "ready"; modelId: string; backend: string; ctx: number } & WithReqId)
   | { type: "loading"; modelId: string; progress?: number }
-  | { type: "error"; modelId?: string; message: string }
+  | ({ type: "error"; modelId?: string; message: string } & WithReqId)
   | { type: "token"; text: string; speed?: { tps: number; tokens: number } }
   | { type: "done"; text: string }
-  | { type: "cached-models"; ids: string[] }
-  | { type: "deleted"; modelId: string }
+  | ({ type: "cached-models"; ids: string[] } & WithReqId)
+  | ({ type: "deleted"; modelId: string } & WithReqId)
   | { type: "unloaded" };
 
 type ChatOptions = {
@@ -176,6 +197,9 @@ let currentModel: string | null = null;
 let currentCtx = DEFAULT_CTX;
 let activeBackend = "unavailable";
 let abortRun = false;
+/** Model id whose load/download is in flight, or null. Guards against
+ * concurrent loads desyncing the single wllama instance. */
+let loadInFlight: string | null = null;
 
 // ── runtime ──────────────────────────────────────────────────────────
 
@@ -406,16 +430,35 @@ async function chatMessages(
 
 const ctx = self as unknown as DedicatedWorkerGlobalScope;
 
-ctx.addEventListener("message", async (event: MessageEvent<AiWorkerRequest>) => {
+ctx.addEventListener("message", async (event: MessageEvent<AiWorkerRequest & { reqId?: number }>) => {
   const msg = event.data;
   if (!msg?.type) return;
+  const reqId = msg.reqId;
 
   switch (msg.type) {
     case "load": {
-      const result = await loadModelInternal(msg.modelId, msg.allowDownload);
+      if (loadInFlight) {
+        // Never start a second load while one is in progress: two loads would
+        // fight over the single wllama instance and desync the cache.
+        ctx.postMessage({
+          type: "error",
+          reqId,
+          modelId: msg.modelId,
+          message: "a model operation is already in progress, try again in a moment",
+        } satisfies AiWorkerResponse);
+        return;
+      }
+      loadInFlight = msg.modelId;
+      let result;
+      try {
+        result = await loadModelInternal(msg.modelId, msg.allowDownload);
+      } finally {
+        loadInFlight = null;
+      }
       if (result.ok) {
         ctx.postMessage({
           type: "ready",
+          reqId,
           modelId: msg.modelId,
           backend: result.backend,
           ctx: result.ctx,
@@ -423,6 +466,7 @@ ctx.addEventListener("message", async (event: MessageEvent<AiWorkerRequest>) => 
       } else {
         ctx.postMessage({
           type: "error",
+          reqId,
           modelId: msg.modelId,
           message: result.error,
         } satisfies AiWorkerResponse);
@@ -482,11 +526,13 @@ ctx.addEventListener("message", async (event: MessageEvent<AiWorkerRequest>) => 
         const cached = await computeCachedModels();
         ctx.postMessage({
           type: "cached-models",
+          reqId,
           ids: [...cached],
         } satisfies AiWorkerResponse);
       } catch (err) {
         ctx.postMessage({
           type: "error",
+          reqId,
           message: err instanceof Error ? err.message : "cached-models failed",
         } satisfies AiWorkerResponse);
       }
@@ -494,81 +540,88 @@ ctx.addEventListener("message", async (event: MessageEvent<AiWorkerRequest>) => 
     }
 
 case "delete-model": {
-	      try {
-	        const spec = MODEL_BY_ID[msg.modelId];
-	        if (!spec) {
-	          ctx.postMessage({
-	            type: "error",
-	            message: `unknown model: ${msg.modelId}`,
-	          } satisfies AiWorkerResponse);
-	          return;
-	        }
-	        const needle = (spec.repo.split("/")[1] ?? spec.repo).toLowerCase();
+      // Never delete mid-download: it would remove the very file wllama is
+      // writing and corrupt the cache entry.
+      if (loadInFlight) {
+        ctx.postMessage({
+          type: "error",
+          reqId,
+          modelId: msg.modelId,
+          message: "a model is still downloading or loading, wait for it to finish",
+        } satisfies AiWorkerResponse);
+        return;
+      }
+      try {
+        const spec = MODEL_BY_ID[msg.modelId];
+        if (!spec) {
+          ctx.postMessage({
+            type: "error",
+            reqId,
+            message: `unknown model: ${msg.modelId}`,
+          } satisfies AiWorkerResponse);
+          return;
+        }
+        const needle = (spec.repo.split("/")[1] ?? spec.repo).toLowerCase();
 
-	        // Unload if this model is loaded
-	        if (currentModel === spec.id && instance) {
-	          await instance.exit().catch(() => {});
-	          instance = null;
-	          currentModel = null;
-	          activeBackend = "unavailable";
-	        }
+        // Unload if this model is loaded
+        if (currentModel === spec.id && instance) {
+          await instance.exit().catch(() => {});
+          instance = null;
+          currentModel = null;
+          activeBackend = "unavailable";
+        }
 
-	        // Clear cached weights. We need a wllama instance for its cache
-	        // manager, so create a short-lived runtime if none is active.
-	        if (spec.runtime === "gguf") {
-	          let mgr: { deleteMany?: (pred: (e: unknown) => boolean) => Promise<void> } | undefined;
-	          if (instance) {
-	            mgr = (instance as unknown as {
-	              cacheManager?: typeof mgr;
-	            }).cacheManager;
-	          }
-	          if (!mgr) {
-	            // No active instance — create a throwaway runtime to access the cache manager
-	            try {
-	              const { Wllama: Ctor } = await import("@wllama/wllama/esm/index.js");
-	              const temp = new Ctor(
-	                { default: "/wasm/wllama.wasm" },
-	                { allowOffline: true, suppressNativeLog: true, parallelDownloads: 1 },
-	              );
-	              // Cache manager is available even without loading a model
-	              mgr = (temp as unknown as {
-	                cacheManager?: typeof mgr;
-	              }).cacheManager;
-	              await mgr?.deleteMany?.((e: unknown) => {
-	                const rec = e as { name?: string; url?: string };
-	                return (rec.url ?? rec.name ?? "").toLowerCase().includes(needle);
-	              });
-	              await temp.exit().catch(() => {});
-	              mgr = undefined;
-	            } catch {
-	              // fall through to caches API below
-	            }
-	          } else {
-	            await mgr.deleteMany?.((e: unknown) => {
-	              const rec = e as { name?: string; url?: string };
-	              return (rec.url ?? rec.name ?? "").toLowerCase().includes(needle);
-	            });
-	          }
-	        }
+        // Clear cached weights. We need a wllama instance for its cache
+        // manager, so reuse the live one or create a short-lived runtime.
+        if (spec.runtime === "gguf") {
+          const matchEntry = (e: unknown) => {
+            const rec = e as { name?: string; url?: string };
+            return (rec.url ?? rec.name ?? "").toLowerCase().includes(needle);
+          };
+          type CacheMgr = { deleteMany?: (pred: (e: unknown) => boolean) => Promise<void> };
+          let mgr: CacheMgr | undefined = instance
+            ? (instance as unknown as { cacheManager?: CacheMgr }).cacheManager
+            : undefined;
+          let temp: Wllama | null = null;
+          if (!mgr) {
+            // No active instance — create a throwaway runtime to access the cache manager
+            try {
+              const { Wllama: Ctor } = await import("@wllama/wllama/esm/index.js");
+              temp = new Ctor(
+                { default: "/wasm/wllama.wasm" },
+                { allowOffline: true, suppressNativeLog: true, parallelDownloads: 1 },
+              );
+              mgr = (temp as unknown as { cacheManager?: CacheMgr }).cacheManager;
+              await mgr?.deleteMany?.(matchEntry);
+            } catch {
+              /* fall through — caches API below is a secondary path */
+            } finally {
+              await temp?.exit().catch(() => {});
+            }
+          } else {
+            await mgr.deleteMany?.(matchEntry);
+          }
+        }
 
-	        // Also clear from the Cache API (for ONNX/transformers models)
-	        if (typeof caches !== "undefined") {
-	          for (const key of await caches.keys()) {
-	            if (!/transformers/i.test(key)) continue;
-	            const cache = await caches.open(key);
-	            for (const req of await cache.keys()) {
-	              if (req.url.toLowerCase().includes(needle)) await cache.delete(req);
-	            }
-	          }
-	        }
+        // Also clear from the Cache API (for ONNX/transformers models)
+        if (typeof caches !== "undefined") {
+          for (const key of await caches.keys()) {
+            if (!/transformers/i.test(key)) continue;
+            const cache = await caches.open(key);
+            for (const req of await cache.keys()) {
+              if (req.url.toLowerCase().includes(needle)) await cache.delete(req);
+            }
+          }
+        }
 
-	        ctx.postMessage({ type: "deleted", modelId: msg.modelId } satisfies AiWorkerResponse);
-	      } catch (err) {
-	        ctx.postMessage({
-	          type: "error",
-	          message: err instanceof Error ? err.message : "delete-model failed",
-	        } satisfies AiWorkerResponse);
-	      }
+        ctx.postMessage({ type: "deleted", reqId, modelId: msg.modelId } satisfies AiWorkerResponse);
+      } catch (err) {
+        ctx.postMessage({
+          type: "error",
+          reqId,
+          message: err instanceof Error ? err.message : "delete-model failed",
+        } satisfies AiWorkerResponse);
+      }
       return;
     }
 

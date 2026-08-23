@@ -296,7 +296,10 @@ export function buildInferenceProfile(
 export async function detectRuntime(force = false): Promise<RuntimeCapabilities> {
   if (cached && !force) return cached;
   if (inflight && !force) return inflight;
-  if (typeof window === "undefined") return UNKNOWN;
+  // Bails only when the real runtime globals are absent (SSR). A Web Worker
+  // has no `window` but does have WebAssembly, navigator and navigator.gpu,
+  // so we must not gate on window: inference runs inside the worker.
+  if (typeof WebAssembly === "undefined" || typeof navigator === "undefined") return UNKNOWN;
 
   inflight = (async () => {
     const list: Capability[] = await probeCapabilities();
