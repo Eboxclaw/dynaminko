@@ -98,6 +98,10 @@ export function clampDataText(data: unknown): string {
   return `${json.slice(0, half)}\n[truncated: first and last ${half} of ${json.length} chars]\n${json.slice(-half)}`;
 }
 
+/** Observations prompt. Deeply nested tool results (e.g. indicators.potIndex)
+ * arrive as JSON-stringified via clampDataText. If a small model fails to
+ * parse the structure, consider flattening it through factLines() first, the
+ * same pattern already used for the FACTS section. */
 export function observationsPrompt(observations: ToolObservation[]): string {
   if (!observations.length) return "TURN OBSERVATIONS\n(none)";
   return `TURN OBSERVATIONS\n${observations

@@ -85,7 +85,7 @@ export const TOOLS: ToolDef[] = [
     group: "journal",
     action: "filter",
     label: "Filter journal",
-    purpose: "Narrow cards by motive, ticker, alignment, state, thesis or date.",
+    purpose: "Narrow cards by motive, ticker, alignment, state, thesis, venue, PnL side (winners/losers) or date range.",
     access: "READ",
     inputs: "JournalFilter",
     output: "JournalCard[]",

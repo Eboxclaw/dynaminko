@@ -70,7 +70,10 @@ const PRE_EXECUTE: { commandId: string; aliases: string[] }[] = [
       "sync my trades",
     ],
   },
-  { commandId: "journal.apply_answer", aliases: ["resolve all pending trades", "bulk resolve"] },
+  {
+    commandId: "journal.apply_answer",
+    aliases: ["resolve all pending trades", "resolve pending trades", "bulk resolve"],
+  },
 ];
 
 function includesAlias(q: string, aliases: string[]) {

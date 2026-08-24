@@ -114,7 +114,7 @@ const COMMAND_ALIASES: Record<string, string[]> = {
     "pending trades",
     "unanswered trades",
   ],
-  "journal.apply_answer": ["resolve all pending trades", "bulk answer inbox", "apply answer"],
+  "journal.apply_answer": ["resolve all pending trades", "resolve pending trades", "bulk resolve", "bulk answer inbox", "apply answer"],
   "journal.review_thesis": [
     "review my thesis",
     "what changed in my thesis",
@@ -129,6 +129,18 @@ const COMMAND_ALIASES: Record<string, string[]> = {
     "most entries",
     "which asset",
     "most active",
+  ],
+  "journal.filter": [
+    "filter trades",
+    "trades by",
+    "winning trades",
+    "losing trades",
+    "winners",
+    "losers",
+    "profitable trades",
+    "pnl",
+    "trades by venue",
+    "trades by date",
   ],
 };
 

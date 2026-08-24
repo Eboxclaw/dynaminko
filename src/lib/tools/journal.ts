@@ -28,6 +28,8 @@ export type JournalCard = {
   thesisId: string | null;
   tradeId: string | null;
   value: number | null;
+  /** venue-reported realized PnL in USD; null when the venue did not report it */
+  pnl: number | null;
   /** where the moment came from; null = plain wallet transfer */
   venue: Signal["venue"] | null;
   /** what kind of moment it is; null = plain transfer */
@@ -77,22 +79,26 @@ function tickerOf(entry: Entry, signals: Signal[]): string | null {
 export function buildIndex(): JournalIndex {
   const doc = getDoc();
   const cards: JournalCard[] = [
-    ...doc.entries.map((e) => ({
-      id: e.id,
-      type: "entry" as const,
-      ticker: tickerOf(e, doc.signals),
-      date: e.createdAt,
-      motive: e.sentiment,
-      alignment: e.alignment,
-      size: e.sizing,
-      state: e.ghost ? "ghost" : "logged",
-      thesisId: e.thesisId,
-      tradeId: e.tradeId,
-      value: e.tradeId ? (doc.signals.find((s) => s.id === e.tradeId)?.value ?? null) : null,
-      venue: null,
-      action: null,
-      record: [e.headline, e.body].filter(Boolean).join(". "),
-    })),
+    ...doc.entries.map((e) => {
+      const sig = e.tradeId ? doc.signals.find((s) => s.id === e.tradeId) : null;
+      return {
+        id: e.id,
+        type: "entry" as const,
+        ticker: tickerOf(e, doc.signals),
+        date: e.createdAt,
+        motive: e.sentiment,
+        alignment: e.alignment,
+        size: e.sizing,
+        state: e.ghost ? "ghost" : "logged",
+        thesisId: e.thesisId,
+        tradeId: e.tradeId,
+        value: sig?.value ?? null,
+        pnl: sig?.meta?.pnl ?? null,
+        venue: sig?.venue ?? null,
+        action: sig?.action ?? null,
+        record: [e.headline, e.body].filter(Boolean).join(". "),
+      };
+    }),
     ...doc.signals.map((s) => ({
       id: s.id,
       type: "signal" as const,
@@ -105,6 +111,7 @@ export function buildIndex(): JournalIndex {
       thesisId: null,
       tradeId: s.id,
       value: s.value,
+      pnl: s.meta?.pnl ?? null,
       venue: s.venue ?? null,
       action: s.action ?? null,
       record: recordOf(s),
@@ -134,6 +141,8 @@ export type JournalFilter = {
   type?: JournalCard["type"] | null;
   /** narrow to one source: "nado", "hyperliquid", … (null = plain transfers) */
   venue?: string | null;
+  /** which side of realized venue PnL: winners only, or losers only */
+  pnl?: "profit" | "loss" | null;
   from?: number | null;
   to?: number | null;
   query?: string | null;
@@ -151,6 +160,11 @@ export function filterCards(filter: JournalFilter, index = buildIndex()): Journa
     if (filter.thesisId && c.thesisId !== filter.thesisId) return false;
     if (filter.type && c.type !== filter.type) return false;
     if (filter.venue != null && (c.venue ?? "") !== filter.venue) return false;
+    if (filter.pnl) {
+      if (c.pnl == null) return false; // no venue-reported pnl to judge
+      if (filter.pnl === "profit" && c.pnl <= 0) return false;
+      if (filter.pnl === "loss" && c.pnl >= 0) return false;
+    }
     if (filter.from && c.date < filter.from) return false;
     if (filter.to && c.date > filter.to) return false;
     if (q && !(c.record.toLowerCase().includes(q) || (c.ticker ?? "").toLowerCase().includes(q)))

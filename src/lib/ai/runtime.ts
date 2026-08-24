@@ -15,6 +15,9 @@ export type RuntimeCapabilities = {
   webgpuBroken: boolean;
   wasm: boolean;
   wasmSimd: boolean;
+  /** Relaxed SIMD adds hardware-specific fused instructions (dot-product etc.)
+   *  used by wllama's inference kernels on the WASM CPU-fallback path. */
+  relaxedSimd: boolean;
   wasmThreads: boolean;
   crossOriginIsolated: boolean;
   mobile: boolean;
@@ -38,6 +41,7 @@ const UNKNOWN: RuntimeCapabilities = {
   webgpuBroken: false,
   wasm: false,
   wasmSimd: false,
+  relaxedSimd: false,
   wasmThreads: false,
   crossOriginIsolated: false,
   mobile: false,
@@ -312,6 +316,7 @@ export async function detectRuntime(force = false): Promise<RuntimeCapabilities>
 
     const wasm = Boolean(caps.get("wasm"));
     const simd = Boolean(caps.get("simd"));
+    const relaxedSimd = simd && Boolean(caps.get("relaxedSimd"));
     const backend: Backend = gpu.ok ? "webgpu" : wasm && simd ? "wasm" : "unavailable";
 
     const dmGb = typeof nav.deviceMemory === "number" ? nav.deviceMemory : null;
@@ -325,6 +330,7 @@ export async function detectRuntime(force = false): Promise<RuntimeCapabilities>
       webgpuBroken: gpu.broken,
       wasm,
       wasmSimd: simd,
+      relaxedSimd,
       wasmThreads: threadsAvailable(caps),
       crossOriginIsolated: isolated,
       mobile,
@@ -371,6 +377,7 @@ export function diagnosticsRows(r: RuntimeCapabilities) {
     { label: "GPU tier", ok: r.gpuTier !== "unknown", detail: r.gpuTier },
     { label: "VRAM est.", ok: r.vramGb != null, detail: r.vramGb ? `${r.vramGb} GB` : "unknown" },
     { label: "WASM SIMD", ok: r.wasmSimd, detail: "" },
+    { label: "Relaxed SIMD", ok: r.relaxedSimd, detail: r.wasmSimd && !r.relaxedSimd ? "not supported" : "" },
     { label: "WASM threads", ok: r.wasmThreads, detail: r.wasmThreads ? "" : "needs isolation" },
     { label: "Isolation", ok: r.crossOriginIsolated, detail: "COOP/COEP" },
     {

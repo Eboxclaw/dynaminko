@@ -41,6 +41,15 @@ describe("routeMessage", () => {
     if (r.kind === "command") expect(r.commandId).toBe("journal.apply_answer");
   });
 
+  it("routes 'resolve pending trades' with a qualifier to journal.apply_answer, not resolve_inbox", () => {
+    // "resolve pending trades" (19 chars) must beat "pending trades" (14);
+    // this covers phrasings like "bulk resolve pending trades" or
+    // "resolve pending trades in USDC" without needing the full 27-char alias.
+    const r = routeMessage("bulk resolve pending trades now");
+    expect(r.kind).toBe("command");
+    if (r.kind === "command") expect(r.commandId).toBe("journal.apply_answer");
+  });
+
   it("routes a mention of a thesis title to thesis.review", () => {
     // The empty doc in the test environment has no theses, so only the
     // alias paths are exercised here; thesis matching needs a populated doc.

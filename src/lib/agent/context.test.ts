@@ -62,6 +62,62 @@ describe("buildTurn", () => {
     expect(names).not.toContain("SHED");
   });
 
+  it("preserves deeply nested compute-tool results (potIndex shape) in the prompt", () => {
+    // potIndex() returns a PotIndex: {score, recentScore, delta,
+    // axes: [{id, label, hint, formula, score, weight, parts: [{label, value, of}]}]}
+    // The audit hypothesis was that small models fail to parse this nesting,
+    // but the data path (clampDataText → observationsPrompt → buildTurn) must
+    // survive intact. This test confirms the mechanical path works.
+    const deepData = {
+      score: 0.72,
+      recentScore: 0.68,
+      delta: 0.04,
+      axes: [
+        {
+          id: "a1",
+          label: "Momentum",
+          hint: "short-term trend",
+          formula: "avg(p1, p2)",
+          score: 0.8,
+          weight: 0.5,
+          parts: [
+            { label: "daily return", value: 0.02, of: 0.05 },
+            { label: "volume trend", value: 0.6, of: 1.0 },
+          ],
+        },
+      ],
+      payoff: { avg: 0.03, max: 0.12, min: -0.05, count: 15 },
+      ghosts: ["t1", "t2"],
+      executed: 5,
+      pending: 2,
+      measured: 10,
+    };
+
+    const b = buildTurn(
+      baseInput({
+        budgetTokens: 4000,
+        observations: [
+          {
+            id: "o1",
+            kind: "tool",
+            source: "indicators.potIndex",
+            status: "ok",
+            summary: "POT score 0.72 · recent 0.68 · delta +0.04",
+            data: deepData,
+          },
+        ],
+      }),
+    );
+
+    const obs = b.sections.find((s) => s.name === "OBSERVATIONS");
+    expect(obs).toBeDefined();
+    expect(obs!.text).toContain("POT score 0.72");
+    expect(obs!.text).toContain("0.72");
+    expect(obs!.text).toContain("Momentum");
+    expect(obs!.text).toContain("daily return");
+    expect(obs!.truncated).toBe(false);
+  });
+
   it("degrades observations to summaries before dropping other sections", () => {
     const big = "x".repeat(MAX_OBSERVATION_CHARS * 3);
     const b = buildTurn(

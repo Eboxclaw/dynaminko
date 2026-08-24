@@ -18,10 +18,31 @@ const SIMD_PROBE = new Uint8Array([
   10, 10, 1, 8, 0, 65, 0, 253, 15, 253, 98, 11,
 ]);
 
+// Relaxed SIMD probe: uses i8x16.relaxed_swizzle (sub-opcode 0x100),
+// which adds fused dot-product and other variable-latency instructions
+// used by wllama's inference kernels on the WASM CPU-fallback path.
+// Chrome 114+, Firefox 120+, Safari Technology Preview 250+.
+const RELAXED_SIMD_PROBE = new Uint8Array([
+  0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00,
+  0x01, 0x05, 0x01, 0x60, 0x00, 0x01, 0x7b,
+  0x03, 0x02, 0x01, 0x00,
+  0x0a, 0x0f, 0x01, 0x0d, 0x00,
+    0x41, 0x00,
+    0xfd, 0x0f,
+    0x41, 0x00,
+    0xfd, 0x0f,
+    0xfd, 0x80, 0x02,
+    0x0b,
+]);
+
 export async function probeCapabilities(): Promise<Capability[]> {
   const wasm = typeof WebAssembly === "object";
   let simd = false;
-  try { simd = wasm && WebAssembly.validate(SIMD_PROBE); } catch { /* no-op */ }
+  let relaxedSimd = false;
+  try {
+    simd = wasm && WebAssembly.validate(SIMD_PROBE);
+    relaxedSimd = simd && wasm && WebAssembly.validate(RELAXED_SIMD_PROBE);
+  } catch { /* no-op */ }
 
   const sab = typeof SharedArrayBuffer !== "undefined";
   const workers = typeof Worker !== "undefined";
@@ -57,6 +78,7 @@ export async function probeCapabilities(): Promise<Capability[]> {
   return [
     { key: "wasm", label: "WebAssembly", ok: wasm },
     { key: "simd", label: "Wasm SIMD (v128)", ok: simd },
+    { key: "relaxedSimd", label: "Wasm Relaxed SIMD", ok: relaxedSimd },
     { key: "sab", label: "SharedArrayBuffer", ok: sab, detail: crossOrigin ? "cross-origin isolated" : "COOP/COEP off" },
     { key: "workers", label: "Web Workers", ok: workers },
     { key: "webgpu", label: "WebGPU", ok: webgpu, detail: webgpuDetail },
