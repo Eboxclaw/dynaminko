@@ -149,7 +149,7 @@ function Dashboard() {
                         {Math.round(s.share * 100)}%
                       </span>
                     </div>
-                    <div className="mt-2 h-[3px] w-full bg-sunken">
+                    <div className="mt-2 h-1 w-full bg-sunken">
                       <div
                         className="h-full bg-ink transition-[width] duration-500"
                         style={{ width: `${Math.max(s.share * 100, 1.5)}%` }}
@@ -179,11 +179,11 @@ function Dashboard() {
             </Link>
           }
         >
-          <ul className="max-h-[300px] overflow-y-auto overscroll-contain sm:max-h-[260px]">
+          <ul className="max-h-[280px] overflow-y-auto overscroll-contain">
             {inbox.slice(0, 6).map((s) => (
               <li
                 key={s.id}
-                className="flex items-center gap-3 border-b border-stroke px-4 py-3 last:border-0 sm:py-2.5"
+                className="flex items-center gap-3 border-b border-stroke px-4 py-3 last:border-0"
               >
                 {s.venue && s.venue !== "evm" ? (
                   <VenueIcon id={s.venue} className="h-3.5 w-3.5 shrink-0 text-ink-faint" />
@@ -210,11 +210,11 @@ function Dashboard() {
         </Panel>
 
         <Panel eyebrow="Holdings // Detail" delay={140}>
-          <ul className="max-h-[300px] overflow-y-auto overscroll-contain sm:max-h-[260px]">
+          <ul className="max-h-[280px] overflow-y-auto overscroll-contain">
             {baskets.holdings.slice(0, 12).map((h) => (
               <li
                 key={h.key}
-                className="flex items-center gap-3 border-b border-stroke px-4 py-3 last:border-0 sm:py-2.5"
+                className="flex items-center gap-3 border-b border-stroke px-4 py-3 last:border-0"
               >
                 <span className="min-w-0 flex-1">
                   <span className="flex items-center gap-1.5 text-[13px] font-medium">

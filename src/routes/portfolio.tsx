@@ -339,7 +339,7 @@ function VenueCard({
           {chips.map((c) => (
             <li
               key={c.label}
-              className="doodle-pill num px-2 py-0.5 text-[10px] uppercase tracking-[0.14em] text-ink-soft"
+              className="doodle-pill num px-2 py-0.5 text-[11px] uppercase tracking-[0.14em] text-ink-soft"
             >
               {c.label}
               <span className="ml-1 text-ink">{c.value}</span>
@@ -446,7 +446,7 @@ function PositionRow({
             <span className="min-w-0 flex-1 truncate text-[13px] font-medium">
               {clean(p.symbol)}
             </span>
-            <span className="doodle-pill shrink-0 px-2 py-0.5 text-[10px] uppercase tracking-[0.12em] text-ink-soft">
+            <span className="doodle-pill shrink-0 px-2 py-0.5 text-[11px] uppercase tracking-[0.12em] text-ink-soft">
               {trade.side}
               {trade.leverage != null && ` · ${trade.leverage}x`}
             </span>

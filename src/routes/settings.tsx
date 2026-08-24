@@ -8,13 +8,7 @@ import { usd } from "@/lib/format";
 import type { TypedDataSigner } from "@/lib/referrals/hyperliquid";
 import { buildNadoReferralDeepLink } from "@/lib/referrals/nado";
 import { setReferrer } from "@/lib/referrals/hyperliquid";
-import {
-  exportDoc,
-  patchReferralSettings,
-  patchSettings,
-  walletKey,
-  wipe,
-} from "@/lib/store";
+import { exportDoc, patchReferralSettings, patchSettings, walletKey, wipe } from "@/lib/store";
 
 import { useDoc } from "@/hooks/useDoc";
 import { useHyperliquidReferral } from "@/hooks/useHyperliquidReferral";
@@ -54,8 +48,16 @@ function buildSigner(address: string): TypedDataSigner | null {
 function SettingsPage() {
   const doc = useDoc();
   const { wallets, active } = useActiveWallet();
-  const { referral: hlReferral, isFetching: hlFetching, refetch: hlRefetch } = useHyperliquidReferral();
-  const { referral: nadoReferral, isFetching: nadoFetching, refetch: nadoRefetch } = useNadoReferral();
+  const {
+    referral: hlReferral,
+    isFetching: hlFetching,
+    refetch: hlRefetch,
+  } = useHyperliquidReferral();
+  const {
+    referral: nadoReferral,
+    isFetching: nadoFetching,
+    refetch: nadoRefetch,
+  } = useNadoReferral();
 
   // Hyperliquid state
   const [hlCode, setHlCode] = useState(doc.settings.referrals.hyperliquid?.referralCode ?? "");
@@ -129,7 +131,7 @@ function SettingsPage() {
         />
       </section>
 
-      <section className="doodle-card animate-rise mb-5 p-5">
+      <section className="doodle-card animate-rise mb-5 p-4">
         <p className="text-[15px] font-semibold">Privacy</p>
         <label className="mt-3 flex items-center gap-3 text-[14px]">
           <input
@@ -142,7 +144,7 @@ function SettingsPage() {
       </section>
 
       {/* ── Referrals ──────────────────────────────────────────────────────── */}
-      <section className="doodle-card animate-rise mb-5 p-5">
+      <section className="doodle-card animate-rise mb-5 p-4">
         <p className="text-[15px] font-semibold">Referrals</p>
         <p className="mt-1 text-[13px] text-ink-soft">
           Track your referral progress, set codes, and see rewards earned on each venue.
@@ -346,7 +348,7 @@ function SettingsPage() {
         )}
       </section>
 
-      <section className="doodle-card animate-rise mb-5 p-5">
+      <section className="doodle-card animate-rise mb-5 p-4">
         <p className="text-[15px] font-semibold">Assistant &amp; agents</p>
         <p className="mt-1 text-[13px] text-ink-soft">
           Models, skills, tools and the activity log now live in their own console.
@@ -360,7 +362,7 @@ function SettingsPage() {
         </Link>
       </section>
 
-      <section className="doodle-card animate-rise p-5">
+      <section className="doodle-card animate-rise p-4">
         <p className="text-[15px] font-semibold">Your data</p>
         <p className="mt-1 text-[13px] text-ink-soft">
           Everything lives in this browser. Export it before clearing your site data.

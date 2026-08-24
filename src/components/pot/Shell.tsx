@@ -165,7 +165,7 @@ export function Shell({
                 )}
               >
                 <item.icon className="h-[19px] w-[19px]" strokeWidth={active ? 2 : 1.6} />
-                <span className="eyebrow text-[9px]">{item.label}</span>
+                <span className="eyebrow">{item.label}</span>
                 {item.to === "/journal" && inbox > 0 && (
                   <span className="absolute right-3 top-1 h-1.5 w-1.5 rounded-full bg-ink" />
                 )}

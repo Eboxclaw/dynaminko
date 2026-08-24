@@ -53,7 +53,7 @@ function AxisRow({ axis }: { axis: Axis }) {
             className={cn("h-3.5 w-3.5 text-ink-faint transition-transform", open && "rotate-180")}
           />
         </div>
-        <div className="mt-2 h-[3px] w-full bg-sunken">
+        <div className="mt-2 h-1 w-full bg-sunken">
           <div
             className="h-full bg-ink transition-[width] duration-700"
             style={{ width: `${(axis.score ?? 0) * 100}%` }}
@@ -121,7 +121,7 @@ const MOTIVE_LABELS: Record<string, string> = {
 function MotiveRow({ m, hidden }: { m: MotivePnl; hidden: boolean }) {
   const label = m.motive ? (MOTIVE_LABELS[m.motive] ?? m.motive) : "Unlabelled";
   return (
-    <li className="flex items-baseline gap-3 border-b border-stroke px-4 py-2.5 last:border-0">
+    <li className="flex items-baseline gap-3 border-b border-stroke px-4 py-3 last:border-0">
       <span className="w-24 shrink-0 text-[13px] font-medium">{label}</span>
       <span className="num flex-1 text-[12px] text-ink-soft">
         {m.trades} {m.trades === 1 ? "trade" : "trades"} · {m.wins}W/{m.trades - m.wins}L
@@ -152,7 +152,7 @@ function PotPage() {
     >
       <div className="grid gap-4 lg:grid-cols-[1fr_1.2fr]">
         <Panel eyebrow="Index // Composite">
-          <div className="p-6 text-center">
+          <div className="p-4 text-center">
             <p className="num text-[64px] font-semibold leading-none tracking-tight">
               {index.score ?? "—"}
             </p>
@@ -161,7 +161,7 @@ function PotPage() {
                 ? "not enough written yet"
                 : "execution-weighted sentiment × action ÷ result"}
             </p>
-            <div className="mt-6 flex h-[6px] w-full overflow-hidden bg-sunken">
+            <div className="mt-6 flex h-1 w-full overflow-hidden bg-sunken">
               <div
                 className="h-full bg-ink transition-[width] duration-700"
                 style={{ width: `${index.score ?? 0}%` }}
@@ -214,7 +214,7 @@ function PotPage() {
           )}
         </ul>
         {premium != null && (
-          <p className="eyebrow border-t border-stroke px-4 py-2.5">
+          <p className="eyebrow border-t border-stroke px-4 py-3">
             intent premium · conviction & co{" "}
             <span className={cn("num", premium.intentionalNet >= 0 ? "text-gain" : "text-loss")}>
               {signed(premium.intentionalNet)}
@@ -245,7 +245,7 @@ function PotPage() {
           {index.ghosts.slice(0, 6).map((t) => (
             <li
               key={t.id}
-              className="flex items-baseline gap-3 border-b border-stroke px-4 py-2.5 last:border-0"
+              className="flex items-baseline gap-3 border-b border-stroke px-4 py-3 last:border-0"
             >
               <span className="min-w-0 flex-1 truncate text-[13px]">{t.title}</span>
               <span className="eyebrow">{relativeTime(t.createdAt)}</span>

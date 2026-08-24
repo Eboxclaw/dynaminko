@@ -53,7 +53,7 @@ import { encoderReady } from "@/lib/ai/encoder";
 import { AGENTS, automationOn } from "@/lib/agents/registry";
 import { COMMANDS, parseCommand, suggestions, type Suggestion } from "@/lib/chat/commands";
 import { factLines, portfolioFactLines } from "@/lib/chat/context";
-import { newMessage, type ChatMessage } from "@/lib/chat/session";
+import { newMessage, type Approval, type ChatCard, type ChatMessage } from "@/lib/chat/session";
 import {
   bootstrapSessions,
   contextFor,
@@ -449,7 +449,8 @@ function ChatConsole({
         query: String(parsed.query ?? "").slice(0, 60),
         ticker: parsed.ticker ? String(parsed.ticker).slice(0, 6).toUpperCase() : undefined,
         basket: parsed.basket,
-        limit: typeof parsed.limit === "number" ? Math.min(8, Math.max(1, parsed.limit)) : undefined,
+        limit:
+          typeof parsed.limit === "number" ? Math.min(8, Math.max(1, parsed.limit)) : undefined,
         why: String(parsed.why ?? "").slice(0, 80),
       };
     } catch {
@@ -603,7 +604,14 @@ function ChatConsole({
       if (ground && !conversational && hopAllowed.length > 0) {
         turn.stage("tool", "decide");
         const pick = skipDecide
-          ? { def: hopAllowed[0], query: user, ticker: undefined, basket: undefined, limit: undefined, why: "external intent, web.search forced" }
+          ? {
+              def: hopAllowed[0],
+              query: user,
+              ticker: undefined,
+              basket: undefined,
+              limit: undefined,
+              why: "external intent, web.search forced",
+            }
           : await decideAction(user, hopAllowed);
         if (pick) {
           turn.settle("tool", "ok", `${pick.def.id} · ${pick.why || "model-chosen"}`);
@@ -644,7 +652,8 @@ function ChatConsole({
       }
 
       const budgetTokens = Math.floor(ai.ctx * 0.75);
-      const portfolioLines = ground && !conversational ? await portfolioFactLines().catch(() => "") : "";
+      const portfolioLines =
+        ground && !conversational ? await portfolioFactLines().catch(() => "") : "";
       const stateLines = [
         factLines(),
         ...(portfolioLines ? [portfolioLines] : []),
@@ -1318,48 +1327,12 @@ function ChatConsole({
                   </div>
                 )}
                 {m.role === "tool" && (
-                  <div className="doodle-inset px-3 py-2">
-                    <p className="num eyebrow">{m.card?.source ?? m.approval?.toolId}</p>
-                    {m.card && (
-                      <ul className="mt-1 grid gap-1">
-                        {m.card.facts.map((f, i) => (
-                          <li key={i} className="text-[13px] leading-relaxed">
-                            {f}
-                          </li>
-                        ))}
-                      </ul>
-                    )}
-                    {m.approval && (
-                      <div className="mt-1">
-                        <p className="text-[13px]">
-                          {m.text} · target {m.approval.target}
-                        </p>
-                        <p className="eyebrow mt-1">
-                          access {m.approval.access} · approval required: YES
-                        </p>
-                        {m.approval.state === "pending" ? (
-                          <div className="mt-2 flex gap-2">
-                            <button
-                              type="button"
-                              onClick={() => void approve(m.id, true)}
-                              className="doodle-pill bg-ink px-3 py-1 text-[11px] text-paper"
-                            >
-                              Approve
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => void approve(m.id, false)}
-                              className="doodle-pill px-3 py-1 text-[11px]"
-                            >
-                              Reject
-                            </button>
-                          </div>
-                        ) : (
-                          <p className="eyebrow mt-1">{m.approval.state}</p>
-                        )}
-                      </div>
-                    )}
-                  </div>
+                  <ToolCard
+                    card={m.card}
+                    text={m.text}
+                    approval={m.approval}
+                    onApprove={(ok) => void approve(m.id, ok)}
+                  />
                 )}
               </li>
             ))}
@@ -1368,7 +1341,7 @@ function ChatConsole({
         </div>
 
         {mentions.length > 0 && (
-          <ul className="max-h-[190px] overflow-y-auto border-t border-stroke">
+          <ul className="max-h-[280px] overflow-y-auto border-t border-stroke">
             {mentions.map((r) => (
               <li key={`${r.kind}:${r.id}`}>
                 <button
@@ -1385,7 +1358,7 @@ function ChatConsole({
         )}
 
         {mentions.length === 0 && picks.length > 0 && (
-          <ul className="max-h-[190px] overflow-y-auto border-t border-stroke">
+          <ul className="max-h-[280px] overflow-y-auto border-t border-stroke">
             {picks.map((s) => (
               <li key={s.insert}>
                 <button
@@ -1573,6 +1546,79 @@ function ChatConsole({
 }
 
 /**
+ * One tool or approval message. Facts are summary-first: at most three are
+ * shown, the rest fold behind a "+ N more" toggle. The card id (source) stays
+ * visible either way, so the card remains targetable by the agent.
+ */
+function ToolCard({
+  card,
+  text,
+  approval,
+  onApprove,
+}: {
+  card?: ChatCard;
+  text: string;
+  approval?: Approval;
+  onApprove: (ok: boolean) => void;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const facts = card?.facts ?? [];
+  const hidden = facts.length - 3;
+  const shown = expanded ? facts : facts.slice(0, 3);
+  return (
+    <div className="doodle-inset max-w-[92%] px-3 py-2.5">
+      <p className="num eyebrow">{card?.source ?? approval?.toolId}</p>
+      {card && (
+        <ul className="mt-1 grid gap-1">
+          {shown.map((f, i) => (
+            <li key={i} className="break-words text-[13px] leading-relaxed">
+              {f}
+            </li>
+          ))}
+        </ul>
+      )}
+      {card && hidden > 0 && (
+        <button
+          type="button"
+          onClick={() => setExpanded((v) => !v)}
+          className="doodle-pill mt-1.5 px-2.5 py-0.5 text-[11px]"
+        >
+          {expanded ? "less" : `+${hidden} more`}
+        </button>
+      )}
+      {approval && (
+        <div className="mt-1">
+          <p className="break-words text-[13px]">
+            {text} · target {approval.target}
+          </p>
+          <p className="eyebrow mt-1">access {approval.access} · approval required: YES</p>
+          {approval.state === "pending" ? (
+            <div className="mt-2 flex gap-2">
+              <button
+                type="button"
+                onClick={() => onApprove(true)}
+                className="doodle-pill bg-ink px-3 py-1 text-[11px] text-paper"
+              >
+                Approve
+              </button>
+              <button
+                type="button"
+                onClick={() => onApprove(false)}
+                className="doodle-pill px-3 py-1 text-[11px]"
+              >
+                Reject
+              </button>
+            </div>
+          ) : (
+            <p className="eyebrow mt-1">{approval.state}</p>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
  * Searchable reference for everything the console can do: commands, skills and
  * live tools. Plain substring matching — discovery must work with no model and
  * no encoder on the device.
@@ -1621,7 +1667,7 @@ function HelpPanel({
         placeholder="Search commands, skills and tools"
         className="w-full border-b border-stroke bg-transparent px-4 py-2 text-[12px] outline-none"
       />
-      <ul className="max-h-[240px] overflow-y-auto">
+      <ul className="max-h-[280px] overflow-y-auto">
         {rows.length === 0 && (
           <li className="px-4 py-3 text-[12px] text-ink-soft">Nothing matches that.</li>
         )}
@@ -1743,8 +1789,8 @@ const CONVERSATIONAL_SAFE_WORDS = new Set([
  * this obvious, because this runs before every grounded turn on phones.
  * "Hey what is Bitcoin?" stays conversational (static knowledge, no hop);
  * "latest news on bitcoin" is long enough to classify as external instead.
- * Exported for the verification harness only. */
-export function isConversational(text: string): boolean {
+ */
+function isConversational(text: string): boolean {
   const words = text.trim().split(/\s+/).filter(Boolean);
   if (words.length > 6) return false;
   if (/\d/.test(text)) return false;

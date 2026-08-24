@@ -20,7 +20,7 @@ export const Route = createFileRoute("/trade")({
 function TradePage() {
   return (
     <Shell title="Trade" subtitle="next phase">
-      <section className="doodle-card animate-rise p-6">
+      <section className="doodle-card animate-rise p-4">
         <p className="font-hand text-2xl text-accent">Journal first, execution second.</p>
         <p className="mt-2 max-w-md text-[15px] text-ink-soft">
           Trading is deliberately not wired up yet. When it lands, an order will start from a
