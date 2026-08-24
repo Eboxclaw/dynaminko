@@ -355,7 +355,14 @@ function ChatConsole({
   const decideAction = async (
     user: string,
     allowed: CapabilityDefinition[],
-  ): Promise<{ def: CapabilityDefinition; query: string; why: string } | null> => {
+  ): Promise<{
+    def: CapabilityDefinition;
+    query: string;
+    why: string;
+    ticker?: string;
+    basket?: string;
+    limit?: number;
+  } | null> => {
     const ids = allowed.map((d) => d.id);
     if (ids.length === 0) return null;
     // The pick prompt carries the same live portfolio lines as the answer
@@ -389,6 +396,25 @@ function ChatConsole({
               tool: { type: "string", enum: ["none", ...ids] },
               query: { type: "string" },
               why: { type: "string" },
+              ticker: { type: "string" },
+              basket: {
+                type: "string",
+                enum: [
+                  "btc",
+                  "eth",
+                  "store-of-value",
+                  "stables",
+                  "defi",
+                  "ai",
+                  "l1",
+                  "l2",
+                  "gaming",
+                  "memes",
+                  "stocks",
+                  "unsorted",
+                ],
+              },
+              limit: { type: "integer", minimum: 1, maximum: 8 },
             },
             required: ["tool", "query", "why"],
             additionalProperties: false,
@@ -399,17 +425,55 @@ function ChatConsole({
       return null;
     }
     try {
-      const parsed = JSON.parse(raw) as { tool?: string; query?: string; why?: string };
+      const parsed = JSON.parse(raw) as {
+        tool?: string;
+        query?: string;
+        why?: string;
+        ticker?: string;
+        basket?: string;
+        limit?: number;
+      };
       const def = allowed.find((d) => d.id === parsed.tool);
       if (!def) return null;
+
+      // Guard: journal.filter must carry a bounded limit or it is refused.
+      // This replaces the HOP_EXCLUDED_IDS exclusion — the safety the
+      // exclusion protected is now enforced at the contract level.
+      if (def.id === "journal.filter") {
+        const limit = typeof parsed.limit === "number" ? parsed.limit : 0;
+        if (!(limit >= 1 && limit <= 8)) return null;
+      }
+
       return {
         def,
         query: String(parsed.query ?? "").slice(0, 60),
+        ticker: parsed.ticker ? String(parsed.ticker).slice(0, 6).toUpperCase() : undefined,
+        basket: parsed.basket,
+        limit: typeof parsed.limit === "number" ? Math.min(8, Math.max(1, parsed.limit)) : undefined,
         why: String(parsed.why ?? "").slice(0, 80),
       };
     } catch {
       return null;
     }
+  };
+
+  /** Map the model's structured tool pick to the argument shape each tool
+   *  expects. Only fields that exist in the tool's real input type are emitted.
+   *  Tools that don't use ticker/basket/limit get their usual query-only form
+   *  and behave identically to today. */
+  const buildToolInput = (pick: {
+    def: CapabilityDefinition;
+    query: string;
+    ticker?: string;
+    basket?: string;
+    limit?: number;
+  }): Record<string, unknown> => {
+    const input: Record<string, unknown> = {};
+    if (pick.query) input.query = pick.query;
+    if (pick.ticker) input.ticker = pick.ticker;
+    if (pick.basket) input.basket = pick.basket;
+    if (typeof pick.limit === "number") input.limit = pick.limit;
+    return input;
   };
 
   /**
@@ -515,7 +579,7 @@ function ChatConsole({
       } else {
         hopAllowed = selection.selected.filter(
           (d) =>
-            (d.kind === "tool" || d.kind === "command") &&
+            (d.kind === "tool" || d.kind === "command" || d.kind === "batch_command") &&
             (d.access === "READ" || d.access === "COMPUTE") &&
             !excluded.has(d.id),
         );
@@ -539,12 +603,12 @@ function ChatConsole({
       if (ground && !conversational && hopAllowed.length > 0) {
         turn.stage("tool", "decide");
         const pick = skipDecide
-          ? { def: hopAllowed[0], query: user, why: "external intent, web.search forced" }
+          ? { def: hopAllowed[0], query: user, ticker: undefined, basket: undefined, limit: undefined, why: "external intent, web.search forced" }
           : await decideAction(user, hopAllowed);
         if (pick) {
           turn.settle("tool", "ok", `${pick.def.id} · ${pick.why || "model-chosen"}`);
           try {
-            const input = pick.query ? { query: pick.query } : {};
+            const input = buildToolInput(pick);
             const out =
               pick.def.kind === "command"
                 ? await runCommand(pick.def.id, input)

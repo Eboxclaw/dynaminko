@@ -287,12 +287,12 @@ export const DEFAULT_HOP_IDS = [
 
 /**
  * Never offered to the model-chosen hop, from either the default set or the
- * semantic selection: journal.index and journal.filter return unbounded card
- * sets (the one result guaranteed to flood the context). They stay in the
- * capability book and remain invocable as explicit commands; the model just
- * never picks them blind.
+ * semantic selection: journal.index returns an unbounded card set (the one
+ * result guaranteed to flood the context). journal.filter was once here too
+ * but was lifted: the decideAction guard enforces a hard limit at the contract
+ * level instead.
  */
-export const HOP_EXCLUDED_IDS = ["journal.index", "journal.filter"] as const;
+export const HOP_EXCLUDED_IDS = ["journal.index"] as const;
 
 export type CapabilitySelection = {
   selected: CapabilityDefinition[];

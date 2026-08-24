@@ -115,7 +115,7 @@ export function usePortfolio() {
     },
   });
 
-  const quotes = quotesQuery.data ?? [];
+  const quotes = useMemo(() => quotesQuery.data ?? [], [quotesQuery.data]);
   const portfolio = useMemo(
     () => buildPortfolio(snapshot, quotes, overrides),
     [snapshot, quotes, overrides],

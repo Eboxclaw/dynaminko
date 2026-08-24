@@ -113,10 +113,13 @@ export function useAi() {
 
   const assistant = doc.settings.assistant;
   const cloudId = assistant.cloudId;
-  const cloudCfg: CloudConfig | null =
-    assistant.provider === "cloud" && cloudId && assistant.cloud?.[cloudId]?.apiKey
-      ? { id: cloudId as CloudConfig["id"], ...assistant.cloud[cloudId] }
-      : null;
+  const cloudCfg: CloudConfig | null = useMemo(
+    () =>
+      assistant.provider === "cloud" && cloudId && assistant.cloud?.[cloudId]?.apiKey
+        ? { id: cloudId as CloudConfig["id"], ...assistant.cloud[cloudId] }
+        : null,
+    [assistant.provider, cloudId, assistant.cloud],
+  );
 
   useEffect(() => {
     mounted.current = true;
@@ -369,7 +372,7 @@ if (cloudCfg) {
       });
     }
     return out;
-  }, [downloaded, profile.mobile, settings.aiModelId, status]);
+  }, [downloaded, profile.mobile, status]);
 
   const select = useCallback(
     (modelId: string) => setSettings({ aiModelId: modelId }),
@@ -405,7 +408,7 @@ if (cloudCfg) {
       else out[m.id] = "missing";
     }
     return out;
-  }, [downloaded, partial, status]);
+  }, [downloaded, partial]);
 
   const actionFor = useCallback(
     (modelId: string): ModelAction =>
