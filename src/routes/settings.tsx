@@ -7,7 +7,7 @@ import { getInjected } from "@/lib/chain/injected";
 import { usd } from "@/lib/format";
 import type { TypedDataSigner } from "@/lib/referrals/hyperliquid";
 import { buildNadoReferralDeepLink } from "@/lib/referrals/nado";
-import { setReferrer } from "@/lib/referrals/hyperliquid";
+import { setReferrer, TEAM_HL_REFERRAL_CODE } from "@/lib/referrals/hyperliquid";
 import { exportDoc, patchReferralSettings, patchSettings, walletKey, wipe } from "@/lib/store";
 
 import { useDoc } from "@/hooks/useDoc";
@@ -35,10 +35,15 @@ function buildSigner(address: string): TypedDataSigner | null {
   if (!provider) return null;
   return {
     address,
-    async signTypedData(domain: unknown, types: unknown, message: unknown): Promise<string> {
+    async signTypedData(
+      domain: unknown,
+      types: unknown,
+      primaryType: string,
+      message: unknown,
+    ): Promise<string> {
       const result = await provider.request({
         method: "eth_signTypedData_v4",
-        params: [address, JSON.stringify({ domain, types, primaryType: "Agent", message })],
+        params: [address, JSON.stringify({ domain, types, primaryType, message })],
       });
       return result as string;
     },
@@ -59,8 +64,11 @@ function SettingsPage() {
     refetch: nadoRefetch,
   } = useNadoReferral();
 
-  // Hyperliquid state
-  const [hlCode, setHlCode] = useState(doc.settings.referrals.hyperliquid?.referralCode ?? "");
+  // Hyperliquid state. The input pre-fills with the team code unless the user
+  // has saved their own; once HL reports a binding, the code can never change.
+  const [hlCode, setHlCode] = useState(
+    doc.settings.referrals.hyperliquid?.referralCode ?? TEAM_HL_REFERRAL_CODE,
+  );
   const [settingHl, setSettingHl] = useState(false);
   const [hlError, setHlError] = useState<string | null>(null);
   const [hlOk, setHlOk] = useState(false);
@@ -121,6 +129,10 @@ function SettingsPage() {
 
   const onInk = active?.chainId === 57073;
   const hlCodeFromStore = doc.settings.referrals.hyperliquid?.referralCode;
+  // A binding already on-chain is permanent — HL rejects any further
+  // setReferrer for that account, so the input locks instead of offering it.
+  const referredByCode = hlReferral?.state.referredBy?.code ?? null;
+  const hlLocked = referredByCode !== null;
 
   return (
     <Shell title="Settings">
@@ -233,27 +245,42 @@ function SettingsPage() {
                 <input
                   type="text"
                   value={hlCode}
+                  disabled={hlLocked}
                   onChange={(e) => {
                     setHlCode(e.target.value);
                     setHlOk(false);
                     setHlError(null);
                   }}
-                  placeholder={hlCodeFromStore ?? "e.g. FRIENDCODE"}
-                  className="min-w-0 flex-1 rounded-[2px] border border-stroke bg-paper px-2.5 py-1 text-[12px] outline-none focus:border-ink"
+                  placeholder={hlCodeFromStore ?? TEAM_HL_REFERRAL_CODE}
+                  className="min-w-0 flex-1 rounded-[2px] border border-stroke bg-paper px-2.5 py-1 text-[12px] outline-none focus:border-ink disabled:opacity-50"
                 />
                 <button
                   type="button"
-                  disabled={settingHl || !hlCode.trim()}
+                  disabled={settingHl || !hlCode.trim() || hlLocked}
                   onClick={handleSetHlCode}
                   className="doodle-pill shrink-0 px-3 py-1 text-[12px] hover:bg-accent-soft disabled:opacity-40"
                 >
                   {settingHl ? "Setting…" : "Set"}
                 </button>
               </div>
-              {!isConnected && (
+              {hlLocked ? (
                 <p className="mt-1 text-[11px] text-ink-faint">
-                  Connect a wallet to sign the action. Without it, the code is saved locally.
+                  Referred by {referredByCode} · Hyperliquid bindings are permanent and cannot be
+                  changed.
                 </p>
+              ) : (
+                <>
+                  {!hlCodeFromStore && hlCode === TEAM_HL_REFERRAL_CODE && (
+                    <p className="mt-1 text-[11px] text-ink-faint">
+                      Inko's suggested code. Replace it with your own if you prefer.
+                    </p>
+                  )}
+                  {!isConnected && (
+                    <p className="mt-1 text-[11px] text-ink-faint">
+                      Connect a wallet to sign the action. Without it, the code is saved locally.
+                    </p>
+                  )}
+                </>
               )}
               {hlError && <p className="mt-1 text-[11px] text-loss">{hlError}</p>}
               {hlOk && <p className="mt-1 text-[11px] text-gain">Code saved.</p>}
@@ -282,7 +309,7 @@ function SettingsPage() {
                     </p>
                     <div className="mt-1.5 flex gap-2">
                       <a
-                        href={buildNadoReferralDeepLink(hlCodeFromStore)}
+                        href={buildNadoReferralDeepLink(doc.settings.referrals.nado?.referralCode)}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="doodle-pill px-3 py-1 text-[12px] hover:bg-accent-soft"
@@ -302,9 +329,31 @@ function SettingsPage() {
                 )}
               </>
             ) : (
-              <p className="mt-2 text-[12px] text-ink-soft">
-                {nadoFetching ? "Checking binding…" : "No referral data yet."}
-              </p>
+              <div className="mt-2">
+                <p className="text-[12px] text-ink-soft">
+                  {nadoFetching
+                    ? "Checking binding…"
+                    : "Binding status unavailable: Nado's referral query is not live on their public API yet. Bind on their dashboard and track rewards there."}
+                </p>
+                <div className="mt-1.5 flex gap-2">
+                  <a
+                    href={buildNadoReferralDeepLink(doc.settings.referrals.nado?.referralCode)}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="doodle-pill px-3 py-1 text-[12px] hover:bg-accent-soft"
+                  >
+                    Open Nado Referrals
+                  </a>
+                  <button
+                    type="button"
+                    onClick={() => void nadoRefetch()}
+                    disabled={nadoFetching}
+                    className="doodle-pill px-3 py-1 text-[12px] hover:bg-accent-soft disabled:opacity-40"
+                  >
+                    {nadoFetching ? "Checking…" : "Re-check"}
+                  </button>
+                </div>
+              </div>
             )}
 
             {/* Set referral code preference (saved locally only) */}

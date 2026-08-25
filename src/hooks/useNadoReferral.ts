@@ -34,19 +34,23 @@ export function useNadoReferral() {
       if (!active?.address) return null;
       const cacheKey = `nado-referral:${key}`;
 
-      // Discover first subaccount name
+      // The referral query takes the PACKED subaccount hex the Archive itself
+      // returns — not the owner address + name pair.
       let subName = "default";
+      let packed: string | null = null;
       try {
         const subs = await readSubaccounts(active.address);
         subName = subs[0]?.subaccount_name ?? "default";
+        packed = subs[0]?.subaccount ?? null;
       } catch {
-        // fall through with "default"
+        // fall through — no readable subaccount means no binding to report
       }
+      if (!packed) return null;
 
       const cached = await idbGet<NadoReferralResult>(cacheKey).catch(() => null);
 
       try {
-        const binding = await getNadoReferralBinding(active.address, subName);
+        const binding = await getNadoReferralBinding(packed);
         const result: NadoReferralResult = { binding, subaccountName: subName };
         void idbSet(cacheKey, result);
         return result;
