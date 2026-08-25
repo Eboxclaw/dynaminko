@@ -179,7 +179,7 @@ export function capabilityCatalogue(): CapabilityDefinition[] {
     kind: "skill",
     label: s.label,
     purpose: s.purpose,
-    aliases: [s.label, ...s.tools],
+    aliases: [s.label, ...(s.aliases ?? []), ...s.tools],
     examples: [],
     inputs: s.tools.length ? `Runs tools: ${s.tools.join(", ")}` : "user text",
     output: s.aiRole,
@@ -281,6 +281,7 @@ export const DEFAULT_HOP_IDS = [
   "indicators.potIndex",
   "indicators.motiveStats",
   "session.search",
+  "portfolio.read",
   "portfolio.netWorth",
   "portfolio.positions-perps",
 ] as const;

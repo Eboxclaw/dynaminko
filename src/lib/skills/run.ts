@@ -6,6 +6,10 @@ import { log, type Sentiment } from "@/lib/store";
 import * as ind from "@/lib/tools/indicators";
 import { filterCards } from "@/lib/tools/journal";
 import { getDoc } from "@/lib/store";
+import { TOOL_BY_ID } from "@/lib/tools/registry";
+import { COMMAND_BY_ID } from "@/lib/commands/registry";
+import { runCommand } from "@/lib/commands/runner";
+import { SECTOR_BY_ID, type SectorId } from "@/lib/sectors";
 
 import { SKILL_BY_ID, type SkillDef } from "./registry";
 
@@ -22,7 +26,162 @@ export type SkillResult = {
 
 export type SkillInput = { motive?: Sentiment; thesisId?: string; note?: string };
 
-export function runSkill(skillId: string, input: SkillInput = {}): SkillResult {
+/**
+ * Composed read skills: no bespoke branch, the skill simply declares which
+ * tools or commands it runs. Each one runs with no input; results that fail to
+ * run are kept visible in the data, never silently dropped — the model is
+ * grounded on what actually happened. A skill step may name a tool
+ * (`portfolio.read`) or a semantic command (`journal.resolve_inbox`); both
+ * resolve through their own registries.
+ */
+async function runStep(id: string): Promise<unknown> {
+  const tool = TOOL_BY_ID[id];
+  if (tool?.run != null) return tool.run({});
+  const command = COMMAND_BY_ID[id];
+  if (command) {
+    try {
+      return await runCommand(id, {});
+    } catch (err) {
+      return { status: "failed", message: err instanceof Error ? err.message : String(err) };
+    }
+  }
+  return { status: "unavailable", message: `${id} is not wired on this device` };
+}
+
+/** Round a dollar value to a readable integer; pass through non-numbers. */
+function money(v: unknown): number | null {
+  return typeof v === "number" && Number.isFinite(v) ? Math.round(v) : null;
+}
+
+/** Compact a price to at most 4 significant figures so it is readable. */
+function px(v: unknown): number | string | null {
+  if (v == null || !Number.isFinite(v)) return null;
+  const n = v as number;
+  return n >= 1000 ? Math.round(n).toLocaleString("en-US") : Number(n.toPrecision(4));
+}
+
+/**
+ * Turn a composed skill's raw tool results into flat, rounded, model-readable
+ * lines. This is what a 350M/1.2B actually answers from: the raw tool JSON
+ * (20-digit floats, nested arrays) is what they give up on. The digest keeps
+ * the exact fields the venue reports and labels the ones it does not.
+ */
+export function digestStep(stepId: string, out: unknown): { lines: string[] } {
+  const o = out as Record<string, unknown> | null;
+  const lines: string[] = [];
+  if (!o || typeof o !== "object") return { lines: [`${stepId}: no data`] };
+
+  switch (stepId) {
+    case "portfolio.read": {
+      const holdings = o.holdings as Array<{ symbol: string; value: number | null; sector: string }> | undefined;
+      if (!holdings?.length) {
+        lines.push(`wallet: ${o.message ?? "no holdings cached yet (sync the wallet on the home page)"}`);
+        break;
+      }
+      const total = money(o.total);
+      lines.push(`wallet: ~$${total ?? 0} across ${holdings.length} tokens`);
+      for (const h of holdings.slice(0, 8)) {
+        lines.push(`  ${h.symbol}: ${h.value != null ? `$${money(h.value) ?? 0}` : `${h.sector} (unpriced)`}`);
+      }
+      const slices = o.slices as Array<{ sector: string; share: number }> | undefined;
+      if (slices?.length)
+        lines.push(
+          `baskets: ${slices
+            .slice(0, 6)
+            .map((s) => `${SECTOR_BY_ID[s.sector as SectorId]?.label ?? s.sector} ${Math.round((s.share ?? 0) * 100)}%`)
+            .join(", ")}`,
+        );
+      break;
+    }
+    case "portfolio.netWorth": {
+      if (o.message) {
+        lines.push(`net worth: ${o.message}`);
+        break;
+      }
+      lines.push(
+        `net worth: $${money(o.net) ?? 0} (wallet $${money(o.wallet) ?? 0} + venues $${money(o.venueEquity) ?? 0})`,
+      );
+      break;
+    }
+    case "portfolio.positions-perps": {
+      const trades = (o.trades as Array<Record<string, unknown>> | undefined) ?? [];
+      if (!trades.length) {
+        lines.push("open perps: none");
+      } else {
+        lines.push(`open perps: ${trades.length}`);
+        // One numbered line per position, every field repeated with either a
+        // value or an explicit "not reported by <venue>". Omitting a field is
+        // what makes a small model invent it or pull it off the wrong row.
+        for (const t of trades.slice(0, 12)) {
+          const venue = String(t.venue ?? "?");
+          const upnl = money(t.unrealizedPnl);
+          const lev = t.leverage != null ? `${t.leverage}x` : `leverage not reported by ${venue}`;
+          const margin = t.margin != null ? `margin $${money(t.margin) ?? 0}` : `margin not reported by ${venue}`;
+          const liq =
+            t.liquidationPrice != null ? `liq ${px(t.liquidationPrice)}` : `liq not reported by ${venue}`;
+          lines.push(
+            `  - ${String(t.displaySymbol)} (${venue}) side ${String(t.side)} | size ${px(t.size)} | entry ${px(
+              t.entryPrice,
+            )} | notional $${money(t.notional) ?? 0} | uPnL ${
+              upnl != null ? `${upnl >= 0 ? "+" : "-"}$${Math.abs(upnl)}` : "not reported"
+            } | ${lev} | ${margin} | ${liq}`,
+          );
+        }
+      }
+      const accounts = (o.accounts as Array<Record<string, unknown>> | undefined) ?? [];
+      for (const a of accounts) {
+        const eq = money(a.equity);
+        const mu = money(a.marginUsed);
+        if (eq == null && mu == null) continue;
+        lines.push(
+          `  ${a.venue} ${a.label}: ${eq != null ? `equity $${eq}` : ""}${mu != null ? ` margin used $${mu}` : ""}`.trim(),
+        );
+      }
+      const gaps = (o.gaps as string[] | undefined) ?? [];
+      for (const g of gaps) lines.push(`  note: ${g}`);
+      break;
+    }
+    case "journal.resolve_inbox": {
+      // command result: { status, summary, data: { pending, pendingList, ... } }
+      const d = (o.data as Record<string, unknown> | undefined) ?? o;
+      lines.push(`inbox: ${o.summary ?? `${d.pending ?? 0} pending`}`);
+      const list = (d.pendingList as Array<Record<string, unknown>> | undefined) ?? [];
+      for (const s of list.slice(0, 6)) {
+        lines.push(`  ${s.ticker} ${s.side} ${px(s.amount)}${s.venue ? ` on ${s.venue}` : ""}${s.valueUsd != null ? ` ~$${money(s.valueUsd)}` : ""} (${s.date})`);
+      }
+      break;
+    }
+    case "signal.coverage": {
+      lines.push(`signals: ${o.inbox ?? 0} in inbox, ${o.linked ?? 0} linked of ${o.signals ?? 0}`);
+      break;
+    }
+    default: {
+      // generic: keep the raw result but mark it unreadable for the small model
+      lines.push(`${stepId}: ${JSON.stringify(out).slice(0, 200)}`);
+    }
+  }
+  return { lines };
+}
+
+/**
+ * A composed skill's structured result is the flat digest itself: each step's
+ * readable lines, keyed by step. The model answers from this (and the card
+ * shows it), so raw tool JSON is deliberately not carried — it is the thing
+ * small models give up on, and it would bloat the observation.
+ */
+async function runComposedSkill(skill: SkillDef): Promise<{ data: Record<string, unknown>; facts: string[] }> {
+  const data: Record<string, unknown> = {};
+  const facts: string[] = [];
+  for (const stepId of skill.tools) {
+    const out = await runStep(stepId);
+    const { lines } = digestStep(stepId, out);
+    data[stepId] = lines;
+    facts.push(...lines);
+  }
+  return { data, facts };
+}
+
+export async function runSkill(skillId: string, input: SkillInput = {}): Promise<SkillResult> {
   const skill = SKILL_BY_ID[skillId];
   if (!skill) throw new Error(`unknown skill: ${skillId}`);
   const started = Date.now();
@@ -30,7 +189,11 @@ export function runSkill(skillId: string, input: SkillInput = {}): SkillResult {
   let data: Record<string, unknown> = {};
   let facts: string[] = [];
 
-  if (skill.id === "motive.performance") {
+  if (skill.composed) {
+    const composed = await runComposedSkill(skill);
+    data = composed.data;
+    facts = composed.facts;
+  } else if (skill.id === "motive.performance") {
     const motive = input.motive ?? "conviction";
     const s = ind.motiveStats(motive);
     data = { ...s };

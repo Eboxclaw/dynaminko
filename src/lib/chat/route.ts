@@ -9,6 +9,7 @@ import {
   capabilitySearchText,
   type CapabilityDefinition,
 } from "@/lib/capabilities/catalogue";
+import { SKILLS } from "@/lib/skills/registry";
 
 export type CapabilityCandidate = {
   id: string;
@@ -88,20 +89,43 @@ export function routeMessage(text: string): Routed {
   const q = text.toLowerCase();
   const thesis = getDoc().theses.find((t) => t.title && q.includes(t.title.toLowerCase()));
 
-  // Longest alias wins: "resolve all pending trades" contains "pending
-  // trades", so the more specific bulk-resolve phrase must beat the generic
-  // inbox phrase on the same input.
-  let best: { commandId: string; hit: string } | null = null;
+  // Longest alias wins across commands and skills: "what do you hold on your
+  // wallet" contains "what do i hold", so the more specific skill phrase must
+  // beat the generic command phrase on the same input. Commands keep priority
+  // over skills when the same-length phrase is hit (commands are the
+  // deterministic floor; skills add a model step on top).
+  type Hit = { kind: "command" | "skill"; id: string; hit: string };
+  const hits: Hit[] = [];
   for (const route of PRE_EXECUTE) {
     const hit = includesAlias(q, route.aliases);
-    if (hit && (!best || hit.length > best.hit.length)) {
-      best = { commandId: route.commandId, hit };
+    if (hit) hits.push({ kind: "command", id: route.commandId, hit });
+  }
+  for (const skill of SKILLS) {
+    if (!skill.aliases?.length) continue;
+    const hit = includesAlias(q, skill.aliases);
+    if (hit) hits.push({ kind: "skill", id: skill.id, hit });
+  }
+  let best: Hit | null = null;
+  for (const h of hits) {
+    if (!best) {
+      best = h;
+      continue;
+    }
+    // longer phrase wins; on a tie the command wins over the skill
+    if (
+      h.hit.length > best.hit.length ||
+      (h.hit.length === best.hit.length && h.kind === "command" && best.kind === "skill")
+    ) {
+      best = h;
     }
   }
+
   if (best) {
-    const args =
-      best.commandId === "journal.resolve_inbox" ? { ticker: tickerArg(text) } : {};
-    return { kind: "command", commandId: best.commandId, args, why: `matched "${best.hit}"` };
+    if (best.kind === "command") {
+      const args = best.id === "journal.resolve_inbox" ? { ticker: tickerArg(text) } : {};
+      return { kind: "command", commandId: best.id, args, why: `matched "${best.hit}"` };
+    }
+    return { kind: "skill", skillId: best.id, why: `matched "${best.hit}"` };
   }
 
   if (thesis) {

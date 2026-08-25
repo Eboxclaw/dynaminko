@@ -54,16 +54,40 @@ export function resolveInbox(args: Record<string, unknown>, ctx: CommandContext)
     for (const f of missingFor(card)) missing[f] = (missing[f] ?? 0) + 1;
   }
 
+  // The pending list with its venue fields, so "what is on the inbox" answers
+  // with granularity (side, amount, value, venue) instead of counts alone.
+  // buildIndex does not guarantee date order, so sort newest-first explicitly:
+  // "the most recent ones" must mean that.
+  const signalById = new Map(doc.signals.map((s) => [s.id, s]));
+  const newest = [...pending].sort((a, b) => b.date - a.date);
+  const pendingList = newest.slice(0, 12).map((c) => {
+    const s = signalById.get(c.id);
+    return {
+      id: c.id,
+      ticker: c.ticker,
+      date: new Date(c.date).toISOString().slice(0, 10),
+      side: s?.side ?? null,
+      amount: s?.amount ?? null,
+      valueUsd: c.value != null ? Math.round(c.value) : null,
+      venue: s?.venue ?? null,
+      action: s?.action ?? null,
+      counterparty: s?.counterparty ?? null,
+      pnlUsd: c.pnl != null ? Number(c.pnl.toFixed(2)) : null,
+      record: c.record,
+    };
+  });
+
   const data = {
     ticker,
     matched: pending.length,
     pending: pending.length,
     missing,
-    topExamples: pending.slice(0, 5).map((c) => ({
-      id: c.id,
-      ticker: c.ticker,
-      date: new Date(c.date).toISOString().slice(0, 10),
-      record: c.record,
+    pendingList,
+    topExamples: pendingList.slice(0, 5).map(({ id, ticker: t, date, record }) => ({
+      id,
+      ticker: t,
+      date,
+      record,
     })),
   };
 

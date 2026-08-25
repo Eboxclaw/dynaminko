@@ -150,36 +150,47 @@ export async function portfolioFactLines(): Promise<string> {
   try {
     const { readCachedSnapshot, readCachedVenueReports } = await import("@/lib/store");
     const { buildPortfolio } = await import("@/lib/portfolio");
-    const { composeNetWorth, perpExposure } = await import("@/lib/exposure");
+    const { composeBaskets, composeNetWorth, openPerps } = await import("@/lib/exposure");
 
     const snapshot = await readCachedSnapshot();
     const reports = await readCachedVenueReports();
-
     if (!snapshot) return "";
 
-    const portfolio = buildPortfolio(snapshot, []);
+    // Price with the cached quotes, exactly like the portfolio.read tool does;
+    // empty quotes silently fell back to the on-chain usd and left baskets
+    // unpriced when the pipeline had not run yet.
+    const { idbGet } = await import("@/lib/cache/idb");
+    const quotes = (await idbGet<import("@/lib/prices").Quote[]>("quotes:latest")) ?? [];
+    const overrides = getDoc().settings.basketOverrides;
+
+    // Wallet + venue spot, merged per symbol: the same numbers the /portfolio
+    // page shows, so the model answers "what do you hold" from one source.
+    const portfolio = buildPortfolio(snapshot, quotes, overrides);
+    const merged = composeBaskets(portfolio, reports, quotes, overrides);
     const netWorth = composeNetWorth(portfolio, reports);
-    const perps = perpExposure(reports);
+    const perps = openPerps(reports);
 
     const lines: string[] = [];
 
-    if (portfolio.holdings.length > 0) {
-      lines.push(`wallet_holdings: ${portfolio.holdings.length} tokens · $${Math.round(portfolio.total)}`);
-      // Per-token value so "how much BTC do I hold" answers without a tool hop.
-      // Top 5 by value, 24h change only when a quote reported one.
+    if (merged.holdings.length > 0) {
       lines.push(
-        `top_holdings: ${portfolio.holdings
-          .slice(0, 5)
+        `wallet_holdings: ${merged.holdings.length} tokens · $${Math.round(merged.total)}${merged.venueSpotTotal > 0 ? ` (wallet $${Math.round(merged.walletTotal)} + venue spot $${Math.round(merged.venueSpotTotal)})` : ""}`,
+      );
+      // Per-token value so "how much BTC do I hold" answers without a tool hop.
+      // Top 8 by value, 24h change only when a quote reported one.
+      lines.push(
+        `top_holdings: ${merged.holdings
+          .slice(0, 8)
           .map((h) =>
             h.value != null
               ? `${h.symbol} $${Math.round(h.value)}${h.change24h != null ? ` (${h.change24h >= 0 ? "+" : ""}${h.change24h.toFixed(1)}%)` : ""}`
-              : `${h.symbol} ${h.amount}`,
+              : `${h.symbol} ${h.amount} (unpriced)`,
           )
           .join(" · ")}`,
       );
       lines.push(
-        `baskets: ${portfolio.slices
-          .slice(0, 4)
+        `baskets: ${merged.slices
+          .slice(0, 6)
           .map((s) => `${SECTOR_BY_ID[s.sector].label} ${Math.round(s.share * 100)}%`)
           .join(" · ") || "unsorted"}`,
       );
@@ -189,32 +200,52 @@ export async function portfolioFactLines(): Promise<string> {
       lines.push(`net_worth: $${Math.round(netWorth.net)} (wallet $${Math.round(netWorth.wallet)} + venues $${Math.round(netWorth.venueEquity)})`);
     }
 
-    if (perps.length > 0) {
-      lines.push(`open_positions: ${perps.length} open perps across ${new Set(perps.map((p) => p.venue)).size} venues`);
-      // PnL per position rides along so "which position is down" needs no hop.
+    if (perps.trades.length > 0) {
       lines.push(
-        `top_positions: ${perps
-          .slice(0, 3)
-          .map((p) => `${p.displaySymbol} ${p.side} $${Math.round(p.notional ?? 0)}${p.unrealizedPnl != null ? ` (${p.unrealizedPnl >= 0 ? "+" : "-"}$${Math.round(Math.abs(p.unrealizedPnl))})` : ""}`)
-          .join(" · ")}`,
+        `open_positions: ${perps.trades.length} open perps across ${new Set(perps.trades.map((p) => p.venue)).size} venues`,
       );
-      const known = perps.filter((p) => p.unrealizedPnl != null);
+      // One line per position with the fields each venue actually reports:
+      // side, size, entry, venue notional and uPnL; leverage/margin where the
+      // venue exposes them. PnL rides along so "which position is down"
+      // needs no hop.
+      lines.push(
+        `top_positions: ${perps.trades
+          .slice(0, 6)
+          .map((p) => {
+            const bit = `${p.displaySymbol} ${p.side} ${round4(p.size)} @ ${fmtPx(p.entryPrice)}${p.venue === "hyperliquid" && p.leverage != null ? ` · ${p.leverage}x` : ""}${p.margin != null ? ` · margin $${Math.round(p.margin)}` : ""}${p.liquidationPrice != null ? ` · liq ${fmtPx(p.liquidationPrice)}` : ""}${p.unrealizedPnl != null ? ` · uPnL ${p.unrealizedPnl >= 0 ? "+" : "-"}$${Math.round(Math.abs(p.unrealizedPnl))}` : ""}`;
+            return bit;
+          })
+          .join(" | ")}`,
+      );
+      const known = perps.trades.filter((p) => p.unrealizedPnl != null);
       if (known.length > 0) {
         const total = known.reduce((s, p) => s + (p.unrealizedPnl ?? 0), 0);
         lines.push(`unrealized_pnl: ${total >= 0 ? "+" : "-"}$${Math.round(Math.abs(total))} on ${known.length} measured perps`);
       }
-    }
-
-    const venueSpots = reports
-      .flatMap((r) => r.positions ?? [])
-      .filter((p) => p.kind === "spot");
-    if (venueSpots.length > 0) {
-      const totalSpot = venueSpots.reduce((s, p) => s + ((p.markPrice ?? 0) * (p.size ?? 0)), 0);
-      lines.push(`venue_spots: ${venueSpots.length} spot positions · $${Math.round(totalSpot)}`);
+      // Account-level margin: the only margin Nado reports, and how much of
+      // the venue account is spoken for overall.
+      for (const a of perps.accounts) {
+        if (a.equity == null && a.marginUsed == null) continue;
+        lines.push(
+          `venue_margin: ${a.venue} ${a.label}${a.equity != null ? ` · equity $${Math.round(a.equity)}` : ""}${a.available != null ? ` · available $${Math.round(a.available)}` : ""}${a.marginUsed != null ? ` · margin used $${Math.round(a.marginUsed)}` : ""}`,
+        );
+      }
+      if (perps.gaps.length > 0) lines.push(`position_fields: ${perps.gaps.join(" ")}`);
     }
 
     return lines.join("\n");
   } catch {
     return "";
   }
+}
+
+/** Trim a size to 4 significant decimals so a fact line stays short. */
+function round4(n: number): string {
+  return n >= 1000 ? Math.round(n).toLocaleString("en-US") : n.toFixed(n >= 100 ? 2 : 4).replace(/\.?0+$/, "");
+}
+
+/** Compact price for fact lines: no cents above $1, two below. */
+function fmtPx(px: number | null): string {
+  if (px == null) return "—";
+  return px >= 1 ? Math.round(px).toLocaleString("en-US") : px.toFixed(2);
 }

@@ -10,7 +10,7 @@
 import { getChain } from "@/chains";
 import { ethCallMany, toBigInt, words } from "@/lib/venues/evm";
 
-import { freshCachedQuotes, staleCachedQuotes, writeQuotesCache } from "./prices-cache";
+import { freshCachedQuotes, mergeLatestQuotes, staleCachedQuotes, writeQuotesCache } from "./prices-cache";
 
 const GECKO = "https://api.coingecko.com/api/v3";
 const HL_INFO = "https://api.hyperliquid.xyz/info";
@@ -480,6 +480,9 @@ export async function fetchQuotes(symbols: string[], signal?: AbortSignal): Prom
   // Write to cache if we got anything
   if (results.length > 0) {
     void writeQuotesCache(wanted, results, "hyperliquid");
+    // Also roll every resolved quote into the symbol-agnostic `quotes:latest`
+    // map the agent read path prices against — see mergeLatestQuotes.
+    void mergeLatestQuotes(results);
   } else {
     // All sources failed — return stale cache if available
     const stale = await staleCachedQuotes(wanted);

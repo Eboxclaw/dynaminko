@@ -4,7 +4,7 @@
 import { addAlert, patchAlert, removeAlert, getDoc, readCachedSnapshot, readCachedVenueReports } from "@/lib/store";
 import { request as requestNotifications } from "@/lib/notify";
 import { buildPortfolio } from "@/lib/portfolio";
-import { composeNetWorth, perpExposure } from "@/lib/exposure";
+import { composeNetWorth, openPerps } from "@/lib/exposure";
 import { readVelodrome } from "@/lib/venues/velodrome";
 import { readNado } from "@/lib/venues/nado";
 
@@ -343,8 +343,10 @@ export const TOOLS: ToolDef[] = [
       const snapshot = await readCachedSnapshot();
       const reports = await readCachedVenueReports();
       if (!snapshot) return { wallet: 0, venueEquity: 0, net: 0, message: "no wallet snapshot cached yet" };
-      const portfolio = buildPortfolio(snapshot, []);
-      return composeNetWorth(portfolio, reports);
+      const { idbGet } = await import("@/lib/cache/idb");
+      const quotes = (await idbGet<import("@/lib/prices").Quote[]>("quotes:latest")) ?? [];
+      const overrides = getDoc().settings.basketOverrides;
+      return composeNetWorth(buildPortfolio(snapshot, quotes, overrides), reports);
     },
   }),
   def({
@@ -352,14 +354,14 @@ export const TOOLS: ToolDef[] = [
     group: "portfolio",
     action: "positions-perps",
     label: "Open perp positions",
-    purpose: "Active open perpetual positions across venues with unrealized PnL.",
+    purpose: "Open perpetuals across venues: side, size, entry, uPnL, leverage/margin where the venue reports them, plus account-level margin and the fields a venue does not report.",
     access: "READ",
     inputs: "none",
-    output: "ActiveTrade[]",
+    output: "{ trades: ActiveTrade[], accounts: venue margin, gaps: string[] }",
     live: true,
     run: async () => {
       const reports = await readCachedVenueReports();
-      return perpExposure(reports);
+      return openPerps(reports);
     },
   }),
   def({

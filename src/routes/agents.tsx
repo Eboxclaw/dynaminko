@@ -52,7 +52,7 @@ import { encoderReady } from "@/lib/ai/encoder";
 
 import { AGENTS, automationOn } from "@/lib/agents/registry";
 import { COMMANDS, parseCommand, suggestions, type Suggestion } from "@/lib/chat/commands";
-import { factLines, portfolioFactLines } from "@/lib/chat/context";
+import { estimateTokens, factLines, portfolioFactLines } from "@/lib/chat/context";
 import { newMessage, type Approval, type ChatCard, type ChatMessage } from "@/lib/chat/session";
 import {
   bootstrapSessions,
@@ -78,6 +78,7 @@ import {
   addMemory,
   clearLogs,
   getDoc,
+  log,
   memoryPrompt,
   memoryStats,
   setAutomation,
@@ -730,6 +731,28 @@ function ChatConsole({
 
       const { thinking: think, answer } = splitThinking(raw);
       const text = (answer || raw || "").trim();
+
+      // Effective settings for this answer, so a later comparison can read
+      // exactly which temperature / context / sampling produced each line.
+      const spec = ai.spec;
+      const topP = 0.9;
+      log(
+        "agent",
+        "usage",
+        {
+          level: "info",
+          detail:
+            `${ai.target.label} · quant ${spec?.quant ?? "?"} · ` +
+            `temp ${ground ? 0.2 : spec?.sampling?.temperature ?? 0.4} (top_p ${topP}, min_p ${spec?.sampling?.minP ?? "—"}, rep ${spec?.sampling?.repeatPenalty ?? "—"}/${spec?.sampling?.penaltyLastN ?? "—"}) · ` +
+            `maxTokens ${ai.maxTokens} · ctx ${ai.loadedCtx}/${spec?.maxCtx ?? "?"} · ` +
+            `${ai.backend} · prompt ~${build.estTokens}t · ` +
+            `answer ~${estimateTokens(text)}t · tps ${ai.speed?.tps ?? "?"}` +
+            (build.sections.some((s) => s.truncated)
+              ? ` · shed: ${build.sections.filter((s) => s.truncated).map((s) => s.name).join(",")}`
+              : ""),
+        },
+      );
+
       // Zero output is a failure, never a quiet success.
       if (!text) {
         turn.settle("answer", "error");
@@ -760,7 +783,7 @@ function ChatConsole({
     opts: { question?: string; alwaysSpeak?: boolean } = {},
   ) => {
     turn.stage("skill", skillId);
-    const result = runSkill(skillId, args);
+    const result = await runSkill(skillId, args);
     turn.settle("skill", "ok", `${result.skill.tools.length} tools`);
     push({
       role: "tool",
@@ -1044,9 +1067,16 @@ function ChatConsole({
         const lastT = lastPromptRef.current;
         const memCtx = memoryStats();
         const session = sessions.find((s) => s.id === activeId);
+        // The last effective-settings line, logged by the answer turn.
+        const usageLine = getDoc().logs?.find((l) => l.agent === "agent" && l.event === "usage")?.detail;
         push({
           role: "note",
-          text: `last prompt ${lastT != null && lastT > 0 ? `${lastT}t` : "—"} · ctx budget ${Math.floor(ai.ctx * 0.75)}\nmemory ${memCtx.chars}/${memCtx.limit} chars · ${memCtx.entries} notes\n${session ? `${session.turns} turns in this session` : "no active session"}`,
+          text: [
+            usageLine ?? "no model answer yet this session",
+            `last prompt ${lastT != null && lastT > 0 ? `${lastT}t` : "—"} · ctx budget ${Math.floor(ai.ctx * 0.75)}`,
+            `memory ${memCtx.chars}/${memCtx.limit} chars · ${memCtx.entries} notes`,
+            session ? `${session.turns} turns in this session` : "no active session",
+          ].join("\n"),
         });
         return;
       }

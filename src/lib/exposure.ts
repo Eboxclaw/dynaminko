@@ -168,11 +168,45 @@ export type ActiveTrade = {
 
 /** Open perp positions across venues, newest-magnitude first. */
 export function perpExposure(reports: VenueReport[]): ActiveTrade[] {
+  return openPerps(reports).trades;
+}
+
+export type VenueMarginAccount = {
+  venue: "nado" | "hyperliquid";
+  label: string;
+  equity: number | null;
+  available: number | null;
+  marginUsed: number | null;
+  health: number | null;
+  detail: string | null;
+};
+
+export type PerpExposure = {
+  trades: ActiveTrade[];
+  /**
+   * Account-level margin state per venue. Perps are exposure, but the venue
+   * still reports how much margin each account has allocated; Nado in
+   * particular only reports it here, never per position.
+   */
+  accounts: VenueMarginAccount[];
+  /**
+   * Which per-position fields a venue does not report, so the answer can
+   * say "Nado does not report per-position leverage" instead of inventing a
+   * number. Only venues with at least one open perp are listed.
+   */
+  gaps: string[];
+};
+
+/** The full open-trades picture: positions + venue margin + honest gaps. */
+export function openPerps(reports: VenueReport[]): PerpExposure {
   const trades: ActiveTrade[] = [];
+  const accounts: VenueMarginAccount[] = [];
+  const venuesWithPerps = new Set<string>();
   for (const report of reports) {
     if (report.venueId !== "nado" && report.venueId !== "hyperliquid") continue;
     for (const p of report.positions) {
       if (p.kind !== "perp") continue;
+      venuesWithPerps.add(report.venueId);
       trades.push({
         id: p.id,
         venue: report.venueId as "nado" | "hyperliquid",
@@ -190,8 +224,28 @@ export function perpExposure(reports: VenueReport[]): ActiveTrade[] {
         accountLabel: (p.metadata?.account as string) || (p.metadata?.subaccount as string) || null,
       });
     }
+    for (const a of report.accounts) {
+      accounts.push({
+        venue: report.venueId as "nado" | "hyperliquid",
+        label: a.label,
+        equity: a.equity,
+        available: a.available,
+        marginUsed: a.marginUsed,
+        health: a.health,
+        detail: a.detail,
+      });
+    }
   }
-  return trades.sort((a, b) => (b.notional ?? 0) - (a.notional ?? 0));
+  const gaps: string[] = [];
+  if (venuesWithPerps.has("nado"))
+    gaps.push(
+      "Nado does not report per-position leverage, margin, liquidation price, or TP/SL; margin is available at the account level only.",
+    );
+  if (venuesWithPerps.has("hyperliquid"))
+    gaps.push(
+      "Hyperliquid does not report resting TP/SL on open positions; it reports per-position leverage, margin and liquidation price.",
+    );
+  return { trades: trades.sort((a, b) => (b.notional ?? 0) - (a.notional ?? 0)), accounts, gaps };
 }
 
 /** Venue symbols a spot read could not price and the wallet quotes don't cover. */

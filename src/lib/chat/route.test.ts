@@ -61,4 +61,27 @@ describe("routeMessage", () => {
     expect(routeMessage("why did the market drop").kind).toBe("none");
     expect(routeMessage("move my portfolio to a safer basket").kind).toBe("none");
   });
+
+  it("routes the dedicated read skills by their own phrasings", () => {
+    // wallet / inbox / open-trades phrasings that the deterministic commands
+    // do not claim land on the composed skills.
+    for (const [text, skillId] of [
+      ["what is on the inbox", "inbox.review"],
+      ["what are my open trades on nado", "trades.open"],
+      ["show me my open positions", "trades.open"],
+      ["what do you hold on your wallet", "wallet.holdings"],
+    ] as const) {
+      const r = routeMessage(text);
+      expect(r.kind, `expected skill for "${text}"`).toBe("skill");
+      if (r.kind === "skill") expect(r.skillId).toBe(skillId);
+    }
+  });
+
+  it("keeps the deterministic command beat a same-or-shorter skill phrase", () => {
+    // "what do i hold" is a command alias and must still win over the
+    // wallet.holdings skill; only the longer wallet phrasings reach the skill.
+    const r = routeMessage("what do i hold");
+    expect(r.kind).toBe("command");
+    if (r.kind === "command") expect(r.commandId).toBe("portfolio.snapshot");
+  });
 });
