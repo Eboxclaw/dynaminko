@@ -217,23 +217,53 @@ export const EMPTY_DOC: PotDoc = {
   },
 };
 
-/** Override for doc persistence (e.g. a storage worker). Set to null to reset. */
-export let persistFn: ((data: string) => void) | null = null;
-/** Override for memory persistence (e.g. a storage worker). Set to null to reset. */
-export let memoryPersistFn: ((data: string) => void) | null = null;
-
-export function setPersistFn(fn: ((data: string) => void) | null) {
-  persistFn = fn;
-}
-export function setMemoryPersistFn(fn: ((data: string) => void) | null) {
-  memoryPersistFn = fn;
-}
+/**
+ * Doc persistence. Default writes straight to localStorage so the app is
+ * durable even when the storage worker is unavailable. useStorage() replaces
+ * this with a fire-and-forget worker bridge; setPersistFn(null) restores it.
+ * `persist()` ALWAYS calls persistFn — it must not bail out when the worker
+ * bridge is installed, or the in-memory doc never reaches disk and every
+ * refresh silently reverts to the last-persisted state.
+ */
 
 const KEY = "pot.doc.v1";
 
 let doc: PotDoc = EMPTY_DOC;
 let loaded = false;
 const listeners = new Set<() => void>();
+
+/**
+ * Settable persist function. By default it writes directly to localStorage.
+ * When the storage worker is active (via useStorage at the app root), this
+ * is replaced with a fire-and-forget postMessage to the worker so React
+ * never waits on I/O. The worker ack is purely for diagnostics — the
+ * in-memory document is the source of truth during the session.
+ */
+let persistFn: (data: string) => void = (data) => {
+  if (typeof localStorage === "undefined") return;
+  try {
+    localStorage.setItem(KEY, data);
+  } catch {
+    /* quota — the UI keeps working from memory */
+  }
+};
+
+/**
+ * Install a custom persist function, typically the storage worker bridge.
+ * Pass null to restore the default direct-localStorage path.
+ */
+export function setPersistFn(fn: ((data: string) => void) | null) {
+  persistFn =
+    fn ??
+    ((data) => {
+      if (typeof localStorage === "undefined") return;
+      try {
+        localStorage.setItem(KEY, data);
+      } catch {
+        /* quota — the UI keeps working from memory */
+      }
+    });
+}
 
 function read(): PotDoc {
   if (typeof localStorage === "undefined") return EMPTY_DOC;
@@ -252,13 +282,7 @@ function read(): PotDoc {
 }
 
 function persist() {
-  if (persistFn) return; // storage worker handles persistence
-  if (typeof localStorage === "undefined") return;
-  try {
-    localStorage.setItem(KEY, JSON.stringify(doc));
-  } catch {
-    /* quota — the UI keeps working from memory */
-  }
+  persistFn(JSON.stringify(doc));
 }
 
 export function ensureLoaded() {
@@ -606,14 +630,35 @@ function readMemoryRaw(): MemoryEntry[] {
   }
 }
 
-function writeMemoryRaw(entries: MemoryEntry[]) {
-  if (memoryPersistFn) return; // storage worker handles persistence
+/**
+ * Settable memory persist function. Same pattern as `persistFn` for the main
+ * document — defaults to direct localStorage, replaced by the storage worker
+ * bridge when active.
+ */
+let memoryPersistFn: (data: string) => void = (data) => {
   if (typeof localStorage === "undefined") return;
   try {
-    localStorage.setItem(MEMORY_KEY, JSON.stringify(entries));
+    localStorage.setItem(MEMORY_KEY, data);
   } catch {
     /* quota — memory stays in memory until space frees */
   }
+};
+
+export function setMemoryPersistFn(fn: ((data: string) => void) | null) {
+  memoryPersistFn =
+    fn ??
+    ((data) => {
+      if (typeof localStorage === "undefined") return;
+      try {
+        localStorage.setItem(MEMORY_KEY, data);
+      } catch {
+        /* quota — memory stays in memory until space frees */
+      }
+    });
+}
+
+function writeMemoryRaw(entries: MemoryEntry[]) {
+  memoryPersistFn(JSON.stringify(entries));
 }
 
 export function memoryChars(entries: MemoryEntry[] = readMemoryRaw()): number {
