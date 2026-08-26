@@ -14,6 +14,9 @@ vi.mock("./prices-cache", () => ({
     }
     return null;
   },
+  readQuotesCache: async (symbols: string[]) => {
+    return (store.get(`quotes:${[...symbols].sort().join(",")}`) as object | undefined) ?? null;
+  },
   staleCachedQuotes: async (symbols: string[]) => {
     const key = `quotes:${[...symbols].sort().join(",")}`;
     return (store.get(key) as object | undefined) ?? null;
@@ -21,6 +24,16 @@ vi.mock("./prices-cache", () => ({
   writeQuotesCache: async (symbols: string[], quotes: unknown) => {
     const key = `quotes:${[...symbols].sort().join(",")}`;
     store.set(key, { quotes, cachedAt: Date.now(), version: "hyperliquid" });
+  },
+  // Symbol-agnostic rolling map: upsert per-symbol like the real implementation.
+  mergeLatestQuotes: async (incoming: { symbol: string; usd: number | null; change24h: number | null }[]) => {
+    const existing = (store.get("quotes:latest") as { symbol: string; usd: number; change24h: number | null }[]) ?? [];
+    const map = new Map(existing.map((q) => [q.symbol.toUpperCase(), q]));
+    for (const q of incoming) {
+      if (q.usd == null || !q.symbol) continue;
+      map.set(q.symbol.toUpperCase(), { symbol: q.symbol, usd: q.usd, change24h: q.change24h });
+    }
+    store.set("quotes:latest", [...map.values()]);
   },
 }));
 
