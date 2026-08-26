@@ -3,6 +3,7 @@ import { useMemo, useState } from "react";
 
 import { describeSignal, suggestThesis } from "@/lib/agent/extract";
 import { relativeTime, usd } from "@/lib/format";
+import { track } from "@/lib/stats/client";
 import {
   addEntry,
   addThesis,
@@ -298,6 +299,7 @@ export function Reconcile({
         setSignalState(s.id, "linked");
       }
     }
+    track("journal_entry_created", signals.length === 0 ? 1 : signals.length);
     onClose();
   }
 

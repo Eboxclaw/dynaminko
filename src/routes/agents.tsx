@@ -23,10 +23,10 @@ import {
   buildTurn,
   clampDataText,
   commandObservation,
-  MAX_OBSERVATION_CHARS,
   skillObservation,
   type ToolObservation,
 } from "@/lib/agent/context";
+import { captureResult, readOffloaded, type CapturedResult } from "@/lib/agent/offload";
 import {
   capabilityCatalogue,
   capabilityDigest,
@@ -39,7 +39,7 @@ import { routeMessage, routeSemantic, classifyIntent } from "@/lib/chat/route";
 import { PHASE_LABEL } from "@/lib/chat/pipeline";
 import { useDoc } from "@/hooks/useDoc";
 import { relativeTime } from "@/lib/format";
-import { MODELS, STATE_LABEL, deviceProfile, splitThinking } from "@/lib/ai";
+import { MODELS, STATE_LABEL, deviceProfile, splitThinking, stripToolCallMarkup } from "@/lib/ai";
 import type { TurnMessage } from "@/lib/ai";
 import {
   prewarmRetrieval,
@@ -335,6 +335,42 @@ function ChatConsole({
     return msg;
   };
 
+  /** Format search results into card facts with clickable links. */
+  const searchFacts = (results: unknown, why: string): string[] => {
+    const rows = (results as { results?: { title: string; url: string; snippet: string }[] })?.results;
+    if (!rows?.length) return [why];
+    return [
+      why,
+      ...rows.slice(0, 5).map(
+        (r, i) => `${i + 1}. ${r.title} ${r.url} · ${r.snippet.slice(0, 100)}`,
+      ),
+    ];
+  };
+
+  /** Format a page digest into reader-friendly card facts. */
+  const readFacts = (result: unknown, why: string): string[] => {
+    const page = result as {
+      title?: string;
+      description?: string;
+      siteName?: string;
+      outline?: string[];
+      paragraphs?: string[];
+      images?: { alt: string; url: string }[];
+      words?: number;
+    } | null;
+    if (!page?.title) return [why, "page could not be read"];
+    const lines: string[] = [
+      `Site: ${page.siteName ?? page.title}`,
+      page.description ? `About: ${page.description.slice(0, 200)}` : "",
+    ].filter(Boolean);
+    if (page.outline?.length) {
+      lines.push(`Sections: ${page.outline.slice(0, 6).join(" · ")}`);
+    }
+    if (page.words != null) lines.push(`${page.words.toLocaleString("en-US")} words`);
+    if (page.images?.length) lines.push(`${page.images.length} images on page`);
+    return lines;
+  };
+
   const openSession = (id: string) => {
     setActiveId(id);
     setMessages(readSession(id));
@@ -363,6 +399,7 @@ function ChatConsole({
     ticker?: string;
     basket?: string;
     limit?: number;
+    url?: string;
   } | null> => {
     const ids = allowed.map((d) => d.id);
     if (ids.length === 0) return null;
@@ -397,6 +434,7 @@ function ChatConsole({
               tool: { type: "string", enum: ["none", ...ids] },
               query: { type: "string" },
               why: { type: "string" },
+              url: { type: "string" },
               ticker: { type: "string" },
               basket: {
                 type: "string",
@@ -430,6 +468,7 @@ function ChatConsole({
         tool?: string;
         query?: string;
         why?: string;
+        url?: string;
         ticker?: string;
         basket?: string;
         limit?: number;
@@ -448,6 +487,11 @@ function ChatConsole({
       return {
         def,
         query: String(parsed.query ?? "").slice(0, 60),
+        // web.read carries a page url; anything else would be an invented
+        // string pretending to be one, so only http(s) survives.
+        url: /^https?:\/\//i.test(String(parsed.url ?? ""))
+          ? String(parsed.url).slice(0, 512)
+          : undefined,
         ticker: parsed.ticker ? String(parsed.ticker).slice(0, 6).toUpperCase() : undefined,
         basket: parsed.basket,
         limit:
@@ -469,9 +513,11 @@ function ChatConsole({
     ticker?: string;
     basket?: string;
     limit?: number;
+    url?: string;
   }): Record<string, unknown> => {
     const input: Record<string, unknown> = {};
     if (pick.query) input.query = pick.query;
+    if (pick.url) input.url = pick.url;
     if (pick.ticker) input.ticker = pick.ticker;
     if (pick.basket) input.basket = pick.basket;
     if (typeof pick.limit === "number") input.limit = pick.limit;
@@ -602,37 +648,40 @@ function ChatConsole({
         }
       }
 
-      if (ground && !conversational && hopAllowed.length > 0) {
-        turn.stage("tool", "decide");
-        const pick = skipDecide
-          ? {
-              def: hopAllowed[0],
-              query: user,
-              ticker: undefined,
-              basket: undefined,
-              limit: undefined,
-              why: "external intent, web.search forced",
-            }
-          : await decideAction(user, hopAllowed);
-        if (pick) {
-          turn.settle("tool", "ok", `${pick.def.id} · ${pick.why || "model-chosen"}`);
-          try {
-            const input = buildToolInput(pick);
-            const out =
-              pick.def.kind === "command"
-                ? await runCommand(pick.def.id, input)
-                : await runTool(TOOL_BY_ID[pick.def.id], input);
-            const summary =
-              pick.def.kind === "command"
-                ? ((out as CommandResult).summary ?? (out as CommandResult).status)
-                : summarise(out);
+if (ground && !conversational && hopAllowed.length > 0) {
+	        turn.stage("tool", "decide");
+	        const pick = skipDecide
+	          ? {
+	              def: hopAllowed[0],
+	              query: user,
+	              ticker: undefined,
+	              basket: undefined,
+	              limit: undefined,
+	              why: "external intent, web.search forced",
+	            }
+	          : await decideAction(user, hopAllowed);
+	        if (pick) {
+	          turn.settle("tool", "ok", `${pick.def.id} · ${pick.why || "model-chosen"}`);
+	          try {
+	            const input = buildToolInput(pick);
+	            const out =
+	              pick.def.kind === "command"
+	                ? await runCommand(pick.def.id, input)
+	                : await runTool(TOOL_BY_ID[pick.def.id], input);
+	            const summary =
+	              pick.def.kind === "command"
+	                ? ((out as CommandResult).summary ?? (out as CommandResult).status)
+	                : summarise(out);
+const capture = captureResult(out);
+            const isWebSearch = pick.def.id === "web.search";
             push({
               role: "tool",
               text: `${pick.def.id} · model-chosen`,
               card: {
                 source: `${pick.def.id} (model pick)`,
-                facts: [pick.why, summary].filter(Boolean),
-                data: { query: pick.query, result: clampResult(out) } as Record<string, unknown>,
+                facts: isWebSearch ? searchFacts(out, pick.why) : [pick.why, summary].filter(Boolean),
+                data: { query: pick.query, result: capture.clamped } as Record<string, unknown>,
+                offloadKey: capture.offloadKey,
               },
             });
             observationsRef.current.push({
@@ -641,16 +690,64 @@ function ChatConsole({
               source: pick.def.id,
               status: "ok",
               summary,
-              data: clampResult(out),
+              data: capture.clamped,
+              offloadKey: capture.offloadKey,
             });
-          } catch (err) {
-            // The tool failing must read as evidence, not break the turn.
-            turn.settle("tool", "error", err instanceof Error ? err.message : "tool failed");
-          }
-        } else {
-          turn.settle("tool", "skipped", "no tool chosen");
-        }
-      }
+	          } catch (err) {
+	            turn.settle("tool", "error", err instanceof Error ? err.message : "tool failed");
+	          }
+	        } else {
+	          turn.settle("tool", "skipped", "no tool chosen");
+	        }
+
+	        // v1 2-hop chain: after a web.search that returned results, offer one
+	        // follow-up web.read on a URL from those results. Hard-capped at one
+	        // extra hop, web group only.
+	        const lastObs = observationsRef.current.at(-1);
+	        if (web && ground && !conversational && lastObs?.id === "web.search" && lastObs.status === "ok") {
+	          const readDef = capabilityCatalogue().find((d) => d.id === "web.read");
+	          if (readDef) {
+	            turn.stage("tool", "decide");
+	            const readPick = await decideAction(
+	              `Read one page from these results to learn more:\n${captureResult(lastObs.data).clamped ?? "search results"}`,
+	              [readDef],
+	            );
+	            if (readPick) {
+	              turn.settle("tool", "ok", `${readPick.def.id} · ${readPick.why || "model-chosen"}`);
+	              try {
+	                const input = buildToolInput(readPick);
+	                const out = await runTool(TOOL_BY_ID[readPick.def.id], input);
+const summary = summarise(out);
+                const capture = captureResult(out);
+                const isRead = readPick.def.id === "web.read";
+                push({
+                  role: "tool",
+                  text: `${readPick.def.id} · follow-up`,
+                  card: {
+                    source: `${readPick.def.id} (follow-up)`,
+                    facts: isRead ? readFacts(out, readPick.why) : [readPick.why, summary].filter(Boolean),
+	                    data: { result: capture.clamped } as Record<string, unknown>,
+	                    offloadKey: capture.offloadKey,
+	                  },
+	                });
+	                observationsRef.current.push({
+	                  id: readPick.def.id,
+	                  kind: "tool",
+	                  source: readPick.def.id,
+	                  status: "ok",
+	                  summary,
+	                  data: capture.clamped,
+	                  offloadKey: capture.offloadKey,
+	                });
+	              } catch (err) {
+	                turn.settle("tool", "error", err instanceof Error ? err.message : "tool failed");
+	              }
+	            } else {
+	              turn.settle("tool", "skipped", "no page selected by model");
+	            }
+	          }
+	        }
+	      }
 
       const budgetTokens = Math.floor(ai.ctx * 0.75);
       const portfolioLines =
@@ -730,7 +827,11 @@ function ChatConsole({
       }
 
       const { thinking: think, answer } = splitThinking(raw);
-      const text = (answer || raw || "").trim();
+      // The model sometimes echoes the tool-call syntax from the prompt into
+      // its answer; that tag is noise (the tool already ran) and must not
+      // surface or be replayed as history.
+      const text = stripToolCallMarkup(answer || raw || "").trim();
+      const cleanThink = think ? stripToolCallMarkup(think) : null;
 
       // Effective settings for this answer, so a later comparison can read
       // exactly which temperature / context / sampling produced each line.
@@ -759,7 +860,7 @@ function ChatConsole({
         turn.fail("The model completed without producing a response.", "no_output");
         return null;
       }
-      push({ role: "assistant", text, thinking: think });
+      push({ role: "assistant", text, thinking: cleanThink });
       turn.settle(
         "answer",
         "ok",
@@ -785,16 +886,21 @@ function ChatConsole({
     turn.stage("skill", skillId);
     const result = await runSkill(skillId, args);
     turn.settle("skill", "ok", `${result.skill.tools.length} tools`);
+    // One capture for both surfaces; the parked payload is the exact object
+    // the observation clamps ({facts, data}), so a later readback of the key
+    // matches what the model saw truncated.
+    const capture = captureResult({ facts: result.facts, data: result.data }, { asJson: true });
     push({
       role: "tool",
       text: result.skill.label,
       card: {
         source: result.skill.tools.join(" → ") || result.skill.id,
         facts: result.facts,
-        data: clampResult(result.data) as Record<string, unknown>,
+        data: capture.clamped as Record<string, unknown>,
+        offloadKey: capture.offloadKey,
       },
     });
-    observationsRef.current.push(skillObservation(result));
+    observationsRef.current.push(skillObservation(result, capture));
     if (result.aiRequired || reasoning || opts.alwaysSpeak) {
       // A routed question keeps the user's words as the prompt; the skill's
       // numbers ride along as an observation instead of a paraphrase prompt.
@@ -836,13 +942,15 @@ function ChatConsole({
       });
     }
     const out = await runTool(tool, parsed);
+    const capture = captureResult(out);
     push({
       role: "tool",
       text: tool.label,
       card: {
         source: tool.id,
         facts: [summarise(out)],
-        data: { result: clampResult(out) } as Record<string, unknown>,
+        data: { result: capture.clamped } as Record<string, unknown>,
+        offloadKey: capture.offloadKey,
       },
     });
   };
@@ -867,8 +975,9 @@ function ChatConsole({
     return out;
   };
 
-  const showCommandResult = (result: CommandResult) => {
+  const showCommandResult = (result: CommandResult, capture?: CapturedResult) => {
     const d = result.diagnostics;
+    const cap = capture ?? captureResult((result.data as Record<string, unknown>) ?? {});
     push({
       role: "tool",
       text: result.summary ?? result.command,
@@ -879,10 +988,8 @@ function ChatConsole({
           `${d?.toolsUsed ?? 0} tool calls · ${d?.durationMs ?? 0} ms${d?.retried ? " · retried" : ""} · no model used`,
           ...(result.nextAction?.reason ? [`next: ${result.nextAction.reason}`] : []),
         ],
-        data: clampResult((result.data as Record<string, unknown>) ?? {}) as Record<
-          string,
-          unknown
-        >,
+        data: cap.clamped as Record<string, unknown>,
+        offloadKey: cap.offloadKey,
       },
     });
   };
@@ -912,9 +1019,14 @@ function ChatConsole({
     }
     turn.stage("command", def.id);
     const res = await runCommand(def.id, args);
-    observationsRef.current.push(commandObservation(res));
+    // One capture serves the card and the observation's offload key; the
+    // observation's own data path (commandObservation) is untouched.
+    const capture = captureResult((res.data as Record<string, unknown>) ?? {});
+    const obs = commandObservation(res);
+    obs.offloadKey = capture.offloadKey;
+    observationsRef.current.push(obs);
     turn.settle("command", res.status === "ok" ? "ok" : "error", res.summary ?? res.status);
-    showCommandResult(res);
+    showCommandResult(res, capture);
   };
 
   const approve = async (id: string, ok: boolean) => {
@@ -941,10 +1053,16 @@ function ChatConsole({
     if (!tool) return;
     try {
       const out = await runTool(tool, msg.approval.input);
+      const capture = captureResult(out);
       push({
         role: "tool",
         text: `${tool.label} ran`,
-        card: { source: tool.id, facts: [summarise(out)], data: { result: clampResult(out) } },
+        card: {
+          source: tool.id,
+          facts: [summarise(out)],
+          data: { result: capture.clamped },
+          offloadKey: capture.offloadKey,
+        },
       });
     } catch (err) {
       push({ role: "note", text: err instanceof Error ? err.message : "the tool failed" });
@@ -1592,9 +1710,63 @@ function ToolCard({
   onApprove: (ok: boolean) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
+  const [fullOpen, setFullOpen] = useState(false);
+  const [fullText, setFullText] = useState<string | null>(null);
+  const [loadingFull, setLoadingFull] = useState(false);
   const facts = card?.facts ?? [];
   const hidden = facts.length - 3;
   const shown = expanded ? facts : facts.slice(0, 3);
+  const offloadKey = card?.offloadKey;
+
+  const loadFull = async () => {
+    if (!offloadKey || fullText != null) return;
+    setLoadingFull(true);
+    try {
+      const data = await readOffloaded(offloadKey);
+      // Parked payloads are big by definition; cap what actually enters the
+      // DOM so one click cannot lay out a multi-megabyte text node.
+      const DISPLAY_CAP = 200_000;
+      setFullText(() => {
+        if (data == null) return "(full result no longer available on this device)";
+        // web.read digests get a reader-friendly render instead of raw JSON.
+        if (typeof data === "object" && "outline" in (data as Record<string, unknown>)) {
+          const d = data as {
+            title?: string;
+            siteName?: string;
+            description?: string;
+            outline?: string[];
+            paragraphs?: string[];
+            linkDomains?: string[];
+            images?: { alt: string; url: string }[];
+            words?: number;
+          };
+          let reader = `# ${d.siteName ? `${d.siteName} — ${d.title}` : d.title ?? "Untitled page"}`;
+          if (d.description) reader += `\n\n${d.description}`;
+          if (d.outline?.length) reader += `\n\n## Sections\n${d.outline.map((h) => `- ${h}`).join("\n")}`;
+          if (d.paragraphs?.length) {
+            reader += `\n\n## Content\n`;
+            let budget = 8000;
+            for (const p of d.paragraphs) {
+              reader += `\n${p.slice(0, budget)}`;
+              budget -= p.length;
+              if (budget <= 0) break;
+            }
+          }
+          if (d.linkDomains?.length) reader += `\n\n## Outbound links\n${d.linkDomains.join("\n")}`;
+          if (d.words != null) reader += `\n\n---\n${d.words.toLocaleString("en-US")} words`;
+          if (d.images?.length) reader += `\n${d.images.length} images on page`;
+          return reader.length > DISPLAY_CAP ? `${reader.slice(0, DISPLAY_CAP)}\n[showing first ${DISPLAY_CAP.toLocaleString("en-US")} chars]` : reader;
+        }
+        const pretty = JSON.stringify(data, null, 2);
+        return pretty.length > DISPLAY_CAP
+          ? `${pretty.slice(0, DISPLAY_CAP)}\n[showing first ${DISPLAY_CAP.toLocaleString("en-US")} of ${pretty.length.toLocaleString("en-US")} chars]`
+          : pretty;
+      });
+    } finally {
+      setLoadingFull(false);
+    }
+  };
+
   return (
     <div className="doodle-inset max-w-[92%] px-3 py-2.5">
       <p className="num eyebrow">{card?.source ?? approval?.toolId}</p>
@@ -1602,7 +1774,22 @@ function ToolCard({
         <ul className="mt-1 grid gap-1">
           {shown.map((f, i) => (
             <li key={i} className="break-words text-[13px] leading-relaxed">
-              {f}
+              {/* Auto-linkify http(s) urls in plain text */}
+              {f.split(/(https?:\/\/[^\s]+)/g).map((part, j) =>
+                /^https?:\/\//i.test(part) ? (
+                  <a
+                    key={j}
+                    href={part}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="underline decoration-ink-faint/40 hover:decoration-ink"
+                  >
+                    {part}
+                  </a>
+                ) : (
+                  part
+                ),
+              )}
             </li>
           ))}
         </ul>
@@ -1615,6 +1802,41 @@ function ToolCard({
         >
           {expanded ? "less" : `+${hidden} more`}
         </button>
+      )}
+      {card && offloadKey && (
+        <>
+          <button
+            type="button"
+            onClick={() => {
+              setFullOpen((v) => !v);
+              if (!fullOpen) void loadFull();
+            }}
+            className="doodle-pill mt-1.5 px-2.5 py-0.5 text-[11px]"
+          >
+            {loadingFull ? "loading…" : fullOpen ? "less" : "show full result"}
+          </button>
+          {fullOpen && fullText != null && (
+            <pre className="doodle-inset mt-1.5 max-h-72 overflow-auto whitespace-pre-wrap break-all p-2 text-[11px] leading-snug text-ink-soft">
+              {fullText}
+            </pre>
+          )}
+          {fullOpen && loadingFull && <p className="eyebrow mt-1.5">loading full result…</p>}
+          {/* When the card is a web.read result, show a link-out to the page */}
+          {card?.source?.startsWith("web.read") &&
+            typeof card.data === "object" &&
+            (card.data as Record<string, unknown>).result &&
+            typeof (card.data as Record<string, unknown>).result === "object" && (
+              <a
+                href={(card.data as Record<string, { url: string }>).result?.url ?? "#"}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="doodle-pill mt-1.5 inline-flex px-2.5 py-0.5 text-[11px]"
+                onClick={(e) => e.stopPropagation()}
+              >
+                open site ↗
+              </a>
+            )}
+        </>
       )}
       {approval && (
         <div className="mt-1">
@@ -1758,21 +1980,6 @@ function summarise(out: unknown): string {
     return json.length > 220 ? `${json.slice(0, 220)}…` : json;
   }
   return String(out);
-}
-
-/**
- * Capture-time bound for anything that will ride into the prompt as an
- * observation or card payload. Small results pass through untouched; big
- * ones keep head and tail with a marker naming the dropped size, so the
- * model sees the cut and can ask for more. The assembly layer applies the
- * same cap again (clampDataText) as a guarantee; this keeps cards and
- * observations small at the source.
- */
-function clampResult(out: unknown): unknown {
-  const json = JSON.stringify(out ?? null);
-  if (json.length <= MAX_OBSERVATION_CHARS) return out;
-  const half = Math.floor(MAX_OBSERVATION_CHARS / 2);
-  return `${json.slice(0, half)}\n[truncated: first and last ${half} of ${json.length} chars]\n${json.slice(-half)}`;
 }
 
 /**

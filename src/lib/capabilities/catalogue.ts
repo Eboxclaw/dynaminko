@@ -289,11 +289,13 @@ export const DEFAULT_HOP_IDS = [
 /**
  * Never offered to the model-chosen hop, from either the default set or the
  * semantic selection: journal.index returns an unbounded card set (the one
- * result guaranteed to flood the context). journal.filter was once here too
+ * result guaranteed to flood the context) — journal.filter was once here too
  * but was lifted: the decideAction guard enforces a hard limit at the contract
- * level instead.
+ * level instead. context.readOffload is useless on the hop: no offload key is
+ * ever rendered into the prompt, so the model could only invent one; it stays
+ * reachable via /tool until a hop loop can act on a real key.
  */
-export const HOP_EXCLUDED_IDS = ["journal.index"] as const;
+export const HOP_EXCLUDED_IDS = ["journal.index", "context.readOffload", "web.read"] as const;
 
 export type CapabilitySelection = {
   selected: CapabilityDefinition[];

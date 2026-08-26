@@ -1,6 +1,7 @@
-// Minimal EIP-1193 connector — zero dependencies, read-only.
-// We request accounts, watch chain/account changes and can ask the wallet to
-// switch to an Ink network. No signing, no transactions, ever.
+// Minimal EIP-1193 connector — zero dependencies.
+// We request accounts, watch chain/account changes, switch networks,
+// and sign EIP-191 personal messages (thesis attestations). No transactions,
+// no gas, no ETH spending — ever.
 
 import { hexChainId, type ChainConfig } from "@/chains";
 
@@ -84,6 +85,19 @@ export async function switchToChain(chain: ChainConfig): Promise<void> {
       ],
     });
   }
+}
+
+/** EIP-191 personal_sign. The user must click in their wallet to approve;
+ * this is an explicit user action, never agent-initiated. Returns the
+ * hex-encoded signature (0x + 130 chars). */
+export async function personalSign(message: string, address: string): Promise<string> {
+  const p = getInjected();
+  if (!p) throw new Error("No injected wallet found");
+  const sig = (await p.request({
+    method: "personal_sign",
+    params: [message, address],
+  })) as string;
+  return sig;
 }
 
 export function subscribe(handlers: {

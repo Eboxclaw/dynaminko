@@ -9,6 +9,8 @@ export type ChatCard = {
   facts: string[];
   /** compact structured payload, the same thing a model would receive */
   data: Record<string, unknown>;
+  /** key to read back a payload that was too big to keep in the card */
+  offloadKey?: string;
 };
 
 export type Approval = {

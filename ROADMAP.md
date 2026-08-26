@@ -40,7 +40,7 @@ Pre-rebuild plans live in `docs/archive/` and describe a product that was replac
 2. Journal-specific benchmark of MiniLM vs LFM 2.5 Encoder-230M before changing the default;
    evaluate LFM2.5-Embedding-230M (Q4_K_M, ~229 MB) as the production bi-encoder.
 3. Persist the flow trace per turn so a finished answer can be re-inspected from the log tab.
-4. Search providers (Tavily, DuckDuckGo) behind the EXTERNAL access level.
+4. Search providers (Tavily, DuckDuckGo) behind the EXTERNAL access level. [DONE 2026-08-26: multi-provider chain (DDG/Jina/Tavily/Wikipedia), web.read page reader, MiniLM rerank, 2-hop research chain, /research skill, vision multimodal pipe]
 5. Approval previews rendered for every WRITE/EDIT/DELETE tool call from a skill.
 6. Skill results wired into the reconcile wizard (pre-fill from `journal.filter`, no model).
 7. Venue read tools beyond Hyperliquid (velodrome, inkyswap, nado, tydro) — read/parse/collect only.

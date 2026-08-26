@@ -114,6 +114,18 @@ export const SKILLS: SkillDef[] = [
     askable: false,
   },
   {
+    id: "research.web",
+    label: "Research the web",
+    purpose: "Search the web for a topic, read the top page, and synthesise findings with citations. Pass the question in the skill input.",
+    tools: ["web.search", "web.read"],
+    aliases: ["research", "search and read", "find online", "look up", "web research"],
+    composed: false,
+    aiRequired: true,
+    aiRole:
+      "Synthesise what you found: cite each fact to its source page title and url. Use only what the structured result says. If nothing was found, say so.",
+    askable: true,
+  },
+  {
     id: "plan.create",
     label: "Draft an action plan",
     purpose: "Next steps from stale theses and unanswered signals.",

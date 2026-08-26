@@ -2,6 +2,8 @@
 // single versioned document, with a subscription so every hook stays in sync.
 // No accounts, no server, no network.
 
+import { keccak_256 } from "@noble/hashes/sha3.js";
+
 export type Sentiment = "conviction" | "reactive" | "hedge" | "fomo" | "rebalance";
 export type Emotion = "calm" | "anxious" | "excited" | "uncertain";
 export type Alignment = "aligned" | "partial" | "deviated" | "no_thesis";
@@ -20,6 +22,15 @@ export type Thesis = {
   status: "open" | "played-out" | "invalidated";
   createdAt: number;
   updatedAt: number;
+  /** EIP-191 attestation: signature, timestamp, and hash-chain prev hash.
+   * null = not attested. */
+  attestation?: {
+    sig: string;       // 0x-prefixed hex
+    address: string;   // signing address
+    signedAt: number;
+    prevHash: string;  // previous chain entry hash (or null bytes hex for genesis)
+    entryHash: string; // keccak(prevHash + thesisId + POT score)
+  };
 };
 
 /** Where a signal came from. Plain wallet transfers carry no venue. */
@@ -170,6 +181,10 @@ export type PotDoc = {
   activeWallet: string | null; // `${chainId}:${address}`
   logs: LogLine[];
   settings: Settings;
+  /** Hash-chained attestation ledger: latest entry hash for each signing
+   * address. The thesis attestation carries prevHash linking to the previous
+   * entry; an empty string means genesis (no prior attestation). */
+  attestationLedger: Record<string, string>;
 };
 
 export const EMPTY_DOC: PotDoc = {
@@ -181,6 +196,7 @@ export const EMPTY_DOC: PotDoc = {
   wallets: [],
   activeWallet: null,
   logs: [],
+  attestationLedger: {},
   settings: {
     hideBalances: false,
     theme: "light",
@@ -314,6 +330,104 @@ export function removeThesis(id: string) {
       if (e.thesisId === id) e.thesisId = null;
     });
   });
+}
+
+function hexDigest(bytes: Uint8Array): string {
+  return "0x" + Array.from(bytes).map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+/** Canonical message for a thesis attestation. Everything a signature claims
+ * about is in here: the full thesis state, the chain link, and the address.
+ * It is byte-stable while the thesis is untouched, so commit can re-derive it
+ * and refuse a signature made against a stale draft. */
+export function attestationMessage(thesis: Thesis, prevHash: string, address: string): string {
+  const lines = [
+    "Proof of Thesis attestation",
+    `thesis: ${thesis.id}`,
+    `title: ${thesis.title}`,
+    `body: ${thesis.body}`,
+    `symbols: ${thesis.symbols.join(",") || "none"}`,
+    `status: ${thesis.status}`,
+    `conviction: ${thesis.conviction}/5`,
+    `prev: ${prevHash || "genesis"}`,
+    `signer: ${address.toLowerCase()}`,
+  ];
+  return lines.join("\n");
+}
+
+/** Draft step: what would be signed. Safe for the agent to run (COMPUTE);
+ * it touches nothing and cannot sign. */
+export function prepareAttestation(
+  thesisId: string,
+  address: string,
+): { thesisId: string; title: string; message: string; prevHash: string; alreadyAttested: boolean } | null {
+  const doc = getDoc();
+  const t = doc.theses.find((x) => x.id === thesisId);
+  if (!t) return null;
+  const addr = address.toLowerCase();
+  const prevHash = doc.attestationLedger[addr] ?? "";
+  return {
+    thesisId,
+    title: t.title,
+    message: attestationMessage(t, prevHash, addr),
+    prevHash,
+    alreadyAttested: t.attestation != null,
+  };
+}
+
+/** Commit step: after the user signed in their wallet. Re-derives the
+ * message from the thesis as it stands and the ledger as it stands, and
+ * refuses the signature if anything drifted (edited thesis, re-attested
+ * ledger, wrong signer). This is the only way to set thesis.attestation. */
+export function commitAttestation(
+  thesisId: string,
+  address: string,
+  sig: string,
+  drafted: { message: string; prevHash: string },
+): Thesis | null {
+  const doc = getDoc();
+  const t = doc.theses.find((x) => x.id === thesisId);
+  if (!t || t.attestation) return null;
+  const addr = address.toLowerCase();
+  const currentPrev = doc.attestationLedger[addr] ?? "";
+  // A draft is valid only while the thesis and the ledger are exactly as
+  // they were when the user read it and clicked sign.
+  if (drafted.prevHash !== currentPrev) return null;
+  if (attestationMessage(t, currentPrev, addr) !== drafted.message) return null;
+  const entryHash = hexDigest(keccak_256(new TextEncoder().encode(drafted.message)));
+  let result: Thesis | null = null;
+  update((d) => {
+    const now = d.theses.find((x) => x.id === thesisId);
+    if (!now) return;
+    now.attestation = { sig, address: addr, signedAt: Date.now(), prevHash: currentPrev, entryHash };
+    now.updatedAt = Date.now();
+    d.attestationLedger[addr] = entryHash;
+    result = { ...now };
+  });
+  return result;
+}
+
+/** Re-verify a stored attestation on-chain: re-derive the canonical message
+ * from the thesis as it stands and recover the signer from the stored
+ * signature. A mismatch (or a changed thesis) reports invalid — the attested
+ * state never claims more than the signature covers. */
+export async function verifyAttestation(
+  thesisId: string,
+): Promise<{ valid: boolean; recovered: string | null; stored: string; entryHash: string } | null> {
+  const doc = getDoc();
+  const t = doc.theses.find((x) => x.id === thesisId);
+  if (!t || !t.attestation) return null;
+  const at = t.attestation;
+  const prevHash = at.prevHash;
+  const message = attestationMessage(t, prevHash, at.address);
+  const { recoverSigner } = await import("@/lib/chain/ecrecover");
+  const recovered = await recoverSigner(message, at.sig);
+  return {
+    valid: recovered != null && recovered === at.address.toLowerCase(),
+    recovered,
+    stored: at.address,
+    entryHash: at.entryHash,
+  };
 }
 
 export function addEntry(input: Partial<Entry>): Entry {

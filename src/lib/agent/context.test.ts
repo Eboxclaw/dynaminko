@@ -4,7 +4,14 @@
 
 import { describe, expect, it } from "vitest";
 
-import { buildTurn, clampDataText, GROUND_RULES, MAX_OBSERVATION_CHARS } from "./context";
+import {
+  buildTurn,
+  clampDataText,
+  GROUND_RULES,
+  MAX_OBSERVATION_CHARS,
+  observationsPrompt,
+  type ToolObservation,
+} from "./context";
 import { capabilityCatalogue } from "@/lib/capabilities/catalogue";
 import type { ChatMessage } from "@/lib/chat/session";
 
@@ -222,5 +229,22 @@ describe("clampDataText", () => {
 describe("GROUND_RULES", () => {
   it("includes the anti-scaffolding rule so small models stop narrating the prompt", () => {
     expect(GROUND_RULES).toMatch(/Never narrate the prompt/);
+  });
+});
+
+describe("observationsPrompt", () => {
+  it("ignores offloadKey so the model prompt stays byte-identical after offload", () => {
+    const base: ToolObservation = {
+      id: "t",
+      kind: "tool",
+      source: "t",
+      status: "ok",
+      summary: "s",
+      data: { a: 1 },
+    };
+    const withKey: ToolObservation = { ...base, offloadKey: "offload:xyz" };
+    // The parked-copy key must never leak into what the model reads until a
+    // hop loop can act on it.
+    expect(observationsPrompt([withKey])).toBe(observationsPrompt([base]));
   });
 });

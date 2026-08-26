@@ -14,6 +14,7 @@ import {
   type Thesis,
 } from "@/lib/store";
 import { describeSignal } from "@/lib/agent/extract";
+import { track } from "@/lib/stats/client";
 
 /** One flattened, searchable journal record. */
 export type JournalCard = {
@@ -186,6 +187,7 @@ export function readCard(id: string): JournalCard | null {
 
 /** tool: journal.write — append an entry. Approval required upstream. */
 export function writeEntry(input: Partial<Entry>): Entry {
+  track("journal_entry_created");
   return addEntry(input);
 }
 

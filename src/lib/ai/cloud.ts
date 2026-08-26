@@ -108,6 +108,8 @@ export type CloudChatOptions = {
   signal?: AbortSignal;
   /** structured output; endpoints that reject it throw and the caller degrades */
   responseSchema?: { name: string; schema: Record<string, unknown> };
+  /** base64 data URLs for multimodal (vision) models */
+  images?: string[];
 };
 
 /**
@@ -117,12 +119,29 @@ export type CloudChatOptions = {
  */
 export async function cloudChatMessages(
   cfg: CloudConfig,
-  messages: Array<{ role: "system" | "user" | "assistant"; content: string }>,
+  messages: Array<{ role: "system" | "user" | "assistant"; content: string | unknown }>,
   options: CloudChatOptions = {},
 ): Promise<string> {
   const spec = CLOUD_BY_ID[cfg.id];
   const base = (cfg.baseUrl || spec.baseUrl).replace(/\/$/, "");
   const model = cfg.model || spec.model;
+
+  // Build the message array, transforming the last user message to
+  // multimodal content parts when images are passed.
+  let bodyMessages: Array<Record<string, unknown>>;
+  if (options.images?.length) {
+    bodyMessages = messages.map((m, i) => {
+      if (m.role !== "user" || i < messages.length - 1) return { role: m.role, content: m.content };
+      // Last user message: text plus image parts (OpenAI multimodal format).
+      const parts: Array<{ type: string; text?: string; image_url?: { url: string } }> = [
+        { type: "text", text: String(m.content) },
+        ...options.images!.map((dataUrl) => ({ type: "image_url", image_url: { url: dataUrl } })),
+      ];
+      return { role: "user", content: parts };
+    });
+  } else {
+    bodyMessages = messages as Array<Record<string, unknown>>;
+  }
 
   const res = await fetch(`${base}/chat/completions`, {
     method: "POST",
@@ -147,7 +166,7 @@ export async function cloudChatMessages(
             },
           }
         : {}),
-      messages,
+      messages: bodyMessages,
     }),
   });
 

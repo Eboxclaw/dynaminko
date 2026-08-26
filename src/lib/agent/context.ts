@@ -13,6 +13,12 @@ export type ToolObservation = {
   summary?: string;
   data?: unknown;
   diagnostics?: Record<string, unknown>;
+  /**
+   * Key to read back a payload that was too big to keep in the observation.
+   * NOT rendered into observationsPrompt: the model's prompt stays unchanged
+   * until a hop loop can act on the key.
+   */
+  offloadKey?: string;
 };
 
 export type AgentProfile = {
@@ -65,19 +71,26 @@ export function commandObservation(result: CommandResult): ToolObservation {
   };
 }
 
-/** Same treatment for skill results so routed skill turns reach the model. */
-export function skillObservation(result: {
-  skill: { id: string; tools: string[] };
-  facts: string[];
-  data: unknown;
-}): ToolObservation {
+/** Same treatment for skill results so routed skill turns reach the model.
+ * When a precomputed capture is passed (from captureResult on {facts, data}),
+ * its clamped string and offload key are used directly: one serialization per
+ * result, and the parked payload is exactly what the observation truncated. */
+export function skillObservation(
+  result: {
+    skill: { id: string; tools: string[] };
+    facts: string[];
+    data: unknown;
+  },
+  capture?: { clamped: unknown; offloadKey?: string },
+): ToolObservation {
   return {
     id: result.skill.id,
     kind: "skill",
     source: result.skill.tools.join(" → ") || result.skill.id,
     status: "ok",
     summary: result.facts[0],
-    data: clampDataText({ facts: result.facts, data: result.data }),
+    data: capture ? capture.clamped : clampDataText({ facts: result.facts, data: result.data }),
+    offloadKey: capture?.offloadKey,
   };
 }
 

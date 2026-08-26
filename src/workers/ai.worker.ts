@@ -133,6 +133,21 @@ async function createRuntime(parallelDownloads = 4): Promise<Wllama> {
   );
 }
 
+/** Convert a data URL (e.g. data:image/jpeg;base64,/9j…) to an ArrayBuffer
+ * for wllama's multimodal image parts. Returns an empty buffer on failure. */
+function base64fromDataUrl(dataUrl: string): ArrayBuffer {
+  try {
+    const comma = dataUrl.indexOf(",");
+    if (comma === -1) return new ArrayBuffer(0);
+    const raw = atob(dataUrl.slice(comma + 1));
+    const buf = new Uint8Array(raw.length);
+    for (let i = 0; i < raw.length; i++) buf[i] = raw.charCodeAt(i);
+    return buf.buffer as ArrayBuffer;
+  } catch {
+    return new ArrayBuffer(0);
+  }
+}
+
 /** Free the current inference handle (if any) so at most one is alive. */
 async function exitInstance(): Promise<void> {
   if (!instance) return;
@@ -385,9 +400,29 @@ async function chatMessages(
     : systemText;
 
   const dialogue = turns.filter((t) => t.role !== "system");
+  const images = options.images;
+  const hasImages = !!images?.length;
+  const isVision = spec?.vision === true;
+
+  // When images are provided to a non-vision model, warn and skip them.
+  // When the active model is vision-capable, build multimodal messages.
   const messages: Array<{ role: string; content: unknown }> = [
     { role: "system", content: sys },
-    ...dialogue.map((t) => ({ role: t.role, content: t.content })),
+    ...dialogue.map((t) => {
+      if (!hasImages || !isVision || t.role !== "user") {
+        return { role: t.role, content: t.content };
+      }
+      // Multimodal user message: text + images as typed content parts
+      // that wllama's createChatCompletion renders into the prompt.
+      const parts: Array<{ type: "text" | "image"; text?: string; data?: ArrayBuffer }> = [
+        { type: "text", text: t.content },
+      ];
+      for (const dataUrl of images) {
+        const raw = base64fromDataUrl(dataUrl);
+        if (raw.byteLength > 0) parts.push({ type: "image", data: raw });
+      }
+      return { role: "user", content: parts };
+    }),
   ];
 
   abortRun = false;

@@ -48,3 +48,17 @@ export async function idbSet(key: string, value: unknown): Promise<void> {
     /* cache is best-effort */
   }
 }
+
+export async function idbDelete(key: string): Promise<void> {
+  try {
+    const db = await open();
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction(STORE, "readwrite");
+      tx.objectStore(STORE).delete(key);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+  } catch {
+    /* cache is best-effort */
+  }
+}

@@ -15,13 +15,14 @@ import {
   type VenuePosition,
   type VenueReport,
 } from "./types";
+import { readTydro } from "./tydro";
 import { readVelodrome } from "./velodrome";
 
 export type { AccountSummary, Position, VenuePosition, VenueReport };
 export { reportValue };
 export { readVenueActions, actionsToSignals, type VenueAction } from "./actions";
 
-export type VenueKind = "lp" | "trading";
+export type VenueKind = "lp" | "trading" | "lending";
 
 export type Venue = {
   id: string;
@@ -60,6 +61,13 @@ export const VENUES: Venue[] = [
     kind: "trading",
     blurb: "Ink CLOB · spot, perps, unified margin",
     read: readNado,
+  },
+  {
+    id: "tydro",
+    label: "Tydro",
+    kind: "lending",
+    blurb: "Aave v3 lending on Ink · supply, borrow, health",
+    read: readTydro,
   },
   {
     id: "hyperliquid",

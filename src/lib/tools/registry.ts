@@ -1,16 +1,21 @@
 // The single source of truth for what the app can do deterministically.
 // The Agents tab renders this; skills execute against it.
 
-import { addAlert, patchAlert, removeAlert, getDoc, readCachedSnapshot, readCachedVenueReports } from "@/lib/store";
+import { addAlert, patchAlert, removeAlert, getDoc, readCachedSnapshot, readCachedVenueReports, prepareAttestation, commitAttestation } from "@/lib/store";
 import { request as requestNotifications } from "@/lib/notify";
 import { buildPortfolio } from "@/lib/portfolio";
 import { composeNetWorth, openPerps } from "@/lib/exposure";
 import { readVelodrome } from "@/lib/venues/velodrome";
 import { readNado } from "@/lib/venues/nado";
+import { readTydro } from "@/lib/venues/tydro";
+import { currentAccounts, personalSign } from "@/lib/chain/injected";
+import { verifyAttestation } from "@/lib/store";
+import { track } from "@/lib/stats/client";
+import { readOffloaded } from "@/lib/agent/offload";
 
 import * as ind from "./indicators";
 import * as journal from "./journal";
-import { webSearch } from "./web";
+import { webSearch, webRead } from "./web";
 import type { ToolDef } from "./types";
 
 function def<I, O>(t: ToolDef<I, O>): ToolDef {
@@ -24,7 +29,8 @@ export const TOOLS: ToolDef[] = [
     group: "web",
     action: "search",
     label: "Search the web",
-    purpose: "Live DuckDuckGo web search for news and external facts.",
+    purpose:
+      "Live web search for news and external facts: DuckDuckGo first, Jina, Tavily (keyed) and Wikipedia as fallbacks, rows reranked locally.",
     access: "READ",
     inputs: "{ query: string, limit?: number }",
     output: "{ query, source, results[{title,url,snippet}] }",
@@ -33,6 +39,22 @@ export const TOOLS: ToolDef[] = [
     // fallback; bounded to a handful of rows so it enters observations like
     // any other tool result.
     run: (i: { query: string; limit?: number }) => webSearch(i.query, i.limit),
+  }),
+  def({
+    id: "web.read",
+    group: "web",
+    action: "read",
+    label: "Read a web page",
+    purpose:
+      "Fetch one web page and extract a bounded digest: title, description, heading outline, lead paragraphs, outbound link domains and image inventory. Use after web.search to learn what a page says and how the site is structured.",
+    access: "READ",
+    inputs: "{ url: string }",
+    output:
+      "{ url, title, description, outline[], paragraphs[], linkDomains[], images[{alt,url}], source }",
+    live: true,
+    // Proxy extraction first, r.jina.ai reader fallback. The digest is what
+    // enters observations; the page itself never does.
+    run: (i: { url: string }) => webRead(i.url),
   }),
   // ── journal ───────────────────────────────────────────────────────────
   def({
@@ -179,6 +201,83 @@ export const TOOLS: ToolDef[] = [
     live: true,
     run: (i: { id: string; patch: Parameters<typeof journal.editThesis>[1] }) =>
       journal.editThesis(i.id, i.patch),
+  }),
+  def({
+    id: "thesis.attest",
+    group: "thesis",
+    action: "attest",
+    label: "Attest thesis",
+    purpose:
+      "Prepare the exact claim an EIP-191 signature will cover: the thesis as it stands, the ledger link, the signer. READ/COMPUTE only, no signature is made. Present the claim to the user; the user then signs it in their wallet.",
+    access: "COMPUTE",
+    inputs: "{ thesisId: string }",
+    output:
+      "{ thesisId, title, message, prevHash, alreadyAttested, signer } | { error }",
+    live: true,
+    run: async (i: { thesisId: string }) => {
+      const accounts = await currentAccounts();
+      if (accounts.length === 0)
+        return { error: "No wallet is connected. Ask the user to connect one in Settings." };
+      const draft = prepareAttestation(i.thesisId, accounts[0]);
+      if (!draft) return { error: `No thesis with id ${i.thesisId}.` };
+      return { ...draft, signer: accounts[0] };
+    },
+  }),
+  def({
+    id: "thesis.attest-sign",
+    group: "thesis",
+    action: "attest-sign",
+    label: "Sign thesis attestation",
+    purpose:
+      "Ask the connected wallet to sign the prepared claim (EIP-191, no gas, no transaction). Explicit user approval required; the user must click Sign in their wallet. The agent may only prepare the claim, never sign it.",
+    access: "EXTERNAL",
+    inputs: "{ thesisId: string, draft: { message: string, prevHash: string } }",
+    output: "{ thesisId, address, entryHash, signedAt } | { error }",
+    live: true,
+    run: async (i: {
+      thesisId: string;
+      draft: { message: string; prevHash: string };
+    }) => {
+      const accounts = await currentAccounts();
+      if (accounts.length === 0) return { error: "No wallet is connected." };
+      const address = accounts[0];
+      const sig = await personalSign(i.draft.message, address);
+      const saved = commitAttestation(i.thesisId, address, sig, {
+        message: i.draft.message,
+        prevHash: i.draft.prevHash,
+      });
+      if (!saved)
+        return {
+          error:
+            "Commit refused: the thesis or the ledger changed between the approval and the signature, or the thesis is already attested.",
+        };
+      track("attestation_signed");
+      const check = await verifyAttestation(saved.id);
+      return {
+        thesisId: saved.id,
+        address: saved.attestation!.address,
+        entryHash: saved.attestation!.entryHash,
+        signedAt: saved.attestation!.signedAt,
+        verified: check?.valid ?? null,
+      };
+    },
+  }),
+  def({
+    id: "thesis.verify",
+    group: "thesis",
+    action: "verify",
+    label: "Verify thesis attestation",
+    purpose:
+      "Re-check a stored attestation on-chain: re-derive the claim from the thesis as it stands and recover the signer from the stored signature. No approval: it only reads and recovers, it changes nothing.",
+    access: "COMPUTE",
+    inputs: "{ thesisId: string }",
+    output: "{ valid, recovered, stored, entryHash } | { error }",
+    live: true,
+    run: async (i: { thesisId: string }) => {
+      const out = await verifyAttestation(i.thesisId);
+      if (!out) return { error: "No attestation stored for that thesis." };
+      return out;
+    },
   }),
 
   // ── signals ───────────────────────────────────────────────────────────
@@ -398,13 +497,30 @@ export const TOOLS: ToolDef[] = [
     live: true,
     run: () => getDoc().logs ?? [],
   }),
+
+  // ── context ────────────────────────────────────────────────────────────
+  // Reads back a payload that was too big to keep in an observation. The key
+  // rides on the tool card's offloadKey; there is no autonomous hop loop yet,
+  // so this is reached via /tool, not the model-chosen hop.
+  def({
+    id: "context.readOffload",
+    group: "context",
+    action: "readOffload",
+    label: "Read full result",
+    purpose: "Fetch the full data behind a truncated observation by its offload key.",
+    access: "READ",
+    inputs: "{ key: string }",
+    output: "unknown",
+    live: true,
+    run: (i: { key: string }) => readOffloaded(i.key),
+  }),
 ];
 
-/** Venue groups: read/parse only for now, execution deliberately out of scope. Velodrome and Nado have live readers; Inkyswap and Tydro still pending. */
+/** Venue groups: read/parse only for now, execution deliberately out of scope. Velodrome, Nado, Tydro and Hyperliquid have live readers; Inkyswap still pending. */
 const VENUES = ["velodrome", "inkyswap", "hyperliquid", "nado", "tydro"] as const;
 
 /** Which venues have a real reader wired up right now. */
-const LIVE_VENUE_READERS = new Set(["velodrome", "hyperliquid", "nado"]);
+const LIVE_VENUE_READERS = new Set(["velodrome", "hyperliquid", "nado", "tydro"]);
 
 /** The wallet address to use for venue reads. Falls back to active wallet. */
 function activeAddress(getDoc: () => import("@/lib/store").PotDoc): string | null {
@@ -435,6 +551,7 @@ for (const venue of VENUES) {
             const reader =
               venue === "velodrome" ? readVelodrome
               : venue === "nado" ? readNado
+              : venue === "tydro" ? readTydro
               : venue === "hyperliquid"
                 ? (await import("@/lib/venues/hyperliquid")).readHyperliquid
                 : null;

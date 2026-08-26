@@ -2,6 +2,10 @@ Proof of Thesis, by INKO
 
 A local-first, assisted trading journal. It reads a wallet, builds a portfolio view from real on-chain data, and helps a trader write down why they traded, not just what they traded.
 
+Built on Ink
+
+Proof of Thesis is Ink-native, not multi-chain with Ink in a dropdown. It reads Ink mainnet (chain 57073) directly: wallet balances and full transfer history from the public Blockscout explorer API, and venue positions over raw JSON-RPC, no API keys and no third-party account. Venue coverage: Velodrome (Slipstream LP positions), Nado (spot, perps, unified margin accounts), Hyperliquid (perp accounts); Tydro (Aave v3 lending) is next, and Inkyswap (Uniswap V4) after that. New-user onboarding routes to Nado through referral deep-links. Everything else runs client-side: the journal, the portfolio, and the AI models themselves (on-device, WebAssembly). Live at https://proof-of-theses.vercel.app.
+
 This document reflects the codebase as of the August 5, 2026 rebuild (.lovable/plan/proof-of-thesis-rebuild-from-scratch-2026-08-05.md), verified directly against src/ on August 12, 2026. Earlier docs (the pre-rebuild README, PLAN, ROADMAP, REVIEW) describe a different product under the name "Dynaminko," with a dossier-card design language and a Markets/AI Terminal/Vault surface. That version was replaced, not iterated on. Those docs are archived under docs/archive/ (PLAN.md, ROADMAP.md, REVIEW.md) for their still-useful Ink chain, Nado, and Tydro research, not as a current description of the app.
 
 What this is
@@ -33,7 +37,7 @@ Portfolio 3D ring	Real. three.js, dynamically imported so it never blocks startu
 PWA	Installable, with a service worker (public/sw.js) backing notifications and asset caching
 Trading / execution	Not built. /trade is a single placeholder screen: "Journal first, execution second."
 Server-side AI (cloud LLM)	Not built. All AI in the current build runs on-device
-Nado, Tydro, inkySwap, Velodrome integration	Not built. No live DEX or lending calls anywhere in the codebase
+Venue integrations	Real, read-only. Velodrome Slipstream LP reads, Nado spot + perps, Hyperliquid perp accounts, all in a dedicated Web Worker. Inkyswap V4 read pending; Tydro next
 Known issue: broken favicon reference
 
 src/routes/__root.tsx links /pot-mark.svg as the site icon. That file was never created; the actual logo files on disk are dynaminko.svg and dynaminko-logo.png, artwork unchanged since the rebuild. This 404s on every page load. The fix is a one-line revert in __root.tsx back to /dynaminko.svg, not a file rename.

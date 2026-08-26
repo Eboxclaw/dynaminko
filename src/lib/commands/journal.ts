@@ -5,6 +5,7 @@
 
 import { addEntry, getDoc, type Alignment, type Sentiment } from "@/lib/store";
 import { buildIndex, filterCards, searchCards } from "@/lib/tools/journal";
+import { track } from "@/lib/stats/client";
 import * as ind from "@/lib/tools/indicators";
 
 import { failed, needsInput, ok, type CommandContext, type CommandResult } from "./types";
@@ -143,6 +144,7 @@ export function applyAnswer(args: Record<string, unknown>, ctx: CommandContext):
     });
     ctx.count();
   }
+  track("journal_entry_created", pending.length);
   return ok(
     id,
     { written: pending.length, ticker },

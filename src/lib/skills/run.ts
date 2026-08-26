@@ -284,6 +284,38 @@ export async function runSkill(skillId: string, input: SkillInput = {}): Promise
   } else if (skill.id === "capture.tidy") {
     data = { note: input.note ?? "" };
     facts = ["Needs a model: this is a rewrite, not a calculation."];
+  } else if (skill.id === "research.web") {
+    const query = input.note?.trim() ?? "";
+    if (!query) {
+      data = { search: [], pages: [] };
+      facts = ["No query provided: pass a question to research."];
+    } else {
+      const searchOut = await TOOL_BY_ID["web.search"]?.run?.({ query, limit: 3 });
+      const searchResults = (searchOut as { results?: { title: string; url: string; snippet: string }[] })?.results ?? [];
+      let pages: { url: string; title: string; outline: string[]; paragraphs: string[] }[] = [];
+      if (searchResults.length > 0) {
+        facts = [`Searched for "${query}"`, `${searchResults.length} results, reading up to 2 pages.`];
+        for (const r of searchResults.slice(0, 2)) {
+          try {
+            const page = (await TOOL_BY_ID["web.read"]?.run?.({ url: r.url })) as {
+              url: string;
+              title: string;
+              outline?: string[];
+              paragraphs?: string[];
+            } | undefined;
+            if (page) {
+              pages.push({ url: page.url, title: page.title, outline: page.outline ?? [], paragraphs: page.paragraphs ?? [] });
+              facts.push(`Read ${page.title} (${r.url}): ${(page.paragraphs?.[0] ?? "").slice(0, 120)}…`);
+            }
+          } catch {
+            facts.push(`Could not read ${r.url}`);
+          }
+        }
+      } else {
+        facts = [`Searched for "${query}" but found no results.`];
+      }
+      data = { query, search: searchResults, pages };
+    }
   }
 
   log("skills", skill.id, { level: "call", ms: Date.now() - started, detail: facts[0] ?? "" });

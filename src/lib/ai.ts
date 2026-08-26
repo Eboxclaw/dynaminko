@@ -721,6 +721,30 @@ export function splitThinking(text: string): { thinking: string | null; answer: 
   };
 }
 
+// Small models sometimes echo the tool-call syntax they see in the prompt
+// (a tool card in history) straight into the answer, e.g.
+// "<tool_call_start>portfolio.read()</tool_call_end>". The tool has already
+// run by the time the answer is written, so the tag is pure noise: strip it
+// before the text is shown or replayed. Only invoked when the text actually
+// contains "tool_call", so ordinary answers are never touched.
+const TOOL_CALL_PAIRS = [
+  /<tool_call_start\b[^>]*>[\s\S]*?<\/tool_call_end\s*>/gi,
+  /<tool_call\b[^>]*>[\s\S]*?<\/tool_call\s*>/gi,
+];
+const STRAY_TOOL_CALL_TAG = /<\/?tool_call(?:_start|_end)?\b[^>]*>/g;
+
+export function stripToolCallMarkup(text: string): string {
+  if (!/tool_call/i.test(text)) return text;
+  let out = text;
+  for (const re of TOOL_CALL_PAIRS) out = out.replace(re, " ");
+  out = out.replace(STRAY_TOOL_CALL_TAG, " ");
+  if (out === text) return text; // mentioned "tool_call" in prose, nothing to strip
+  return out
+    .replace(/[ \t]{2,}/g, " ")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
 // ── model state derivation (pure sync, stays on main thread) ─────────
 
 export function modelState(

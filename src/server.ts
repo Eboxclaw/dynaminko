@@ -2,7 +2,8 @@ import "./lib/error-capture";
 
 import { consumeLastCapturedError } from "./lib/error-capture";
 import { renderErrorPage } from "./lib/error-page";
-import { webSearchProxy } from "./lib/tools/web";
+import { statsEndpoint } from "./lib/stats/server";
+import { webSearchProxy, webReadProxy, webImageProxy } from "./lib/tools/web";
 
 type ServerEntry = {
   fetch: (request: Request, env: unknown, ctx: unknown) => Promise<Response> | Response;
@@ -53,6 +54,20 @@ export default {
     const url = new URL(request.url);
     if (url.pathname === "/api/web-search") {
       return webSearchProxy(url, request);
+    }
+    // Page reader with its own SSRF-guarded handler: same-origin so the
+    // browser's CORS policy never blocks the agent from visiting a page.
+    if (url.pathname === "/api/web-read") {
+      return webReadProxy(url, request);
+    }
+    // Same-origin image proxy: under COEP require-corp, cross-origin images
+    // are blocked from canvas read operations. Proxying them through our own
+    // origin avoids the restriction while keeping the SSRF guard.
+    if (url.pathname === "/api/web-image") {
+      return webImageProxy(url, request);
+    }
+    if (url.pathname === "/api/stats") {
+      return statsEndpoint(request);
     }
     try {
       const handler = await getServerEntry();

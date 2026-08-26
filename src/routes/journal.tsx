@@ -1,15 +1,17 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { Check, Copy, Ghost, Inbox, Lightbulb, NotebookText, Plus } from "lucide-react";
+import { Check, Copy, Ghost, Inbox, Lightbulb, NotebookText, Plus, ShieldCheck } from "lucide-react";
 import { useMemo, useState } from "react";
+import { toast } from "sonner";
 
 import { Reconcile } from "@/components/pot/Reconcile";
 import { Panel, Shell } from "@/components/pot/Shell";
 import { VenueIcon } from "@/components/pot/VenueIcon";
 import { useAgent } from "@/hooks/useAgent";
 import { useDoc } from "@/hooks/useDoc";
+import { personalSign, currentAccounts } from "@/lib/chain/injected";
 import { describeSignal, suggestThesis } from "@/lib/agent/extract";
 import { dayLabel, relativeTime, usd } from "@/lib/format";
-import { addThesis, type Signal } from "@/lib/store";
+import { addThesis, commitAttestation, prepareAttestation, type Signal } from "@/lib/store";
 import { cn } from "@/lib/utils";
 
 type Tab = "inbox" | "entries" | "theses" | "ghosts";
@@ -117,6 +119,7 @@ function JournalHub() {
   const [copied, setCopied] = useState<string | null>(null);
   const [composing, setComposing] = useState(false);
   const [newThesis, setNewThesis] = useState("");
+  const [signing, setSigning] = useState<string | null>(null); // thesis id being signed
 
   const entries = doc.entries;
   // A thesis or an intent stops being a ghost the moment a real trade is
@@ -172,6 +175,37 @@ function JournalHub() {
       setTimeout(() => setCopied((c) => (c === hash ? null : c)), 1500);
     } catch {
       /* clipboard blocked — nothing to do */
+    }
+  }
+
+  async function doAttest(thesisId: string) {
+    if (signing) return;
+    const thesis = doc.theses.find((t) => t.id === thesisId);
+    if (!thesis || thesis.attestation) return;
+    setSigning(thesisId);
+    try {
+      const accounts = await currentAccounts();
+      if (accounts.length === 0) throw new Error("No wallet connected. Connect one in Settings.");
+      const address = accounts[0];
+      // Draft: the exact canonical claim that will be signed. The user then
+      // reviews and approves it in their wallet.
+      const draft = prepareAttestation(thesisId, address);
+      if (!draft) throw new Error("Thesis not found.");
+      if (draft.alreadyAttested) throw new Error("Already attested.");
+      const sig = await personalSign(draft.message, address);
+      // Commit: re-derives the claim and refuses if the thesis or ledger
+      // drifted between the user's click and now.
+      const saved = commitAttestation(thesisId, address, sig, {
+        message: draft.message,
+        prevHash: draft.prevHash,
+      });
+      if (saved) toast.success("Thesis attested and stored in the local ledger");
+      else toast.error("Could not commit: the thesis or ledger changed during signing.");
+    } catch (e) {
+      const m = e instanceof Error ? e.message : String(e);
+      toast.error(m.includes("4200") || /reject/i.test(m) ? "Signature cancelled." : m);
+    } finally {
+      setSigning(null);
     }
   }
 
@@ -425,14 +459,38 @@ function JournalHub() {
           </Panel>
           {visibleTheses.map((t, i) => {
             const linked = entries.filter((e) => e.thesisId === t.id);
+            const at = t.attestation;
             return (
               <Panel key={t.id} eyebrow={`Thesis // ${t.status.toUpperCase()}`} delay={i * 30}>
                 <div className="p-4">
-                  <p className="text-[14px] font-medium">{t.title}</p>
+                  <div className="flex items-start gap-2">
+                    <p className="min-w-0 flex-1 text-[14px] font-medium">{t.title}</p>
+                    {at ? (
+                      <button
+                        type="button"
+                        onClick={() => t.attestation && copyHash(t.attestation.entryHash)}
+                        title={`${at.entryHash}\nsigned by ${at.address} · ${new Date(at.signedAt).toLocaleString()}`}
+                        className="doodle-pill flex shrink-0 items-center gap-1 px-2 py-0.5 text-[11px] text-ink-soft hover:bg-accent-soft"
+                      >
+                        <ShieldCheck className="h-3.5 w-3.5" strokeWidth={1.9} />
+                        {copied === at.entryHash ? "copied" : "attested"}
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => doAttest(t.id)}
+                        disabled={signing !== null}
+                        className="doodle-pill shrink-0 px-2.5 py-0.5 text-[11px] text-ink-soft hover:bg-accent-soft disabled:opacity-40"
+                      >
+                        {signing === t.id ? "signing…" : "attest"}
+                      </button>
+                    )}
+                  </div>
                   {t.body && <p className="mt-1 text-[13px] text-ink-soft">{t.body}</p>}
                   <p className="eyebrow mt-3">
                     {linked.length} linked {linked.length === 1 ? "entry" : "entries"} · updated{" "}
                     {relativeTime(t.updatedAt)}
+                    {at && ` · signed ${relativeTime(at.signedAt)}`}
                   </p>
                 </div>
               </Panel>

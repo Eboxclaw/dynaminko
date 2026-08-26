@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 
 import { idbGet, idbSet } from "@/lib/cache/idb";
+import { track } from "@/lib/stats/client";
 import { walletKey } from "@/lib/store";
 import { readVenues, reportValue, type VenueAction, type VenueReport } from "@/lib/venues";
 import type { ReaderRequest, ReaderResponse } from "@/workers/wallet-reader.worker";
@@ -63,6 +64,9 @@ export function useVenues() {
       let fresh: VenueData;
       try {
         fresh = await readInWorker(active.address, active.chainId);
+        for (const r of fresh.reports) {
+          if (r.status === "ok") track(`venue_read_${r.venueId}`);
+        }
       } catch {
         return { reports: cached.map((r) => ({ ...r, stale: true })), actions: [] };
       }

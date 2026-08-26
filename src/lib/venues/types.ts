@@ -4,9 +4,14 @@
 // four different things. They are modelled as such: the UI never has to guess
 // from a string, and nothing double-counts.
 
-export type VenueId = "velodrome" | "inkyswap" | "nado" | "hyperliquid";
+export type VenueId = "velodrome" | "inkyswap" | "nado" | "hyperliquid" | "tydro";
 
-export type PositionKind = "perp" | "spot" | "lp-concentrated" | "lp-constant-product";
+export type PositionKind =
+  | "perp"
+  | "spot"
+  | "lp-concentrated"
+  | "lp-constant-product"
+  | "lending";
 
 export type Position = {
   id: string;

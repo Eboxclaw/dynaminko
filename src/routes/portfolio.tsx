@@ -65,6 +65,7 @@ function PortfolioPage() {
 
   const lpVenues = VENUES.filter((v) => v.kind === "lp");
   const tradingVenues = VENUES.filter((v) => v.kind === "trading");
+  const lendingVenues = VENUES.filter((v) => v.kind === "lending");
 
   // Quiet activity line per venue, from the same signals the inbox holds.
   const activity = new Map<string, { count: number; last: number }>();
@@ -196,6 +197,16 @@ function PortfolioPage() {
               tradeById={tradeById}
               onOpenTrade={setOpenTrade}
             />
+            <VenueGroup
+              title="Lending // Collateral & debt"
+              venues={lendingVenues.map((v) => v.id)}
+              reports={reports}
+              hidden={hidden}
+              loading={venuesFetching}
+              activity={activity}
+              tradeById={tradeById}
+              onOpenTrade={setOpenTrade}
+            />
           </div>
         </Panel>
       </div>
@@ -252,6 +263,7 @@ const GROUPS: { kind: Position["kind"][]; label: string }[] = [
   { kind: ["perp"], label: "Perps" },
   { kind: ["spot"], label: "Margin spot" },
   { kind: ["lp-concentrated", "lp-constant-product"], label: "Liquidity" },
+  { kind: ["lending"], label: "Lending" },
 ];
 
 function VenueCard({
@@ -291,6 +303,7 @@ function VenueCard({
     { label: "perp", value: count(["perp"]) },
     { label: "spot", value: count(["spot"]) },
     { label: "lp", value: count(["lp-concentrated", "lp-constant-product"]) },
+    { label: "lend", value: count(["lending"]) },
   ]
     .filter((c) => c.value > 0)
     .map((c) => ({ label: c.label, value: String(c.value) }));

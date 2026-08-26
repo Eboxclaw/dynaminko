@@ -3,6 +3,8 @@
 
 import { useCallback, useRef, useState } from "react";
 
+import { track } from "@/lib/stats/client";
+
 import {
   isFailurePhase,
   type Stage,
@@ -71,6 +73,7 @@ export function useTurn() {
   const complete = useCallback(() => {
     phaseRef.current = "completed";
     setPhase("completed");
+    track("agent_turn_completed");
     setNodes((prev) =>
       prev.map((n) => (n.state === "running" ? { ...n, state: "ok" as const } : n)),
     );

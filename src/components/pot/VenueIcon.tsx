@@ -57,6 +57,14 @@ export function VenueIcon({ id, className }: { id: string; className?: string })
           <path d="M2 5.5h12" opacity="0.4" />
         </svg>
       );
+    case "tydro":
+      return (
+        <svg {...common}>
+          <path d="M3 5.5 8 2.5l5 3" />
+          <path d="M4.5 7v5M8 7v5M11.5 7v5" />
+          <path d="M2.5 13.5h11" />
+        </svg>
+      );
     default:
       return (
         <svg {...common}>

@@ -22,7 +22,7 @@ describe("capabilityCatalogue", () => {
     for (const id of toolIds) {
       expect(liveIds().has(id), `${id} is not a live tool`).toBe(true);
     }
-    for (const dead of ["chain.transfers", "market.quote", "inkyswap.read", "tydro.read", "velodrome.execute"]) {
+    for (const dead of ["chain.transfers", "market.quote", "inkyswap.read", "velodrome.execute"]) {
       expect(toolIds, `${dead} should be absent`).not.toContain(dead);
     }
   });
@@ -44,6 +44,24 @@ describe("capabilityCatalogue", () => {
     for (const id of HOP_EXCLUDED_IDS) {
       expect(defs.some((d) => d.id === id), `${id} should stay in the book`).toBe(true);
     }
+  });
+
+  it("excluded tools never survive the hop menu filter, however they are selected", () => {
+    // The exact filter speak() applies to a semantic selection or the default
+    // set: READ/COMPUTE tools and commands, minus the exclusion set.
+    const excluded = new Set<string>(HOP_EXCLUDED_IDS);
+    const hopAllowed = capabilityCatalogue().filter(
+      (d) =>
+        (d.kind === "tool" || d.kind === "command" || d.kind === "batch_command") &&
+        (d.access === "READ" || d.access === "COMPUTE") &&
+        !excluded.has(d.id),
+    );
+    // The two dangerous ones: unbounded journal.index, and the offload reader
+    // whose key is never in the prompt (the model could only hallucinate one).
+    expect(hopAllowed.map((d) => d.id)).not.toContain("journal.index");
+    expect(hopAllowed.map((d) => d.id)).not.toContain("context.readOffload");
+    // Sanity: the filter still passes ordinary read tools through.
+    expect(hopAllowed.map((d) => d.id)).toContain("journal.search");
   });
 
   it("digest carries every non-concept capability once, and excludes concepts", () => {

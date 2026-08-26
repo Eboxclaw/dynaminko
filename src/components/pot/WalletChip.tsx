@@ -11,6 +11,7 @@ import {
 import { useActiveWallet } from "@/hooks/usePortfolio";
 import { useInjectedWallet } from "@/hooks/useInjectedWallet";
 import { shortAddress } from "@/lib/format";
+import { track } from "@/lib/stats/client";
 import { addWallet, removeWallet, setActiveWallet, walletKey } from "@/lib/store";
 import { cn } from "@/lib/utils";
 
@@ -65,6 +66,7 @@ export function WalletPanel({
       return;
     }
     addWallet({ address: value, chainId, label: "Watching", kind: "watch" });
+    track("wallet_watched");
     setAddress("");
     toast.success("Wallet added, reading it now");
     onDone?.();
@@ -80,6 +82,7 @@ export function WalletPanel({
         label: injected.name,
         kind: "connected",
       });
+      track("wallet_watched");
       toast.success(`${injected.name} connected, read only`);
       onDone?.();
     } catch {

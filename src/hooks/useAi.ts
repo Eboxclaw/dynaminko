@@ -289,12 +289,13 @@ if (cloudCfg) {
 	          const started = performance.now();
 	          // Every cloud provider is OpenAI-compatible (Z.ai included), so the
 	          // shared client covers all of them. No per-provider branching.
-	          const text = await cloudChatMessages(cloudCfg, messages, {
-	            temperature: options.temperature ?? temperature,
-	            maxTokens: options.maxTokens ?? maxTokens,
-	            responseSchema: options.responseSchema,
-	            signal: controller.signal,
-	            onToken: (partial) => {
+const text = await cloudChatMessages(cloudCfg, messages, {
+		            temperature: options.temperature ?? temperature,
+		            maxTokens: options.maxTokens ?? maxTokens,
+		            responseSchema: options.responseSchema,
+		            images: options.images,
+		            signal: controller.signal,
+		            onToken: (partial) => {
               if (!mounted.current) return;
               setOutput(partial);
               const secs = (performance.now() - started) / 1000;
