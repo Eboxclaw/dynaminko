@@ -338,13 +338,13 @@ function ChatConsole({
   /** Format search results into card facts with clickable links. */
   const searchFacts = (results: unknown, why: string): string[] => {
     const rows = (results as { results?: { title: string; url: string; snippet: string }[] })?.results;
-    if (!rows?.length) return [why];
+    if (!rows?.length) return [why].filter(Boolean);
     return [
       why,
       ...rows.slice(0, 5).map(
         (r, i) => `${i + 1}. ${r.title} ${r.url} · ${r.snippet.slice(0, 100)}`,
       ),
-    ];
+    ].filter(Boolean);
   };
 
   /** Format a page digest into reader-friendly card facts. */
@@ -368,7 +368,7 @@ function ChatConsole({
     }
     if (page.words != null) lines.push(`${page.words.toLocaleString("en-US")} words`);
     if (page.images?.length) lines.push(`${page.images.length} images on page`);
-    return lines;
+    return [why, ...lines].filter(Boolean);
   };
 
   const openSession = (id: string) => {

@@ -17,6 +17,7 @@ const MEMORY_KEY = "pot.memory.v1";
 // ── types ────────────────────────────────────────────────────────────
 
 export type StorageRequest =
+  | { type: "probe" }
   | { type: "persist-doc"; doc: unknown }
   | { type: "persist-memory"; entries: unknown }
   | { type: "idb-get"; key: string }
@@ -24,6 +25,7 @@ export type StorageRequest =
   | { type: "wipe" };
 
 export type StorageResponse =
+  | { type: "probe"; ok: boolean; error?: string }
   | { type: "persist-doc"; ok: true }
   | { type: "persist-memory"; ok: true }
   | { type: "idb-get"; ok: true; value: unknown | undefined }
@@ -39,6 +41,23 @@ ctx.addEventListener("message", (event: MessageEvent<StorageRequest>) => {
   if (!msg?.type) return;
 
   switch (msg.type) {
+    case "probe": {
+      // The main thread asks whether this worker can actually write to
+      // localStorage before trusting it. Some webviews (IAB) expose the
+      // Worker API but not localStorage inside dedicated workers, so the
+      // write would silently fail and data would not survive a refresh.
+      let error: string | undefined;
+      try {
+        const key = "pot.worker.probe";
+        localStorage.setItem(key, "ok");
+        localStorage.removeItem(key);
+      } catch (err) {
+        error = err instanceof Error ? err.message : "probe failed";
+      }
+      ctx.postMessage({ type: "probe", ok: !error, ...(error ? { error } : {}) } satisfies StorageResponse);
+      return;
+    }
+
     case "persist-doc": {
       try {
         localStorage.setItem(POT_DOC_KEY, JSON.stringify(msg.doc));

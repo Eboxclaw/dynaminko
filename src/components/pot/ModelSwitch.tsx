@@ -99,15 +99,14 @@ export function ModelSwitch({
         type="button"
         onClick={() => setOpen((v) => !v)}
         className={cn(
-          "doodle-pill num inline-flex max-w-[15rem] items-center gap-1.5 px-2.5 py-1 text-[11px] hover:border-ink",
+          "doodle-pill num inline-flex min-w-0 max-w-[22rem] items-center gap-1.5 px-2.5 py-1 text-[11px] hover:border-ink",
           error && "border-loss text-loss",
         )}
       >
         {cloud ? <Cloud className="h-3 w-3 shrink-0" /> : <Cpu className="h-3 w-3 shrink-0" />}
-        <span className="min-w-0 truncate">{ai.target.label}</span>
-        <span className="shrink-0 whitespace-nowrap text-ink-faint">{state}</span>
+        <span className="min-w-0 flex-1 truncate">{ai.target.label}</span>
+        <span className="shrink whitespace-nowrap truncate text-ink-faint">{state}</span>
         <ChevronDown className="h-3 w-3 shrink-0" />
-
       </button>
 
       {error && (
@@ -121,7 +120,7 @@ export function ModelSwitch({
       )}
 
       {open && (
-        <div className="absolute bottom-full left-0 z-30 mb-2 flex max-h-[min(60vh,22rem)] w-72 max-w-[calc(100vw-2rem)] flex-col overflow-hidden rounded-md border border-stroke bg-paper shadow-lg">
+        <div className="absolute bottom-full right-0 z-30 mb-2 flex max-h-[min(60vh,22rem)] w-72 max-w-[calc(100vw-2rem)] flex-col overflow-hidden rounded-md border border-stroke bg-paper shadow-lg">
           <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
           <p className="eyebrow border-b border-stroke px-3 py-1.5">Local</p>
           <ul>
