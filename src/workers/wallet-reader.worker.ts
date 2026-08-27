@@ -24,43 +24,80 @@ export type ReaderResponse =
 
 const ctx = self as unknown as DedicatedWorkerGlobalScope;
 
+/**
+ * AbortSignal.timeout is not in every webview this app runs in, so build the
+ * same thing by hand: one signal that fires after `ms`. Callers must invoke
+ * done() once their batch settles, or the stray timer lingers for up to ms.
+ */
+function timeoutSignal(ms: number): { signal: AbortSignal; done: () => void } {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), ms);
+  return { signal: ctrl.signal, done: () => clearTimeout(timer) };
+}
+
 ctx.addEventListener("message", async (event: MessageEvent<ReaderRequest>) => {
   const msg = event.data;
 
   if (msg?.type === "venues") {
+    // Every fetch inside both reads gets this signal, so one hanging
+    // endpoint (typically a Nado archive POST) can no longer stall the whole
+    // batch past the hook's outer timeout and freeze the UI on stale cache.
+    const { signal, done } = timeoutSignal(20_000);
     try {
-      const [reports, actions] = await Promise.all([
-        readVenues(msg.address, msg.chainId),
-        readVenueActions(msg.address, msg.chainId),
+      const [reportsR, actionsR] = await Promise.allSettled([
+        readVenues(msg.address, msg.chainId, signal),
+        // Actions are a nicety: their failure must never block position reports.
+        readVenueActions(msg.address, msg.chainId, signal),
       ]);
-      ctx.postMessage({ type: "venues", reports, actions } satisfies ReaderResponse);
-    } catch (err) {
-      ctx.postMessage({
-        type: "error",
-        walletId: msg.address,
-        message: err instanceof Error ? err.message : "venue read failed",
-      } satisfies ReaderResponse);
+      if (reportsR.status === "fulfilled") {
+        ctx.postMessage({
+          type: "venues",
+          reports: reportsR.value,
+          actions: actionsR.status === "fulfilled" ? actionsR.value : [],
+        } satisfies ReaderResponse);
+      } else {
+        ctx.postMessage({
+          type: "error",
+          walletId: msg.address,
+          message:
+            reportsR.reason instanceof Error ? reportsR.reason.message : "venue read failed",
+        } satisfies ReaderResponse);
+      }
+      ctx.postMessage({ type: "done", at: Date.now() } satisfies ReaderResponse);
+    } finally {
+      done();
     }
-    ctx.postMessage({ type: "done", at: Date.now() } satisfies ReaderResponse);
     return;
   }
 
   if (msg?.type !== "scan") return;
 
-  await Promise.all(
-    msg.wallets.map(async (w) => {
-      try {
-        const snapshot = await readWallet(w.id, w.address, msg.chainId, w.sinceBlock ?? null);
-        ctx.postMessage({ type: "snapshot", snapshot } satisfies ReaderResponse);
-      } catch (err) {
-        ctx.postMessage({
-          type: "error",
-          walletId: w.id,
-          message: err instanceof Error ? err.message : "read failed",
-        } satisfies ReaderResponse);
-      }
-    }),
-  );
+  // Same guard as the venues branch: no fetch may outlive the message.
+  const { signal, done } = timeoutSignal(20_000);
+  try {
+    await Promise.all(
+      msg.wallets.map(async (w) => {
+        try {
+          const snapshot = await readWallet(
+            w.id,
+            w.address,
+            msg.chainId,
+            w.sinceBlock ?? null,
+            signal,
+          );
+          ctx.postMessage({ type: "snapshot", snapshot } satisfies ReaderResponse);
+        } catch (err) {
+          ctx.postMessage({
+            type: "error",
+            walletId: w.id,
+            message: err instanceof Error ? err.message : "read failed",
+          } satisfies ReaderResponse);
+        }
+      }),
+    );
 
-  ctx.postMessage({ type: "done", at: Date.now() } satisfies ReaderResponse);
+    ctx.postMessage({ type: "done", at: Date.now() } satisfies ReaderResponse);
+  } finally {
+    done();
+  }
 });
