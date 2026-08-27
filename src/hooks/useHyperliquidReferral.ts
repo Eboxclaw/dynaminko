@@ -16,7 +16,6 @@ type ReferralQueryResult = {
   state: HyperliquidReferralState;
   cumVolumePct: number; // 0..1 toward $10k threshold
   canGenerateCode: boolean; // true when volume >= 10k
-  totalEarnedUsd: number;
 };
 
 /**
@@ -65,7 +64,5 @@ function buildResult(state: HyperliquidReferralState): ReferralQueryResult {
     state,
     cumVolumePct: pct,
     canGenerateCode: state.cumVolumeUsd >= REFERRAL_VOLUME_THRESHOLD,
-    totalEarnedUsd:
-      state.unclaimedReferralRewardsUsd + state.claimedReferralRewardsUsd + state.builderRewardsUsd,
   };
 }

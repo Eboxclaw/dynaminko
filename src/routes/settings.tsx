@@ -7,7 +7,7 @@ import { getInjected } from "@/lib/chain/injected";
 import { usd } from "@/lib/format";
 import type { TypedDataSigner } from "@/lib/referrals/hyperliquid";
 import { buildNadoReferralDeepLink } from "@/lib/referrals/nado";
-import { setReferrer, TEAM_HL_REFERRAL_CODE } from "@/lib/referrals/hyperliquid";
+import { setReferrer, DEFAULT_HL_REFERRAL_CODE } from "@/lib/referrals/hyperliquid";
 import { exportDoc, patchReferralSettings, patchSettings, walletKey, wipe } from "@/lib/store";
 
 import { useDoc } from "@/hooks/useDoc";
@@ -64,10 +64,11 @@ function SettingsPage() {
     refetch: nadoRefetch,
   } = useNadoReferral();
 
-  // Hyperliquid state. The input pre-fills with the team code unless the user
-  // has saved their own; once HL reports a binding, the code can never change.
+  // Hyperliquid state. The input pre-fills with the default code unless the
+  // user has saved their own; once HL reports a binding, the code can never
+  // change and the locked input shows the bound code instead.
   const [hlCode, setHlCode] = useState(
-    doc.settings.referrals.hyperliquid?.referralCode ?? TEAM_HL_REFERRAL_CODE,
+    doc.settings.referrals.hyperliquid?.referralCode ?? DEFAULT_HL_REFERRAL_CODE,
   );
   const [settingHl, setSettingHl] = useState(false);
   const [hlError, setHlError] = useState<string | null>(null);
@@ -211,7 +212,7 @@ function SettingsPage() {
                 )}
 
                 {/* Rewards */}
-                <div className="mt-2.5 grid grid-cols-3 gap-1.5">
+                <div className="mt-2.5 grid grid-cols-2 gap-1.5">
                   <div className="rounded-[2px] border border-stroke p-1.5 text-center">
                     <p className="eyebrow text-[10px]">Unclaimed</p>
                     <p className="num mt-0.5 text-[12px]">
@@ -222,12 +223,6 @@ function SettingsPage() {
                     <p className="eyebrow text-[10px]">Claimed</p>
                     <p className="num mt-0.5 text-[12px]">
                       {usd(hlReferral.state.claimedReferralRewardsUsd, doc.settings.hideBalances)}
-                    </p>
-                  </div>
-                  <div className="rounded-[2px] border border-stroke p-1.5 text-center">
-                    <p className="eyebrow text-[10px]">Builder</p>
-                    <p className="num mt-0.5 text-[12px]">
-                      {usd(hlReferral.state.builderRewardsUsd, doc.settings.hideBalances)}
                     </p>
                   </div>
                 </div>
@@ -244,14 +239,14 @@ function SettingsPage() {
               <div className="mt-1 flex gap-2">
                 <input
                   type="text"
-                  value={hlCode}
+                  value={hlLocked && referredByCode ? referredByCode : hlCode}
                   disabled={hlLocked}
                   onChange={(e) => {
                     setHlCode(e.target.value);
                     setHlOk(false);
                     setHlError(null);
                   }}
-                  placeholder={hlCodeFromStore ?? TEAM_HL_REFERRAL_CODE}
+                  placeholder={hlCodeFromStore ?? DEFAULT_HL_REFERRAL_CODE}
                   className="min-w-0 flex-1 rounded-[2px] border border-stroke bg-paper px-2.5 py-1 text-[12px] outline-none focus:border-ink disabled:opacity-50"
                 />
                 <button
@@ -269,18 +264,11 @@ function SettingsPage() {
                   changed.
                 </p>
               ) : (
-                <>
-                  {!hlCodeFromStore && hlCode === TEAM_HL_REFERRAL_CODE && (
-                    <p className="mt-1 text-[11px] text-ink-faint">
-                      Inko's suggested code. Replace it with your own if you prefer.
-                    </p>
-                  )}
-                  {!isConnected && (
-                    <p className="mt-1 text-[11px] text-ink-faint">
-                      Connect a wallet to sign the action. Without it, the code is saved locally.
-                    </p>
-                  )}
-                </>
+                !isConnected && (
+                  <p className="mt-1 text-[11px] text-ink-faint">
+                    Connect a wallet to sign the action. Without it, the code is saved locally.
+                  </p>
+                )
               )}
               {hlError && <p className="mt-1 text-[11px] text-loss">{hlError}</p>}
               {hlOk && <p className="mt-1 text-[11px] text-gain">Code saved.</p>}

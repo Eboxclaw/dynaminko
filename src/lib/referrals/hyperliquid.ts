@@ -15,10 +15,9 @@
 
 import { keccak_256 } from "@noble/hashes/sha3.js";
 
-/** The team's referral code: referrer earns 10% of referred fees, referred
- * user gets a 4% discount. Pre-filled in Settings unless the user has saved
- * their own code or is already bound. */
-export const TEAM_HL_REFERRAL_CODE = "OFFICIALINKO";
+/** Referral code pre-filled in Settings for users who have saved no code of
+ * their own and have no existing binding. */
+export const DEFAULT_HL_REFERRAL_CODE = "OFFICIALINKO";
 
 export type HyperliquidReferralState = {
   /** Who referred this user, if anyone. */
