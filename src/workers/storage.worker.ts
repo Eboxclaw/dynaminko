@@ -54,7 +54,11 @@ ctx.addEventListener("message", (event: MessageEvent<StorageRequest>) => {
       } catch (err) {
         error = err instanceof Error ? err.message : "probe failed";
       }
-      ctx.postMessage({ type: "probe", ok: !error, ...(error ? { error } : {}) } satisfies StorageResponse);
+      ctx.postMessage({
+        type: "probe",
+        ok: !error,
+        ...(error ? { error } : {}),
+      } satisfies StorageResponse);
       return;
     }
 

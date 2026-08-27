@@ -116,7 +116,8 @@ export const SKILLS: SkillDef[] = [
   {
     id: "research.web",
     label: "Research the web",
-    purpose: "Search the web for a topic, read the top page, and synthesise findings with citations. Pass the question in the skill input.",
+    purpose:
+      "Search the web for a topic, read the top page, and synthesise findings with citations. Pass the question in the skill input.",
     tools: ["web.search", "web.read"],
     aliases: ["research", "search and read", "find online", "look up", "web research"],
     composed: false,

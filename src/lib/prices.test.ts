@@ -26,8 +26,12 @@ vi.mock("./prices-cache", () => ({
     store.set(key, { quotes, cachedAt: Date.now(), version: "hyperliquid" });
   },
   // Symbol-agnostic rolling map: upsert per-symbol like the real implementation.
-  mergeLatestQuotes: async (incoming: { symbol: string; usd: number | null; change24h: number | null }[]) => {
-    const existing = (store.get("quotes:latest") as { symbol: string; usd: number; change24h: number | null }[]) ?? [];
+  mergeLatestQuotes: async (
+    incoming: { symbol: string; usd: number | null; change24h: number | null }[],
+  ) => {
+    const existing =
+      (store.get("quotes:latest") as { symbol: string; usd: number; change24h: number | null }[]) ??
+      [];
     const map = new Map(existing.map((q) => [q.symbol.toUpperCase(), q]));
     for (const q of incoming) {
       if (q.usd == null || !q.symbol) continue;

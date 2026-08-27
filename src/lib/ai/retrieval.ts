@@ -159,7 +159,10 @@ export function extractDateWindow(
   if (/\bthis\s+week\b/.test(q)) return { from: startOfWeek(now), to: now };
   if (/\blast\s+month\b/.test(q)) {
     const d = new Date(now);
-    return { from: new Date(d.getFullYear(), d.getMonth() - 1, 1).getTime(), to: startOfMonth(now) };
+    return {
+      from: new Date(d.getFullYear(), d.getMonth() - 1, 1).getTime(),
+      to: startOfMonth(now),
+    };
   }
   if (/\bthis\s+month\b/.test(q)) return { from: startOfMonth(now), to: now };
   if (/\byesterday\b/.test(q)) {

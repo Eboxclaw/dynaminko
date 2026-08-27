@@ -5,13 +5,7 @@ import { HelpDot } from "@/components/pot/HelpDot";
 import { Panel, Shell } from "@/components/pot/Shell";
 import { useDoc } from "@/hooks/useDoc";
 import { relativeTime } from "@/lib/format";
-import {
-  backgroundCapable,
-  permission,
-  request,
-  show,
-  type PermissionState,
-} from "@/lib/notify";
+import { backgroundCapable, permission, request, show, type PermissionState } from "@/lib/notify";
 import { addAlert, patchAlert, patchSettings, removeAlert } from "@/lib/store";
 import { cn } from "@/lib/utils";
 
@@ -51,14 +45,12 @@ function Permission() {
       eyebrow="Delivery // Where an alert lands"
       action={
         <HelpDot label="About alert delivery">
-          Alerts always appear inside the app while it is open. For your phone lock screen,
-          grant notification permission and install Proof of Thesis to your home screen.
+          Alerts always appear inside the app while it is open. For your phone lock screen, grant
+          notification permission and install Proof of Thesis to your home screen.
         </HelpDot>
       }
     >
       <div className="space-y-3 px-4 py-4 text-[13px]">
-
-
         <ul className="space-y-1.5 text-[12px]">
           <Row label="In-app toasts" value="always on" ok />
           <Row
@@ -133,9 +125,7 @@ function Permission() {
 function Row({ label, value, ok }: { label: string; value: string; ok: boolean }) {
   return (
     <li className="flex items-baseline gap-2">
-      <span
-        className={cn("h-1.5 w-1.5 shrink-0 rounded-full", ok ? "bg-gain" : "bg-ink-faint")}
-      />
+      <span className={cn("h-1.5 w-1.5 shrink-0 rounded-full", ok ? "bg-gain" : "bg-ink-faint")} />
       <span className="flex-1">{label}</span>
       <span className="text-ink-faint">{value}</span>
     </li>
@@ -354,9 +344,7 @@ function AlertsPage() {
               );
             })}
             {doc.alerts.length === 0 && (
-              <li className="px-4 py-8 text-center text-[13px] text-ink-faint">
-                No alerts yet.
-              </li>
+              <li className="px-4 py-8 text-center text-[13px] text-ink-faint">No alerts yet.</li>
             )}
           </ul>
         </Panel>

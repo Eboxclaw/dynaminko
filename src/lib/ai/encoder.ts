@@ -30,7 +30,12 @@ import {
 export type { RankStats };
 
 export type EncoderState =
-  "missing" | "downloaded" | "loading" | "loaded" | "unavailable" | "error";
+  | "missing"
+  | "downloaded"
+  | "loading"
+  | "loaded"
+  | "unavailable"
+  | "error";
 
 const EMBED_ID: EmbeddingProviderId = "minilm-6-v2";
 

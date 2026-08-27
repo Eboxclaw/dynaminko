@@ -70,8 +70,7 @@ export async function checkNadoReferralOrPromptBind(
   packedSubaccount: string,
   affiliateCode?: string,
 ): Promise<
-  | { action: "already_bound"; code: string }
-  | { action: "prompt_bind"; deepLink: string }
+  { action: "already_bound"; code: string } | { action: "prompt_bind"; deepLink: string }
 > {
   const current = await getNadoReferralBinding(packedSubaccount);
   if (current.bound && current.code) {

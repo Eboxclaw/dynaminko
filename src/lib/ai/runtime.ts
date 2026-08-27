@@ -377,7 +377,11 @@ export function diagnosticsRows(r: RuntimeCapabilities) {
     { label: "GPU tier", ok: r.gpuTier !== "unknown", detail: r.gpuTier },
     { label: "VRAM est.", ok: r.vramGb != null, detail: r.vramGb ? `${r.vramGb} GB` : "unknown" },
     { label: "WASM SIMD", ok: r.wasmSimd, detail: "" },
-    { label: "Relaxed SIMD", ok: r.relaxedSimd, detail: r.wasmSimd && !r.relaxedSimd ? "not supported" : "" },
+    {
+      label: "Relaxed SIMD",
+      ok: r.relaxedSimd,
+      detail: r.wasmSimd && !r.relaxedSimd ? "not supported" : "",
+    },
     { label: "WASM threads", ok: r.wasmThreads, detail: r.wasmThreads ? "" : "needs isolation" },
     { label: "Isolation", ok: r.crossOriginIsolated, detail: "COOP/COEP" },
     {

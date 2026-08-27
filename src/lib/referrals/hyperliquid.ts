@@ -187,10 +187,16 @@ function hexToBytes(hex: string): Uint8Array {
  * keccak256( msgpack(action) + nonce_be8 + vault_flag ), where the vault flag
  * is 0x00 for a plain account (no vault) — the only case this app signs.
  */
-export function l1ActionHash(action: unknown, nonce: number, vaultAddress: string | null = null): Uint8Array {
+export function l1ActionHash(
+  action: unknown,
+  nonce: number,
+  vaultAddress: string | null = null,
+): Uint8Array {
   const nonceBe = new Uint8Array(8);
   new DataView(nonceBe.buffer).setBigUint64(0, BigInt(nonce), false);
-  const vault = vaultAddress ? new Uint8Array([0x01, ...hexToBytes(vaultAddress)]) : new Uint8Array([0x00]);
+  const vault = vaultAddress
+    ? new Uint8Array([0x01, ...hexToBytes(vaultAddress)])
+    : new Uint8Array([0x00]);
   const packed = msgpackPack(action);
   const data = new Uint8Array(packed.length + nonceBe.length + vault.length);
   data.set(packed, 0);

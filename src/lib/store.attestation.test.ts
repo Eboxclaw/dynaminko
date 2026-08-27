@@ -79,9 +79,7 @@ describe("commitAttestation", () => {
     expect(saved!.attestation?.sig).toBe("0xdeadbeef");
     expect(saved!.attestation!.entryHash).toMatch(/^0x[0-9a-f]{64}$/);
     // The ledger now records the entry hash for this signer.
-    expect(getDoc().attestationLedger[ALICE.toLowerCase()]).toBe(
-      saved!.attestation!.entryHash,
-    );
+    expect(getDoc().attestationLedger[ALICE.toLowerCase()]).toBe(saved!.attestation!.entryHash);
   });
 
   it("rejects a stale draft (thesis edited between draft and sign)", () => {

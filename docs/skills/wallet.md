@@ -3,9 +3,11 @@
 Purpose: answer "what does my wallet hold", reading live data only.
 
 Actions:
+
 - wallet.holdings — holdings, basket split, net worth, and open positions
 
 Tools:
+
 - portfolio.read, portfolio.netWorth, portfolio.positions-perps
 
 AI required: yes. The model interprets the structured result and must call out

@@ -76,7 +76,10 @@ export function useStorage() {
         worker.postMessage({ type: "persist-doc", doc: JSON.parse(data) } satisfies StorageRequest);
       });
       setMemoryPersistFn((data: string) => {
-        worker.postMessage({ type: "persist-memory", entries: JSON.parse(data) } satisfies StorageRequest);
+        worker.postMessage({
+          type: "persist-memory",
+          entries: JSON.parse(data),
+        } satisfies StorageRequest);
       });
       workerRef.current = worker;
     };

@@ -1,7 +1,16 @@
 // The single source of truth for what the app can do deterministically.
 // The Agents tab renders this; skills execute against it.
 
-import { addAlert, patchAlert, removeAlert, getDoc, readCachedSnapshot, readCachedVenueReports, prepareAttestation, commitAttestation } from "@/lib/store";
+import {
+  addAlert,
+  patchAlert,
+  removeAlert,
+  getDoc,
+  readCachedSnapshot,
+  readCachedVenueReports,
+  prepareAttestation,
+  commitAttestation,
+} from "@/lib/store";
 import { request as requestNotifications } from "@/lib/notify";
 import { buildPortfolio } from "@/lib/portfolio";
 import { composeNetWorth, openPerps } from "@/lib/exposure";
@@ -107,7 +116,8 @@ export const TOOLS: ToolDef[] = [
     group: "journal",
     action: "filter",
     label: "Filter journal",
-    purpose: "Narrow cards by motive, ticker, alignment, state, thesis, venue, PnL side (winners/losers) or date range.",
+    purpose:
+      "Narrow cards by motive, ticker, alignment, state, thesis, venue, PnL side (winners/losers) or date range.",
     access: "READ",
     inputs: "JournalFilter",
     output: "JournalCard[]",
@@ -211,8 +221,7 @@ export const TOOLS: ToolDef[] = [
       "Prepare the exact claim an EIP-191 signature will cover: the thesis as it stands, the ledger link, the signer. READ/COMPUTE only, no signature is made. Present the claim to the user; the user then signs it in their wallet.",
     access: "COMPUTE",
     inputs: "{ thesisId: string }",
-    output:
-      "{ thesisId, title, message, prevHash, alreadyAttested, signer } | { error }",
+    output: "{ thesisId, title, message, prevHash, alreadyAttested, signer } | { error }",
     live: true,
     run: async (i: { thesisId: string }) => {
       const accounts = await currentAccounts();
@@ -234,10 +243,7 @@ export const TOOLS: ToolDef[] = [
     inputs: "{ thesisId: string, draft: { message: string, prevHash: string } }",
     output: "{ thesisId, address, entryHash, signedAt } | { error }",
     live: true,
-    run: async (i: {
-      thesisId: string;
-      draft: { message: string; prevHash: string };
-    }) => {
+    run: async (i: { thesisId: string; draft: { message: string; prevHash: string } }) => {
       const accounts = await currentAccounts();
       if (accounts.length === 0) return { error: "No wallet is connected." };
       const address = accounts[0];
@@ -419,7 +425,14 @@ export const TOOLS: ToolDef[] = [
     live: true,
     run: async () => {
       const snapshot = await readCachedSnapshot();
-      if (!snapshot) return { holdings: [], total: 0, priced: false, slices: [], message: "no wallet snapshot cached yet; sync your wallet first" };
+      if (!snapshot)
+        return {
+          holdings: [],
+          total: 0,
+          priced: false,
+          slices: [],
+          message: "no wallet snapshot cached yet; sync your wallet first",
+        };
       // Quotes are best-effort from the IDB cache; the price pipeline caches
       // in IndexedDB under the same key prefix.
       const { idbGet } = await import("@/lib/cache/idb");
@@ -441,7 +454,8 @@ export const TOOLS: ToolDef[] = [
     run: async () => {
       const snapshot = await readCachedSnapshot();
       const reports = await readCachedVenueReports();
-      if (!snapshot) return { wallet: 0, venueEquity: 0, net: 0, message: "no wallet snapshot cached yet" };
+      if (!snapshot)
+        return { wallet: 0, venueEquity: 0, net: 0, message: "no wallet snapshot cached yet" };
       const { idbGet } = await import("@/lib/cache/idb");
       const quotes = (await idbGet<import("@/lib/prices").Quote[]>("quotes:latest")) ?? [];
       const overrides = getDoc().settings.basketOverrides;
@@ -453,7 +467,8 @@ export const TOOLS: ToolDef[] = [
     group: "portfolio",
     action: "positions-perps",
     label: "Open perp positions",
-    purpose: "Open perpetuals across venues: side, size, entry, uPnL, leverage/margin where the venue reports them, plus account-level margin and the fields a venue does not report.",
+    purpose:
+      "Open perpetuals across venues: side, size, entry, uPnL, leverage/margin where the venue reports them, plus account-level margin and the fields a venue does not report.",
     access: "READ",
     inputs: "none",
     output: "{ trades: ActiveTrade[], accounts: venue margin, gaps: string[] }",
@@ -549,12 +564,15 @@ for (const venue of VENUES) {
             const address = i?.address || activeAddress(getDoc);
             if (!address) return [];
             const reader =
-              venue === "velodrome" ? readVelodrome
-              : venue === "nado" ? readNado
-              : venue === "tydro" ? readTydro
-              : venue === "hyperliquid"
-                ? (await import("@/lib/venues/hyperliquid")).readHyperliquid
-                : null;
+              venue === "velodrome"
+                ? readVelodrome
+                : venue === "nado"
+                  ? readNado
+                  : venue === "tydro"
+                    ? readTydro
+                    : venue === "hyperliquid"
+                      ? (await import("@/lib/venues/hyperliquid")).readHyperliquid
+                      : null;
             if (!reader) return [];
             const report = await reader(address, INK_CHAIN_ID);
             return report.positions ?? [];

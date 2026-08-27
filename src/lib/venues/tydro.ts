@@ -54,7 +54,10 @@ export function decodeReserves(result: string): Reserve[] {
     const len = Number(toBigInt(w[entry + 2]));
     let symbol = asset.slice(0, 6);
     if (len > 0 && len <= 32) {
-      const hex = w.slice(entry + 3).join("").slice(0, len * 2);
+      const hex = w
+        .slice(entry + 3)
+        .join("")
+        .slice(0, len * 2);
       const bytes = new Uint8Array(len);
       for (let b = 0; b < len; b += 1) bytes[b] = parseInt(hex.slice(b * 2, b * 2 + 2), 16);
       const decoded = new TextDecoder("utf-8", { fatal: false }).decode(bytes).replace(/\0+$/, "");
@@ -89,8 +92,7 @@ export async function readTydro(
     signal,
   );
   const pool = poolRaw ? toAddress(words(poolRaw)[0]) : null;
-  const reserves =
-    reserveCache.get(chainId) ?? (reservesRaw ? decodeReserves(reservesRaw) : []);
+  const reserves = reserveCache.get(chainId) ?? (reservesRaw ? decodeReserves(reservesRaw) : []);
   if (reserves.length > 0) reserveCache.set(chainId, reserves);
   if (!pool || reserves.length === 0) {
     throw new Error("Tydro reserves or pool unreadable");
@@ -104,18 +106,20 @@ export async function readTydro(
   }));
   const stage2 = await ethCallMany(chainId, [accountCall, ...tokenCalls], signal);
   const accountWords = words(stage2[0] ?? "0x");
-  const tokens = reserves.map((r, i): { aToken: string; stableDebt: string; variableDebt: string } => {
-    const cached = tokensCache.get(r.asset.toLowerCase());
-    if (cached) return cached;
-    const w = words(stage2[i + 1] ?? "0x");
-    const fresh = {
-      aToken: toAddress(w[0]),
-      stableDebt: toAddress(w[1]),
-      variableDebt: toAddress(w[2]),
-    };
-    if (fresh.aToken !== "0x") tokensCache.set(r.asset.toLowerCase(), fresh);
-    return fresh;
-  });
+  const tokens = reserves.map(
+    (r, i): { aToken: string; stableDebt: string; variableDebt: string } => {
+      const cached = tokensCache.get(r.asset.toLowerCase());
+      if (cached) return cached;
+      const w = words(stage2[i + 1] ?? "0x");
+      const fresh = {
+        aToken: toAddress(w[0]),
+        stableDebt: toAddress(w[1]),
+        variableDebt: toAddress(w[2]),
+      };
+      if (fresh.aToken !== "0x") tokensCache.set(r.asset.toLowerCase(), fresh);
+      return fresh;
+    },
+  );
 
   // Stage 3: exact underlying balances off the tokens themselves.
   const balanceCalls = tokens.flatMap((t) => [

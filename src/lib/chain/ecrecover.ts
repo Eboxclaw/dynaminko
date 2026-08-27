@@ -23,13 +23,16 @@ const word = (hex: string) => hex.replace(/^0x/, "").padStart(64, "0");
 /** 32 byte EIP-191 hash of a personal_sign message. */
 export function eip191Hash(message: string): string {
   const msg = new TextEncoder().encode(message);
-  const prefix = new TextEncoder().encode(
-    `\u0019Ethereum Signed Message:\n${msg.length}`,
-  );
+  const prefix = new TextEncoder().encode(`\u0019Ethereum Signed Message:\n${msg.length}`);
   const joined = new Uint8Array(prefix.length + msg.length);
   joined.set(prefix);
   joined.set(msg, prefix.length);
-  return "0x" + Array.from(keccak_256(joined)).map((b) => b.toString(16).padStart(2, "0")).join("");
+  return (
+    "0x" +
+    Array.from(keccak_256(joined))
+      .map((b) => b.toString(16).padStart(2, "0"))
+      .join("")
+  );
 }
 
 /** Recover the signer address for a personal_sign (message, signature) pair.

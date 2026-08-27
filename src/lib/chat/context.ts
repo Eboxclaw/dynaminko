@@ -189,15 +189,19 @@ export async function portfolioFactLines(): Promise<string> {
           .join(" · ")}`,
       );
       lines.push(
-        `baskets: ${merged.slices
-          .slice(0, 6)
-          .map((s) => `${SECTOR_BY_ID[s.sector].label} ${Math.round(s.share * 100)}%`)
-          .join(" · ") || "unsorted"}`,
+        `baskets: ${
+          merged.slices
+            .slice(0, 6)
+            .map((s) => `${SECTOR_BY_ID[s.sector].label} ${Math.round(s.share * 100)}%`)
+            .join(" · ") || "unsorted"
+        }`,
       );
     }
 
     if (netWorth.net > 0) {
-      lines.push(`net_worth: $${Math.round(netWorth.net)} (wallet $${Math.round(netWorth.wallet)} + venues $${Math.round(netWorth.venueEquity)})`);
+      lines.push(
+        `net_worth: $${Math.round(netWorth.net)} (wallet $${Math.round(netWorth.wallet)} + venues $${Math.round(netWorth.venueEquity)})`,
+      );
     }
 
     if (perps.trades.length > 0) {
@@ -220,7 +224,9 @@ export async function portfolioFactLines(): Promise<string> {
       const known = perps.trades.filter((p) => p.unrealizedPnl != null);
       if (known.length > 0) {
         const total = known.reduce((s, p) => s + (p.unrealizedPnl ?? 0), 0);
-        lines.push(`unrealized_pnl: ${total >= 0 ? "+" : "-"}$${Math.round(Math.abs(total))} on ${known.length} measured perps`);
+        lines.push(
+          `unrealized_pnl: ${total >= 0 ? "+" : "-"}$${Math.round(Math.abs(total))} on ${known.length} measured perps`,
+        );
       }
       // Account-level margin: the only margin Nado reports, and how much of
       // the venue account is spoken for overall.
@@ -241,7 +247,9 @@ export async function portfolioFactLines(): Promise<string> {
 
 /** Trim a size to 4 significant decimals so a fact line stays short. */
 function round4(n: number): string {
-  return n >= 1000 ? Math.round(n).toLocaleString("en-US") : n.toFixed(n >= 100 ? 2 : 4).replace(/\.?0+$/, "");
+  return n >= 1000
+    ? Math.round(n).toLocaleString("en-US")
+    : n.toFixed(n >= 100 ? 2 : 4).replace(/\.?0+$/, "");
 }
 
 /** Compact price for fact lines: no cents above $1, two below. */

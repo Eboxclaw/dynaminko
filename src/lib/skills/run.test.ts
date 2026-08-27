@@ -22,7 +22,9 @@ describe("composed skills", () => {
       expect(Array.isArray(res.data[step])).toBe(true);
     }
     // cold cache: the digest reports the gap, not a crash
-    expect((res.data["portfolio.read"] as string[]).join(" ")).toMatch(/no holdings cached|sync your wallet/i);
+    expect((res.data["portfolio.read"] as string[]).join(" ")).toMatch(
+      /no holdings cached|sync your wallet/i,
+    );
     expect(res.facts.length).toBeGreaterThan(0);
     expect(res.prompt).toContain("structured result");
   });
@@ -120,8 +122,22 @@ describe("digestStep", () => {
       data: {
         pending: 3,
         pendingList: [
-          { ticker: "BTC", side: "in", amount: 0.5, valueUsd: 40000, venue: "nado", date: "2026-08-24" },
-          { ticker: "ETH", side: "out", amount: 2, valueUsd: 4000, venue: "hyperliquid", date: "2026-08-23" },
+          {
+            ticker: "BTC",
+            side: "in",
+            amount: 0.5,
+            valueUsd: 40000,
+            venue: "nado",
+            date: "2026-08-24",
+          },
+          {
+            ticker: "ETH",
+            side: "out",
+            amount: 2,
+            valueUsd: 4000,
+            venue: "hyperliquid",
+            date: "2026-08-23",
+          },
         ],
       },
     });

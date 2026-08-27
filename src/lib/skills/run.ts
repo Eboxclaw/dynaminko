@@ -73,22 +73,31 @@ export function digestStep(stepId: string, out: unknown): { lines: string[] } {
 
   switch (stepId) {
     case "portfolio.read": {
-      const holdings = o.holdings as Array<{ symbol: string; value: number | null; sector: string }> | undefined;
+      const holdings = o.holdings as
+        | Array<{ symbol: string; value: number | null; sector: string }>
+        | undefined;
       if (!holdings?.length) {
-        lines.push(`wallet: ${o.message ?? "no holdings cached yet (sync the wallet on the home page)"}`);
+        lines.push(
+          `wallet: ${o.message ?? "no holdings cached yet (sync the wallet on the home page)"}`,
+        );
         break;
       }
       const total = money(o.total);
       lines.push(`wallet: ~$${total ?? 0} across ${holdings.length} tokens`);
       for (const h of holdings.slice(0, 8)) {
-        lines.push(`  ${h.symbol}: ${h.value != null ? `$${money(h.value) ?? 0}` : `${h.sector} (unpriced)`}`);
+        lines.push(
+          `  ${h.symbol}: ${h.value != null ? `$${money(h.value) ?? 0}` : `${h.sector} (unpriced)`}`,
+        );
       }
       const slices = o.slices as Array<{ sector: string; share: number }> | undefined;
       if (slices?.length)
         lines.push(
           `baskets: ${slices
             .slice(0, 6)
-            .map((s) => `${SECTOR_BY_ID[s.sector as SectorId]?.label ?? s.sector} ${Math.round((s.share ?? 0) * 100)}%`)
+            .map(
+              (s) =>
+                `${SECTOR_BY_ID[s.sector as SectorId]?.label ?? s.sector} ${Math.round((s.share ?? 0) * 100)}%`,
+            )
             .join(", ")}`,
         );
       break;
@@ -116,9 +125,14 @@ export function digestStep(stepId: string, out: unknown): { lines: string[] } {
           const venue = String(t.venue ?? "?");
           const upnl = money(t.unrealizedPnl);
           const lev = t.leverage != null ? `${t.leverage}x` : `leverage not reported by ${venue}`;
-          const margin = t.margin != null ? `margin $${money(t.margin) ?? 0}` : `margin not reported by ${venue}`;
+          const margin =
+            t.margin != null
+              ? `margin $${money(t.margin) ?? 0}`
+              : `margin not reported by ${venue}`;
           const liq =
-            t.liquidationPrice != null ? `liq ${px(t.liquidationPrice)}` : `liq not reported by ${venue}`;
+            t.liquidationPrice != null
+              ? `liq ${px(t.liquidationPrice)}`
+              : `liq not reported by ${venue}`;
           lines.push(
             `  - ${String(t.displaySymbol)} (${venue}) side ${String(t.side)} | size ${px(t.size)} | entry ${px(
               t.entryPrice,
@@ -147,7 +161,9 @@ export function digestStep(stepId: string, out: unknown): { lines: string[] } {
       lines.push(`inbox: ${o.summary ?? `${d.pending ?? 0} pending`}`);
       const list = (d.pendingList as Array<Record<string, unknown>> | undefined) ?? [];
       for (const s of list.slice(0, 6)) {
-        lines.push(`  ${s.ticker} ${s.side} ${px(s.amount)}${s.venue ? ` on ${s.venue}` : ""}${s.valueUsd != null ? ` ~$${money(s.valueUsd)}` : ""} (${s.date})`);
+        lines.push(
+          `  ${s.ticker} ${s.side} ${px(s.amount)}${s.venue ? ` on ${s.venue}` : ""}${s.valueUsd != null ? ` ~$${money(s.valueUsd)}` : ""} (${s.date})`,
+        );
       }
       break;
     }
@@ -169,7 +185,9 @@ export function digestStep(stepId: string, out: unknown): { lines: string[] } {
  * shows it), so raw tool JSON is deliberately not carried — it is the thing
  * small models give up on, and it would bloat the observation.
  */
-async function runComposedSkill(skill: SkillDef): Promise<{ data: Record<string, unknown>; facts: string[] }> {
+async function runComposedSkill(
+  skill: SkillDef,
+): Promise<{ data: Record<string, unknown>; facts: string[] }> {
   const data: Record<string, unknown> = {};
   const facts: string[] = [];
   for (const stepId of skill.tools) {
@@ -291,21 +309,35 @@ export async function runSkill(skillId: string, input: SkillInput = {}): Promise
       facts = ["No query provided: pass a question to research."];
     } else {
       const searchOut = await TOOL_BY_ID["web.search"]?.run?.({ query, limit: 3 });
-      const searchResults = (searchOut as { results?: { title: string; url: string; snippet: string }[] })?.results ?? [];
+      const searchResults =
+        (searchOut as { results?: { title: string; url: string; snippet: string }[] })?.results ??
+        [];
       let pages: { url: string; title: string; outline: string[]; paragraphs: string[] }[] = [];
       if (searchResults.length > 0) {
-        facts = [`Searched for "${query}"`, `${searchResults.length} results, reading up to 2 pages.`];
+        facts = [
+          `Searched for "${query}"`,
+          `${searchResults.length} results, reading up to 2 pages.`,
+        ];
         for (const r of searchResults.slice(0, 2)) {
           try {
-            const page = (await TOOL_BY_ID["web.read"]?.run?.({ url: r.url })) as {
-              url: string;
-              title: string;
-              outline?: string[];
-              paragraphs?: string[];
-            } | undefined;
+            const page = (await TOOL_BY_ID["web.read"]?.run?.({ url: r.url })) as
+              | {
+                  url: string;
+                  title: string;
+                  outline?: string[];
+                  paragraphs?: string[];
+                }
+              | undefined;
             if (page) {
-              pages.push({ url: page.url, title: page.title, outline: page.outline ?? [], paragraphs: page.paragraphs ?? [] });
-              facts.push(`Read ${page.title} (${r.url}): ${(page.paragraphs?.[0] ?? "").slice(0, 120)}…`);
+              pages.push({
+                url: page.url,
+                title: page.title,
+                outline: page.outline ?? [],
+                paragraphs: page.paragraphs ?? [],
+              });
+              facts.push(
+                `Read ${page.title} (${r.url}): ${(page.paragraphs?.[0] ?? "").slice(0, 120)}…`,
+              );
             }
           } catch {
             facts.push(`Could not read ${r.url}`);

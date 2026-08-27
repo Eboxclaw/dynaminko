@@ -283,19 +283,19 @@ export function useAi() {
       setOutput("");
       setSpeed(null);
       try {
-if (cloudCfg) {
-	          const controller = new AbortController();
-	          cloudAbort.current = controller;
-	          const started = performance.now();
-	          // Every cloud provider is OpenAI-compatible (Z.ai included), so the
-	          // shared client covers all of them. No per-provider branching.
-const text = await cloudChatMessages(cloudCfg, messages, {
-		            temperature: options.temperature ?? temperature,
-		            maxTokens: options.maxTokens ?? maxTokens,
-		            responseSchema: options.responseSchema,
-		            images: options.images,
-		            signal: controller.signal,
-		            onToken: (partial) => {
+        if (cloudCfg) {
+          const controller = new AbortController();
+          cloudAbort.current = controller;
+          const started = performance.now();
+          // Every cloud provider is OpenAI-compatible (Z.ai included), so the
+          // shared client covers all of them. No per-provider branching.
+          const text = await cloudChatMessages(cloudCfg, messages, {
+            temperature: options.temperature ?? temperature,
+            maxTokens: options.maxTokens ?? maxTokens,
+            responseSchema: options.responseSchema,
+            images: options.images,
+            signal: controller.signal,
+            onToken: (partial) => {
               if (!mounted.current) return;
               setOutput(partial);
               const secs = (performance.now() - started) / 1000;
@@ -442,7 +442,9 @@ const text = await cloudChatMessages(cloudCfg, messages, {
       } catch (err) {
         // The worker verifies the delete against the cache before reporting
         // success; a rejection means the weights are still there.
-        toast.error(`${spec?.label ?? modelId}: ${err instanceof Error ? err.message : "delete failed"}`);
+        toast.error(
+          `${spec?.label ?? modelId}: ${err instanceof Error ? err.message : "delete failed"}`,
+        );
         return;
       }
       if (mounted.current) {

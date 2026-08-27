@@ -23,8 +23,14 @@ vi.mock("@/lib/cache/idb", () => ({
 }));
 
 // Import after the mock so the module binds the fakes.
-const { offloadIfTruncated, parkOffload, readOffloaded, evictToFit, isOffloadKey, flushOffloadWrites } =
-  await import("./offload");
+const {
+  offloadIfTruncated,
+  parkOffload,
+  readOffloaded,
+  evictToFit,
+  isOffloadKey,
+  flushOffloadWrites,
+} = await import("./offload");
 
 const INDEX_KEY = "offload:index";
 type Entry = { key: string; bytes: number; ts: number };

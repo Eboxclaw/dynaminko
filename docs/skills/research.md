@@ -4,9 +4,11 @@ Purpose: search the web for a topic, read the top page, and synthesise the
 findings with citations. The question is passed in the skill input.
 
 Actions:
+
 - research.web — web research for a topic
 
 Tools:
+
 - web.search, web.read
 
 AI required: yes. The model synthesises what was found and cites each fact to

@@ -66,8 +66,6 @@ function buildResult(state: HyperliquidReferralState): ReferralQueryResult {
     cumVolumePct: pct,
     canGenerateCode: state.cumVolumeUsd >= REFERRAL_VOLUME_THRESHOLD,
     totalEarnedUsd:
-      state.unclaimedReferralRewardsUsd +
-      state.claimedReferralRewardsUsd +
-      state.builderRewardsUsd,
+      state.unclaimedReferralRewardsUsd + state.claimedReferralRewardsUsd + state.builderRewardsUsd,
   };
 }

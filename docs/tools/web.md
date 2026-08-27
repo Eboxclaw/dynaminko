@@ -69,6 +69,7 @@ Optional API keys stored in `localStorage` under `inko.web-keys`. Zero
 configuration required; keys upgrade the Jina rate limit (~500 RPM with a
 free key) and enable the Tavily transport. Quick-set from any browser
 console:
+
 ```js
-setWebKeys({ jina: "your-free-key", tavily: "your-tavily-key" })
+setWebKeys({ jina: "your-free-key", tavily: "your-tavily-key" });
 ```

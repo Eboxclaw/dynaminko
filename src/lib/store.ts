@@ -25,10 +25,10 @@ export type Thesis = {
   /** EIP-191 attestation: signature, timestamp, and hash-chain prev hash.
    * null = not attested. */
   attestation?: {
-    sig: string;       // 0x-prefixed hex
-    address: string;   // signing address
+    sig: string; // 0x-prefixed hex
+    address: string; // signing address
     signedAt: number;
-    prevHash: string;  // previous chain entry hash (or null bytes hex for genesis)
+    prevHash: string; // previous chain entry hash (or null bytes hex for genesis)
     entryHash: string; // keccak(prevHash + thesisId + POT score)
   };
 };
@@ -357,7 +357,12 @@ export function removeThesis(id: string) {
 }
 
 function hexDigest(bytes: Uint8Array): string {
-  return "0x" + Array.from(bytes).map((b) => b.toString(16).padStart(2, "0")).join("");
+  return (
+    "0x" +
+    Array.from(bytes)
+      .map((b) => b.toString(16).padStart(2, "0"))
+      .join("")
+  );
 }
 
 /** Canonical message for a thesis attestation. Everything a signature claims
@@ -384,7 +389,13 @@ export function attestationMessage(thesis: Thesis, prevHash: string, address: st
 export function prepareAttestation(
   thesisId: string,
   address: string,
-): { thesisId: string; title: string; message: string; prevHash: string; alreadyAttested: boolean } | null {
+): {
+  thesisId: string;
+  title: string;
+  message: string;
+  prevHash: string;
+  alreadyAttested: boolean;
+} | null {
   const doc = getDoc();
   const t = doc.theses.find((x) => x.id === thesisId);
   if (!t) return null;
@@ -423,7 +434,13 @@ export function commitAttestation(
   update((d) => {
     const now = d.theses.find((x) => x.id === thesisId);
     if (!now) return;
-    now.attestation = { sig, address: addr, signedAt: Date.now(), prevHash: currentPrev, entryHash };
+    now.attestation = {
+      sig,
+      address: addr,
+      signedAt: Date.now(),
+      prevHash: currentPrev,
+      entryHash,
+    };
     now.updatedAt = Date.now();
     d.attestationLedger[addr] = entryHash;
     result = { ...now };
@@ -852,7 +869,9 @@ const VENUES_CACHE_PREFIX = "venues:";
  * Read the most recent wallet snapshot from the IndexedDB cache.
  * Returns null when no cached snapshot exists.
  */
-export async function readCachedSnapshot(): Promise<import("@/lib/chain/blockscout").WalletSnapshot | null> {
+export async function readCachedSnapshot(): Promise<
+  import("@/lib/chain/blockscout").WalletSnapshot | null
+> {
   const doc = getDoc();
   if (!doc.activeWallet) return null;
   const key = `${SNAPSHOT_CACHE_PREFIX}${doc.activeWallet}`;
@@ -864,7 +883,9 @@ export async function readCachedSnapshot(): Promise<import("@/lib/chain/blocksco
  * Read the most recent venue reports from the IndexedDB cache.
  * Returns an empty array when no cached reports exist.
  */
-export async function readCachedVenueReports(): Promise<import("@/lib/venues/types").VenueReport[]> {
+export async function readCachedVenueReports(): Promise<
+  import("@/lib/venues/types").VenueReport[]
+> {
   const doc = getDoc();
   if (!doc.activeWallet) return [];
   const key = `${VENUES_CACHE_PREFIX}${doc.activeWallet}`;

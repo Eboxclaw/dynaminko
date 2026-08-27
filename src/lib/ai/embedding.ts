@@ -41,7 +41,12 @@ export const PROVIDER_BY_ID = Object.fromEntries(
 export const DEFAULT_EMBEDDING_ID: EmbeddingProviderId = "minilm-6-v2";
 
 export type ProviderState =
-  "missing" | "downloaded" | "loading" | "loaded" | "unavailable" | "error";
+  | "missing"
+  | "downloaded"
+  | "loading"
+  | "loaded"
+  | "unavailable"
+  | "error";
 
 type Extractor = (
   input: string | string[],

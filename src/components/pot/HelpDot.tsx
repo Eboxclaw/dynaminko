@@ -6,7 +6,13 @@ import { createPortal } from "react-dom";
  * The note renders in a portal with fixed positioning, so a card with
  * `overflow-hidden` or a scrolling rail can never clip or cut it off.
  */
-export function HelpDot({ label = "What this means", children }: { label?: string; children: ReactNode }) {
+export function HelpDot({
+  label = "What this means",
+  children,
+}: {
+  label?: string;
+  children: ReactNode;
+}) {
   const [open, setOpen] = useState(false);
   const [box, setBox] = useState<{ top: number; left: number } | null>(null);
   const btn = useRef<HTMLButtonElement>(null);

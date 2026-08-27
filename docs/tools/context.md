@@ -8,9 +8,9 @@ the full payload is parked in the IndexedDB cache under a short key. The key
 rides on the tool card as `offloadKey` and, later, on the observation. This
 group reads it back.
 
-| tool | access | inputs | output | approval | logged |
-| --- | --- | --- | --- | --- | --- |
-| context.readOffload | READ | `{ key }` | `unknown` | no | optional |
+| tool                | access | inputs    | output    | approval | logged   |
+| ------------------- | ------ | --------- | --------- | -------- | -------- |
+| context.readOffload | READ   | `{ key }` | `unknown` | no       | optional |
 
 `context.readOffload({ key })` → the full parked payload, or `null` when the
 key is not an offload key, is missing, or the payload no longer exists on this
@@ -26,7 +26,7 @@ Example call:
 Example result:
 
 ```json
-{ "cards": [ "…the complete, untruncated result…" ] }
+{ "cards": ["…the complete, untruncated result…"] }
 ```
 
 When to use: when a tool card shows a truncated result and the full payload is

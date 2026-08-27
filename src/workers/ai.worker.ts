@@ -14,13 +14,7 @@ import { buildInferenceProfile, detectRuntime } from "@/lib/ai/runtime";
 import { readDelta } from "@/lib/ai/stream";
 // The registry lives once, on the main thread (lib/ai.ts). This module has no
 // runtime imports of its own, so it bundles into the worker cleanly.
-import {
-  DEFAULT_CTX,
-  DEFAULT_MODEL_ID,
-  MODEL_BY_ID,
-  MODELS,
-  type ModelSpec,
-} from "@/lib/ai";
+import { DEFAULT_CTX, DEFAULT_MODEL_ID, MODEL_BY_ID, MODELS, type ModelSpec } from "@/lib/ai";
 
 // ── worker global shims ───────────────────────────────────────────────
 //
@@ -211,8 +205,7 @@ async function onnxCacheContains(needle: string): Promise<boolean> {
   for (const key of await caches.keys()) {
     if (!/transformers/i.test(key)) continue;
     const cache = await caches.open(key);
-    if ((await cache.keys()).some((r) => r.url.toLowerCase().includes(needle)))
-      return true;
+    if ((await cache.keys()).some((r) => r.url.toLowerCase().includes(needle))) return true;
   }
   return false;
 }
@@ -303,9 +296,7 @@ async function loadModelInternal(
 
   try {
     const ctx = self as unknown as DedicatedWorkerGlobalScope;
-    ctx.postMessage(
-      { type: "loading", modelId: spec.id, reqId } satisfies AiWorkerResponse,
-    );
+    ctx.postMessage({ type: "loading", modelId: spec.id, reqId } satisfies AiWorkerResponse);
 
     const load = async (useGpu: boolean) => {
       const p = { ...profile };
@@ -481,217 +472,224 @@ async function chatMessages(
 
 const ctx = self as unknown as DedicatedWorkerGlobalScope;
 
-ctx.addEventListener("message", async (event: MessageEvent<AiWorkerRequest & { reqId?: number }>) => {
-  const msg = event.data;
-  if (!msg?.type) return;
-  const reqId = msg.reqId;
+ctx.addEventListener(
+  "message",
+  async (event: MessageEvent<AiWorkerRequest & { reqId?: number }>) => {
+    const msg = event.data;
+    if (!msg?.type) return;
+    const reqId = msg.reqId;
 
-  switch (msg.type) {
-    case "load": {
-      if (loadInFlight) {
-        // Never start a second load while one is in progress: two loads would
-        // fight over the single wllama instance and desync the cache.
-        ctx.postMessage({
-          type: "error",
-          reqId,
-          modelId: msg.modelId,
-          message: "a model operation is already in progress, try again in a moment",
-        } satisfies AiWorkerResponse);
-        return;
-      }
-      loadInFlight = { reqId, modelId: msg.modelId };
-      let result;
-      try {
-        result = await loadModelInternal(msg.modelId, msg.allowDownload, msg.nCtx, reqId);
-      } finally {
-        // Only clear the guard if this request still owns it; a newer load
-        // may have taken over after a cancel.
-        if (loadInFlight && loadInFlight.reqId === reqId) loadInFlight = null;
-      }
-      if (result.ok) {
-        ctx.postMessage({
-          type: "ready",
-          reqId,
-          modelId: msg.modelId,
-          backend: result.backend,
-          ctx: result.ctx,
-        } satisfies AiWorkerResponse);
-      } else {
-        ctx.postMessage({
-          type: "error",
-          reqId,
-          modelId: msg.modelId,
-          message: result.error,
-        } satisfies AiWorkerResponse);
-      }
-      return;
-    }
-
-    case "cancel-load": {
-      // The main thread's deadline expired. It cannot reach the wllama
-      // instance to stop a download (wllama exposes no abort API), so the
-      // best we can do is release the guard for the request that owns it.
-      // A newer load that started afterwards keeps its own guard intact.
-      if (isOwnedLoad(reqId, msg.modelId)) loadInFlight = null;
-      return;
-    }
-
-    case "chat-messages": {
-      try {
-        const text = await chatMessages(msg.turns, msg.options);
-        ctx.postMessage({ type: "done", text } satisfies AiWorkerResponse);
-      } catch (err) {
-        ctx.postMessage({
-          type: "error",
-          message: err instanceof Error ? err.message : "chat failed",
-        } satisfies AiWorkerResponse);
-      }
-      return;
-    }
-
-    case "chat": {
-      try {
-        const text = await chatMessages(
-          [
-            { role: "system", content: msg.system },
-            { role: "user", content: msg.user },
-          ],
-          msg.options,
-        );
-        ctx.postMessage({ type: "done", text } satisfies AiWorkerResponse);
-      } catch (err) {
-        ctx.postMessage({
-          type: "error",
-          message: err instanceof Error ? err.message : "chat failed",
-        } satisfies AiWorkerResponse);
-      }
-      return;
-    }
-
-    case "stop": {
-      abortRun = true;
-      return;
-    }
-
-    case "unload": {
-      // Drop the inference handle; the shared cache manager outlives it, so
-      // the weights remain "on device" and can be re-loaded or deleted.
-      await exitInstance();
-      currentModel = null;
-      currentCtx = DEFAULT_CTX;
-      activeBackend = "unavailable";
-      ctx.postMessage({ type: "unloaded" } satisfies AiWorkerResponse);
-      return;
-    }
-
-    case "cached-models": {
-      try {
-        const cached = await computeCachedModels();
-        ctx.postMessage({
-          type: "cached-models",
-          reqId,
-          ids: [...cached],
-        } satisfies AiWorkerResponse);
-      } catch (err) {
-        ctx.postMessage({
-          type: "error",
-          reqId,
-          message: err instanceof Error ? err.message : "cached-models failed",
-        } satisfies AiWorkerResponse);
-      }
-      return;
-    }
-
-case "delete-model": {
-      // Never delete mid-download: it would remove the very file wllama is
-      // writing and corrupt the cache entry.
-      if (loadInFlight) {
-        ctx.postMessage({
-          type: "error",
-          reqId,
-          modelId: msg.modelId,
-          message: "a model is still downloading or loading, wait for it to finish",
-        } satisfies AiWorkerResponse);
-        return;
-      }
-      try {
-        const spec = MODEL_BY_ID[msg.modelId];
-        if (!spec) {
+    switch (msg.type) {
+      case "load": {
+        if (loadInFlight) {
+          // Never start a second load while one is in progress: two loads would
+          // fight over the single wllama instance and desync the cache.
           ctx.postMessage({
             type: "error",
             reqId,
-            message: `unknown model: ${msg.modelId}`,
+            modelId: msg.modelId,
+            message: "a model operation is already in progress, try again in a moment",
           } satisfies AiWorkerResponse);
           return;
         }
-        const needle = specNeedle(spec);
-
-        // Unload this model's inference handle if it is resident.
-        if (currentModel === spec.id) {
-          await exitInstance();
-          currentModel = null;
-          activeBackend = "unavailable";
+        loadInFlight = { reqId, modelId: msg.modelId };
+        let result;
+        try {
+          result = await loadModelInternal(msg.modelId, msg.allowDownload, msg.nCtx, reqId);
+        } finally {
+          // Only clear the guard if this request still owns it; a newer load
+          // may have taken over after a cancel.
+          if (loadInFlight && loadInFlight.reqId === reqId) loadInFlight = null;
         }
-
-        // Delete through the shared cache manager: no Wllama instance needed,
-        // so no WASM to leak or re-initialize.
-        const cache = await getSharedCache();
-        if (spec.runtime === "gguf") {
-          await cache.deleteMany((e) => entryMatches(e, needle));
+        if (result.ok) {
+          ctx.postMessage({
+            type: "ready",
+            reqId,
+            modelId: msg.modelId,
+            backend: result.backend,
+            ctx: result.ctx,
+          } satisfies AiWorkerResponse);
+        } else {
+          ctx.postMessage({
+            type: "error",
+            reqId,
+            modelId: msg.modelId,
+            message: result.error,
+          } satisfies AiWorkerResponse);
         }
+        return;
+      }
 
-        // Also clear from the Cache API (for ONNX/transformers models)
-        if (typeof caches !== "undefined") {
-          for (const key of await caches.keys()) {
-            if (!/transformers/i.test(key)) continue;
-            const cache = await caches.open(key);
-            for (const req of await cache.keys()) {
-              if (req.url.toLowerCase().includes(needle)) await cache.delete(req);
+      case "cancel-load": {
+        // The main thread's deadline expired. It cannot reach the wllama
+        // instance to stop a download (wllama exposes no abort API), so the
+        // best we can do is release the guard for the request that owns it.
+        // A newer load that started afterwards keeps its own guard intact.
+        if (isOwnedLoad(reqId, msg.modelId)) loadInFlight = null;
+        return;
+      }
+
+      case "chat-messages": {
+        try {
+          const text = await chatMessages(msg.turns, msg.options);
+          ctx.postMessage({ type: "done", text } satisfies AiWorkerResponse);
+        } catch (err) {
+          ctx.postMessage({
+            type: "error",
+            message: err instanceof Error ? err.message : "chat failed",
+          } satisfies AiWorkerResponse);
+        }
+        return;
+      }
+
+      case "chat": {
+        try {
+          const text = await chatMessages(
+            [
+              { role: "system", content: msg.system },
+              { role: "user", content: msg.user },
+            ],
+            msg.options,
+          );
+          ctx.postMessage({ type: "done", text } satisfies AiWorkerResponse);
+        } catch (err) {
+          ctx.postMessage({
+            type: "error",
+            message: err instanceof Error ? err.message : "chat failed",
+          } satisfies AiWorkerResponse);
+        }
+        return;
+      }
+
+      case "stop": {
+        abortRun = true;
+        return;
+      }
+
+      case "unload": {
+        // Drop the inference handle; the shared cache manager outlives it, so
+        // the weights remain "on device" and can be re-loaded or deleted.
+        await exitInstance();
+        currentModel = null;
+        currentCtx = DEFAULT_CTX;
+        activeBackend = "unavailable";
+        ctx.postMessage({ type: "unloaded" } satisfies AiWorkerResponse);
+        return;
+      }
+
+      case "cached-models": {
+        try {
+          const cached = await computeCachedModels();
+          ctx.postMessage({
+            type: "cached-models",
+            reqId,
+            ids: [...cached],
+          } satisfies AiWorkerResponse);
+        } catch (err) {
+          ctx.postMessage({
+            type: "error",
+            reqId,
+            message: err instanceof Error ? err.message : "cached-models failed",
+          } satisfies AiWorkerResponse);
+        }
+        return;
+      }
+
+      case "delete-model": {
+        // Never delete mid-download: it would remove the very file wllama is
+        // writing and corrupt the cache entry.
+        if (loadInFlight) {
+          ctx.postMessage({
+            type: "error",
+            reqId,
+            modelId: msg.modelId,
+            message: "a model is still downloading or loading, wait for it to finish",
+          } satisfies AiWorkerResponse);
+          return;
+        }
+        try {
+          const spec = MODEL_BY_ID[msg.modelId];
+          if (!spec) {
+            ctx.postMessage({
+              type: "error",
+              reqId,
+              message: `unknown model: ${msg.modelId}`,
+            } satisfies AiWorkerResponse);
+            return;
+          }
+          const needle = specNeedle(spec);
+
+          // Unload this model's inference handle if it is resident.
+          if (currentModel === spec.id) {
+            await exitInstance();
+            currentModel = null;
+            activeBackend = "unavailable";
+          }
+
+          // Delete through the shared cache manager: no Wllama instance needed,
+          // so no WASM to leak or re-initialize.
+          const cache = await getSharedCache();
+          if (spec.runtime === "gguf") {
+            await cache.deleteMany((e) => entryMatches(e, needle));
+          }
+
+          // Also clear from the Cache API (for ONNX/transformers models)
+          if (typeof caches !== "undefined") {
+            for (const key of await caches.keys()) {
+              if (!/transformers/i.test(key)) continue;
+              const cache = await caches.open(key);
+              for (const req of await cache.keys()) {
+                if (req.url.toLowerCase().includes(needle)) await cache.delete(req);
+              }
             }
           }
-        }
 
-        // Do not claim success until the cache actually agrees.
-        const stillThere =
-          spec.runtime === "gguf"
-            ? await cacheContains(spec)
-            : typeof caches !== "undefined"
-              ? await onnxCacheContains(needle)
-              : null;
+          // Do not claim success until the cache actually agrees.
+          const stillThere =
+            spec.runtime === "gguf"
+              ? await cacheContains(spec)
+              : typeof caches !== "undefined"
+                ? await onnxCacheContains(needle)
+                : null;
 
-        if (stillThere === true) {
+          if (stillThere === true) {
+            ctx.postMessage({
+              type: "error",
+              reqId,
+              modelId: msg.modelId,
+              message: "delete could not remove the cached weights, try again",
+            } satisfies AiWorkerResponse);
+            return;
+          }
+          if (stillThere === null) {
+            ctx.postMessage({
+              type: "error",
+              reqId,
+              modelId: msg.modelId,
+              message: "could not confirm the delete (cache unavailable), try again",
+            } satisfies AiWorkerResponse);
+            return;
+          }
+          ctx.postMessage({
+            type: "deleted",
+            reqId,
+            modelId: msg.modelId,
+          } satisfies AiWorkerResponse);
+        } catch (err) {
           ctx.postMessage({
             type: "error",
             reqId,
-            modelId: msg.modelId,
-            message: "delete could not remove the cached weights, try again",
+            message: err instanceof Error ? err.message : "delete-model failed",
           } satisfies AiWorkerResponse);
-          return;
         }
-        if (stillThere === null) {
-          ctx.postMessage({
-            type: "error",
-            reqId,
-            modelId: msg.modelId,
-            message: "could not confirm the delete (cache unavailable), try again",
-          } satisfies AiWorkerResponse);
-          return;
-        }
-        ctx.postMessage({ type: "deleted", reqId, modelId: msg.modelId } satisfies AiWorkerResponse);
-      } catch (err) {
+        return;
+      }
+
+      default:
         ctx.postMessage({
           type: "error",
-          reqId,
-          message: err instanceof Error ? err.message : "delete-model failed",
+          message: `unknown request type: ${(msg as { type: string }).type}`,
         } satisfies AiWorkerResponse);
-      }
-      return;
     }
-
-    default:
-      ctx.postMessage({
-        type: "error",
-        message: `unknown request type: ${(msg as { type: string }).type}`,
-      } satisfies AiWorkerResponse);
-  }
-});
+  },
+);

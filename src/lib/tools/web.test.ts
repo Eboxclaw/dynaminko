@@ -28,9 +28,19 @@ const {
 const { rank } = await import("@/lib/ai/encoder");
 
 const okJson = (body: unknown) =>
-  ({ ok: true, status: 200, json: async () => body, text: async () => JSON.stringify(body) }) as Response;
+  ({
+    ok: true,
+    status: 200,
+    json: async () => body,
+    text: async () => JSON.stringify(body),
+  }) as Response;
 const okText = (text: string) =>
-  ({ ok: true, status: 200, json: async () => JSON.parse(text), text: async () => text }) as Response;
+  ({
+    ok: true,
+    status: 200,
+    json: async () => JSON.parse(text),
+    text: async () => text,
+  }) as Response;
 const badUpstream = { ok: false, status: 502 } as Response;
 
 const LITE_HTML = `
@@ -71,7 +81,11 @@ describe("parseLite", () => {
   it("unwraps uddg links, pairs snippets, drops internal ddg rows", () => {
     const rows = parseLite(LITE_HTML, 8);
     expect(rows).toHaveLength(2);
-    expect(rows[0]).toMatchObject({ title: "Example A", url: "https://example.com/a", snippet: "Snippet A" });
+    expect(rows[0]).toMatchObject({
+      title: "Example A",
+      url: "https://example.com/a",
+      snippet: "Snippet A",
+    });
     expect(rows[1]).toMatchObject({ url: "https://example.com/b" });
   });
 
@@ -84,7 +98,11 @@ describe("parseJinaPayload", () => {
   it("parses the JSON form and filters rows without a url", () => {
     const rows = parseJinaPayload(JINA_JSON, 8);
     expect(rows).toHaveLength(2);
-    expect(rows[0]).toMatchObject({ title: "One", url: "https://one.com/x", snippet: "first description" });
+    expect(rows[0]).toMatchObject({
+      title: "One",
+      url: "https://one.com/x",
+      snippet: "first description",
+    });
   });
 
   it("parses the markdown form, snippet is the text between links", () => {
@@ -103,7 +121,11 @@ describe("parseWikipediaPayload", () => {
       8,
     );
     expect(rows).toHaveLength(2);
-    expect(rows[0]).toMatchObject({ title: "T1", url: "https://en.wikipedia.org/wiki/T1", snippet: "d1" });
+    expect(rows[0]).toMatchObject({
+      title: "T1",
+      url: "https://en.wikipedia.org/wiki/T1",
+      snippet: "d1",
+    });
   });
 
   it("returns nothing on a malformed payload", () => {
@@ -169,7 +191,8 @@ describe("webSearch chain", () => {
       localStorage: { getItem: (k: string) => backing.get(k) ?? null, setItem: () => {} },
     });
     const fetchMock = vi.mocked(fetch);
-    fetchMock.mockRejectedValueOnce(new Error("no server")) // proxy: static host
+    fetchMock
+      .mockRejectedValueOnce(new Error("no server")) // proxy: static host
       .mockResolvedValueOnce(okText(JINA_JSON) as Response); // jina direct
     const out = await webSearch("q");
     expect(out.source).toBe("jina");
@@ -185,12 +208,16 @@ describe("webSearch chain", () => {
       .mockResolvedValueOnce(badUpstream as Response) // proxy ddg: anomaly wall
       .mockRejectedValueOnce(new Error("jina rate limited")) // jina direct
       .mockRejectedValueOnce(new Error("ia down")) // ddg instant answer
-      .mockResolvedValueOnce( // wikipedia opensearch
+      .mockResolvedValueOnce(
+        // wikipedia opensearch
         okText(`["q",["Topic"],["desc"],["https://en.wikipedia.org/wiki/Topic"]]`) as Response,
       );
     const out = await webSearch("q");
     expect(out.source).toBe("wikipedia");
-    expect(out.results[0]).toMatchObject({ title: "Topic", url: "https://en.wikipedia.org/wiki/Topic" });
+    expect(out.results[0]).toMatchObject({
+      title: "Topic",
+      url: "https://en.wikipedia.org/wiki/Topic",
+    });
     expect(fetchMock).toHaveBeenCalledTimes(4);
   });
 
@@ -379,7 +406,10 @@ describe("webRead chain", () => {
   it("returns the proxy digest on the happy path", async () => {
     const fetchMock = vi.mocked(fetch);
     fetchMock.mockResolvedValueOnce(
-      okJson({ ...extractHtmlDigest(PAGE_HTML, "https://sample.com/page"), source: "proxy-html" }) as Response,
+      okJson({
+        ...extractHtmlDigest(PAGE_HTML, "https://sample.com/page"),
+        source: "proxy-html",
+      }) as Response,
     );
     const out = await webRead("https://sample.com/page");
     expect(out.source).toBe("proxy-html");

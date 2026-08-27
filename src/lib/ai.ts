@@ -153,8 +153,7 @@ const MODEL_LIST: Omit<ModelSpec, "backend">[] = [
     repo: "onnx-community/all-MiniLM-L6-v2-ONNX",
     quant: "fp32",
     runtime: "transformers",
-    serve:
-      'AutoModel.from_pretrained("onnx-community/all-MiniLM-L6-v2-ONNX")',
+    serve: 'AutoModel.from_pretrained("onnx-community/all-MiniLM-L6-v2-ONNX")',
     blurb: "Semantic routing, retrieval and tagging. Never writes prose.",
     role: "Routing, retrieval, tool and skill discovery, light classification",
     capabilities: ["encode"],
@@ -221,7 +220,13 @@ export function deviceProfile(): DeviceProfile {
   };
 }
 
-const RECOMMEND_ORDER = ["lfm2-350", "lfm2-1_2-thinking", "lfm2-1_2-instruct", "lfm2-450-vl", "lfm2-2_6"];
+const RECOMMEND_ORDER = [
+  "lfm2-350",
+  "lfm2-1_2-thinking",
+  "lfm2-1_2-instruct",
+  "lfm2-450-vl",
+  "lfm2-2_6",
+];
 
 export function recommendModel(profile = deviceProfile()): { id: string; reason: string } {
   if (!profile.probed) {
@@ -320,10 +325,7 @@ function extendPending(reqId: number | undefined, ms: number) {
   const p = pending.get(reqId);
   if (!p) return;
   clearTimeout(p.timer);
-  p.timer = setTimeout(
-    () => p.reject(new Error("AI worker request timed out")),
-    ms,
-  );
+  p.timer = setTimeout(() => p.reject(new Error("AI worker request timed out")), ms);
 }
 
 /** Reject everything when the worker process itself dies. */
@@ -461,7 +463,11 @@ function postAndWait<T>(msg: AiWorkerRequest): Promise<T> {
       // to drop the in-flight guard so the next op is not blocked by the
       // orphaned runtime it can no longer reach.
       if (msg.type === "load") {
-        w.postMessage({ type: "cancel-load", modelId: msg.modelId, reqId } satisfies AiWorkerRequest);
+        w.postMessage({
+          type: "cancel-load",
+          modelId: msg.modelId,
+          reqId,
+        } satisfies AiWorkerRequest);
       }
       doReject(new Error("AI worker request timed out"));
     }, 120_000);

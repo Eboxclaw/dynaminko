@@ -57,9 +57,8 @@ export async function mergeLatestQuotes(
   incoming: { symbol: string; usd: number; change24h: number | null }[],
 ): Promise<void> {
   const key = "quotes:latest";
-  const existing = (await idbGet<{ symbol: string; usd: number; change24h: number | null }[]>(
-    key,
-  )) ?? [];
+  const existing =
+    (await idbGet<{ symbol: string; usd: number; change24h: number | null }[]>(key)) ?? [];
   const map = new Map(existing.map((q) => [q.symbol.toUpperCase(), q]));
   for (const q of incoming) {
     if (q.usd == null || !q.symbol) continue;

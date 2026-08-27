@@ -129,8 +129,7 @@ function ModelRow({
   // Only one model operation may run at a time: while a download or load
   // is in flight, disable every row's buttons so a second click can't
   // desync the runtime. The worker enforces this too.
-  const opInFlight =
-    ai.status.phase === "downloading" || ai.status.phase === "loading";
+  const opInFlight = ai.status.phase === "downloading" || ai.status.phase === "loading";
   const blocked = opInFlight && !mine;
   const pct =
     mine && ai.status.phase === "downloading" ? Math.round(ai.status.progress * 100) : null;
@@ -150,7 +149,7 @@ function ModelRow({
     m.runtime === "gguf" &&
     m.quant === "QAD-Q4_0" &&
     state === "downloaded" &&
-    !ai.install[id] /* show when not currently loaded */;
+    !ai.install[id]; /* show when not currently loaded */
 
   const run = (a: ModelAction) => {
     if (a === "download" || a === "resume") return void ai.load(id);

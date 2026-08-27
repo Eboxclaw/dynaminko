@@ -26,7 +26,10 @@ beforeEach(() => wipe());
 
 describe("journal.filter PnL side", () => {
   it("carries venue-reported realized pnl onto cards", () => {
-    ingestSignals([sig({ id: "win", symbol: "BTC", meta: { pnl: 50 } }), sig({ id: "lose", symbol: "ETH", meta: { pnl: -20 } })]);
+    ingestSignals([
+      sig({ id: "win", symbol: "BTC", meta: { pnl: 50 } }),
+      sig({ id: "lose", symbol: "ETH", meta: { pnl: -20 } }),
+    ]);
     const cards = buildIndex().cards;
     const win = cards.find((c) => c.id === "win");
     const lose = cards.find((c) => c.id === "lose");
@@ -60,7 +63,10 @@ describe("journal.filter PnL side", () => {
   });
 
   it("excludes cards with no venue-reported pnl from both sides", () => {
-    ingestSignals([sig({ id: "none", symbol: "AVAX" }), sig({ id: "flat", symbol: "DOGE", meta: { pnl: 0 } })]);
+    ingestSignals([
+      sig({ id: "none", symbol: "AVAX" }),
+      sig({ id: "flat", symbol: "DOGE", meta: { pnl: 0 } }),
+    ]);
     expect(filterCards({ pnl: "profit" }).length).toBe(0);
     expect(filterCards({ pnl: "loss" }).length).toBe(0);
   });
@@ -68,7 +74,9 @@ describe("journal.filter PnL side", () => {
 
 describe("journal.index entry inheritance", () => {
   it("entries inherit venue, action and pnl from their linked signal", () => {
-    ingestSignals([sig({ id: "t1", symbol: "BTC", venue: "hyperliquid", action: "trade", meta: { pnl: 42 } })]);
+    ingestSignals([
+      sig({ id: "t1", symbol: "BTC", venue: "hyperliquid", action: "trade", meta: { pnl: 42 } }),
+    ]);
     addEntry({ tradeId: "t1", headline: "Bought BTC", sentiment: "conviction" });
     const card = buildIndex().cards.find((c) => c.type === "entry" && c.tradeId === "t1");
     expect(card).toBeDefined();

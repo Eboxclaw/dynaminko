@@ -337,13 +337,14 @@ function ChatConsole({
 
   /** Format search results into card facts with clickable links. */
   const searchFacts = (results: unknown, why: string): string[] => {
-    const rows = (results as { results?: { title: string; url: string; snippet: string }[] })?.results;
+    const rows = (results as { results?: { title: string; url: string; snippet: string }[] })
+      ?.results;
     if (!rows?.length) return [why].filter(Boolean);
     return [
       why,
-      ...rows.slice(0, 5).map(
-        (r, i) => `${i + 1}. ${r.title} ${r.url} · ${r.snippet.slice(0, 100)}`,
-      ),
+      ...rows
+        .slice(0, 5)
+        .map((r, i) => `${i + 1}. ${r.title} ${r.url} · ${r.snippet.slice(0, 100)}`),
     ].filter(Boolean);
   };
 
@@ -648,38 +649,40 @@ function ChatConsole({
         }
       }
 
-if (ground && !conversational && hopAllowed.length > 0) {
-	        turn.stage("tool", "decide");
-	        const pick = skipDecide
-	          ? {
-	              def: hopAllowed[0],
-	              query: user,
-	              ticker: undefined,
-	              basket: undefined,
-	              limit: undefined,
-	              why: "external intent, web.search forced",
-	            }
-	          : await decideAction(user, hopAllowed);
-	        if (pick) {
-	          turn.settle("tool", "ok", `${pick.def.id} · ${pick.why || "model-chosen"}`);
-	          try {
-	            const input = buildToolInput(pick);
-	            const out =
-	              pick.def.kind === "command"
-	                ? await runCommand(pick.def.id, input)
-	                : await runTool(TOOL_BY_ID[pick.def.id], input);
-	            const summary =
-	              pick.def.kind === "command"
-	                ? ((out as CommandResult).summary ?? (out as CommandResult).status)
-	                : summarise(out);
-const capture = captureResult(out);
+      if (ground && !conversational && hopAllowed.length > 0) {
+        turn.stage("tool", "decide");
+        const pick = skipDecide
+          ? {
+              def: hopAllowed[0],
+              query: user,
+              ticker: undefined,
+              basket: undefined,
+              limit: undefined,
+              why: "external intent, web.search forced",
+            }
+          : await decideAction(user, hopAllowed);
+        if (pick) {
+          turn.settle("tool", "ok", `${pick.def.id} · ${pick.why || "model-chosen"}`);
+          try {
+            const input = buildToolInput(pick);
+            const out =
+              pick.def.kind === "command"
+                ? await runCommand(pick.def.id, input)
+                : await runTool(TOOL_BY_ID[pick.def.id], input);
+            const summary =
+              pick.def.kind === "command"
+                ? ((out as CommandResult).summary ?? (out as CommandResult).status)
+                : summarise(out);
+            const capture = captureResult(out);
             const isWebSearch = pick.def.id === "web.search";
             push({
               role: "tool",
               text: `${pick.def.id} · model-chosen`,
               card: {
                 source: `${pick.def.id} (model pick)`,
-                facts: isWebSearch ? searchFacts(out, pick.why) : [pick.why, summary].filter(Boolean),
+                facts: isWebSearch
+                  ? searchFacts(out, pick.why)
+                  : [pick.why, summary].filter(Boolean),
                 data: { query: pick.query, result: capture.clamped } as Record<string, unknown>,
                 offloadKey: capture.offloadKey,
               },
@@ -693,31 +696,37 @@ const capture = captureResult(out);
               data: capture.clamped,
               offloadKey: capture.offloadKey,
             });
-	          } catch (err) {
-	            turn.settle("tool", "error", err instanceof Error ? err.message : "tool failed");
-	          }
-	        } else {
-	          turn.settle("tool", "skipped", "no tool chosen");
-	        }
+          } catch (err) {
+            turn.settle("tool", "error", err instanceof Error ? err.message : "tool failed");
+          }
+        } else {
+          turn.settle("tool", "skipped", "no tool chosen");
+        }
 
-	        // v1 2-hop chain: after a web.search that returned results, offer one
-	        // follow-up web.read on a URL from those results. Hard-capped at one
-	        // extra hop, web group only.
-	        const lastObs = observationsRef.current.at(-1);
-	        if (web && ground && !conversational && lastObs?.id === "web.search" && lastObs.status === "ok") {
-	          const readDef = capabilityCatalogue().find((d) => d.id === "web.read");
-	          if (readDef) {
-	            turn.stage("tool", "decide");
-	            const readPick = await decideAction(
-	              `Read one page from these results to learn more:\n${captureResult(lastObs.data).clamped ?? "search results"}`,
-	              [readDef],
-	            );
-	            if (readPick) {
-	              turn.settle("tool", "ok", `${readPick.def.id} · ${readPick.why || "model-chosen"}`);
-	              try {
-	                const input = buildToolInput(readPick);
-	                const out = await runTool(TOOL_BY_ID[readPick.def.id], input);
-const summary = summarise(out);
+        // v1 2-hop chain: after a web.search that returned results, offer one
+        // follow-up web.read on a URL from those results. Hard-capped at one
+        // extra hop, web group only.
+        const lastObs = observationsRef.current.at(-1);
+        if (
+          web &&
+          ground &&
+          !conversational &&
+          lastObs?.id === "web.search" &&
+          lastObs.status === "ok"
+        ) {
+          const readDef = capabilityCatalogue().find((d) => d.id === "web.read");
+          if (readDef) {
+            turn.stage("tool", "decide");
+            const readPick = await decideAction(
+              `Read one page from these results to learn more:\n${captureResult(lastObs.data).clamped ?? "search results"}`,
+              [readDef],
+            );
+            if (readPick) {
+              turn.settle("tool", "ok", `${readPick.def.id} · ${readPick.why || "model-chosen"}`);
+              try {
+                const input = buildToolInput(readPick);
+                const out = await runTool(TOOL_BY_ID[readPick.def.id], input);
+                const summary = summarise(out);
                 const capture = captureResult(out);
                 const isRead = readPick.def.id === "web.read";
                 push({
@@ -725,29 +734,31 @@ const summary = summarise(out);
                   text: `${readPick.def.id} · follow-up`,
                   card: {
                     source: `${readPick.def.id} (follow-up)`,
-                    facts: isRead ? readFacts(out, readPick.why) : [readPick.why, summary].filter(Boolean),
-	                    data: { result: capture.clamped } as Record<string, unknown>,
-	                    offloadKey: capture.offloadKey,
-	                  },
-	                });
-	                observationsRef.current.push({
-	                  id: readPick.def.id,
-	                  kind: "tool",
-	                  source: readPick.def.id,
-	                  status: "ok",
-	                  summary,
-	                  data: capture.clamped,
-	                  offloadKey: capture.offloadKey,
-	                });
-	              } catch (err) {
-	                turn.settle("tool", "error", err instanceof Error ? err.message : "tool failed");
-	              }
-	            } else {
-	              turn.settle("tool", "skipped", "no page selected by model");
-	            }
-	          }
-	        }
-	      }
+                    facts: isRead
+                      ? readFacts(out, readPick.why)
+                      : [readPick.why, summary].filter(Boolean),
+                    data: { result: capture.clamped } as Record<string, unknown>,
+                    offloadKey: capture.offloadKey,
+                  },
+                });
+                observationsRef.current.push({
+                  id: readPick.def.id,
+                  kind: "tool",
+                  source: readPick.def.id,
+                  status: "ok",
+                  summary,
+                  data: capture.clamped,
+                  offloadKey: capture.offloadKey,
+                });
+              } catch (err) {
+                turn.settle("tool", "error", err instanceof Error ? err.message : "tool failed");
+              }
+            } else {
+              turn.settle("tool", "skipped", "no page selected by model");
+            }
+          }
+        }
+      }
 
       const budgetTokens = Math.floor(ai.ctx * 0.75);
       const portfolioLines =
@@ -837,22 +848,21 @@ const summary = summarise(out);
       // exactly which temperature / context / sampling produced each line.
       const spec = ai.spec;
       const topP = 0.9;
-      log(
-        "agent",
-        "usage",
-        {
-          level: "info",
-          detail:
-            `${ai.target.label} · quant ${spec?.quant ?? "?"} · ` +
-            `temp ${ground ? 0.2 : spec?.sampling?.temperature ?? 0.4} (top_p ${topP}, min_p ${spec?.sampling?.minP ?? "—"}, rep ${spec?.sampling?.repeatPenalty ?? "—"}/${spec?.sampling?.penaltyLastN ?? "—"}) · ` +
-            `maxTokens ${ai.maxTokens} · ctx ${ai.loadedCtx}/${spec?.maxCtx ?? "?"} · ` +
-            `${ai.backend} · prompt ~${build.estTokens}t · ` +
-            `answer ~${estimateTokens(text)}t · tps ${ai.speed?.tps ?? "?"}` +
-            (build.sections.some((s) => s.truncated)
-              ? ` · shed: ${build.sections.filter((s) => s.truncated).map((s) => s.name).join(",")}`
-              : ""),
-        },
-      );
+      log("agent", "usage", {
+        level: "info",
+        detail:
+          `${ai.target.label} · quant ${spec?.quant ?? "?"} · ` +
+          `temp ${ground ? 0.2 : (spec?.sampling?.temperature ?? 0.4)} (top_p ${topP}, min_p ${spec?.sampling?.minP ?? "—"}, rep ${spec?.sampling?.repeatPenalty ?? "—"}/${spec?.sampling?.penaltyLastN ?? "—"}) · ` +
+          `maxTokens ${ai.maxTokens} · ctx ${ai.loadedCtx}/${spec?.maxCtx ?? "?"} · ` +
+          `${ai.backend} · prompt ~${build.estTokens}t · ` +
+          `answer ~${estimateTokens(text)}t · tps ${ai.speed?.tps ?? "?"}` +
+          (build.sections.some((s) => s.truncated)
+            ? ` · shed: ${build.sections
+                .filter((s) => s.truncated)
+                .map((s) => s.name)
+                .join(",")}`
+            : ""),
+      });
 
       // Zero output is a failure, never a quiet success.
       if (!text) {
@@ -1186,7 +1196,9 @@ const summary = summarise(out);
         const memCtx = memoryStats();
         const session = sessions.find((s) => s.id === activeId);
         // The last effective-settings line, logged by the answer turn.
-        const usageLine = getDoc().logs?.find((l) => l.agent === "agent" && l.event === "usage")?.detail;
+        const usageLine = getDoc().logs?.find(
+          (l) => l.agent === "agent" && l.event === "usage",
+        )?.detail;
         push({
           role: "note",
           text: [
@@ -1740,9 +1752,10 @@ function ToolCard({
             images?: { alt: string; url: string }[];
             words?: number;
           };
-          let reader = `# ${d.siteName ? `${d.siteName} — ${d.title}` : d.title ?? "Untitled page"}`;
+          let reader = `# ${d.siteName ? `${d.siteName} — ${d.title}` : (d.title ?? "Untitled page")}`;
           if (d.description) reader += `\n\n${d.description}`;
-          if (d.outline?.length) reader += `\n\n## Sections\n${d.outline.map((h) => `- ${h}`).join("\n")}`;
+          if (d.outline?.length)
+            reader += `\n\n## Sections\n${d.outline.map((h) => `- ${h}`).join("\n")}`;
           if (d.paragraphs?.length) {
             reader += `\n\n## Content\n`;
             let budget = 8000;
@@ -1755,7 +1768,9 @@ function ToolCard({
           if (d.linkDomains?.length) reader += `\n\n## Outbound links\n${d.linkDomains.join("\n")}`;
           if (d.words != null) reader += `\n\n---\n${d.words.toLocaleString("en-US")} words`;
           if (d.images?.length) reader += `\n${d.images.length} images on page`;
-          return reader.length > DISPLAY_CAP ? `${reader.slice(0, DISPLAY_CAP)}\n[showing first ${DISPLAY_CAP.toLocaleString("en-US")} chars]` : reader;
+          return reader.length > DISPLAY_CAP
+            ? `${reader.slice(0, DISPLAY_CAP)}\n[showing first ${DISPLAY_CAP.toLocaleString("en-US")} chars]`
+            : reader;
         }
         const pretty = JSON.stringify(data, null, 2);
         return pretty.length > DISPLAY_CAP

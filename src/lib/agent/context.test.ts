@@ -16,7 +16,9 @@ import { capabilityCatalogue } from "@/lib/capabilities/catalogue";
 import type { ChatMessage } from "@/lib/chat/session";
 
 function baseInput(overrides: Partial<Parameters<typeof buildTurn>[0]> = {}) {
-  const defs = capabilityCatalogue().filter((d) => d.kind !== "concept" && d.kind !== "agent_capability");
+  const defs = capabilityCatalogue().filter(
+    (d) => d.kind !== "concept" && d.kind !== "agent_capability",
+  );
   return {
     instructions: "Answer briefly.",
     state: "wallet: none watched\nentries: 0",
@@ -150,7 +152,9 @@ describe("buildTurn", () => {
   });
 
   it("forced level 1 drops records and capability detail", () => {
-    const defs = capabilityCatalogue().filter((d) => d.kind === "tool").slice(0, 2);
+    const defs = capabilityCatalogue()
+      .filter((d) => d.kind === "tool")
+      .slice(0, 2);
     const b = buildTurn(
       baseInput({
         budgetTokens: 2000,

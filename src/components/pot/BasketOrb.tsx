@@ -114,7 +114,12 @@ export function BasketOrb({ slices }: { slices: OrbSlice[] }) {
 
       const core = new THREE.Mesh(
         new THREE.IcosahedronGeometry(1.12, small ? 0 : 1),
-        new THREE.MeshBasicMaterial({ color: ink, wireframe: true, transparent: true, opacity: 0.16 }),
+        new THREE.MeshBasicMaterial({
+          color: ink,
+          wireframe: true,
+          transparent: true,
+          opacity: 0.16,
+        }),
       );
       group.add(core);
 

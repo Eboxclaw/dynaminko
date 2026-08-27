@@ -108,8 +108,9 @@ export function subscribe(handlers: {
   if (!p?.on) return () => {};
   const onAccounts = ((accounts: string[]) =>
     handlers.onAccounts?.(accounts.map((a) => a.toLowerCase()))) as (...a: never[]) => void;
-  const onChain = ((hex: string) =>
-    handlers.onChain?.(Number.parseInt(hex, 16))) as (...a: never[]) => void;
+  const onChain = ((hex: string) => handlers.onChain?.(Number.parseInt(hex, 16))) as (
+    ...a: never[]
+  ) => void;
   p.on("accountsChanged", onAccounts);
   p.on("chainChanged", onChain);
   return () => {

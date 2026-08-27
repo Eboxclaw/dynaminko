@@ -10,7 +10,12 @@
 import { getChain } from "@/chains";
 import { ethCallMany, toBigInt, words } from "@/lib/venues/evm";
 
-import { freshCachedQuotes, mergeLatestQuotes, staleCachedQuotes, writeQuotesCache } from "./prices-cache";
+import {
+  freshCachedQuotes,
+  mergeLatestQuotes,
+  staleCachedQuotes,
+  writeQuotesCache,
+} from "./prices-cache";
 
 const GECKO = "https://api.coingecko.com/api/v3";
 const HL_INFO = "https://api.hyperliquid.xyz/info";

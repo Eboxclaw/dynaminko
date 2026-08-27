@@ -145,18 +145,18 @@ user moved the slider.)
 Settings captured per answer via `/usage` (both quant QAD-Q4_0, both run
 temp 0.2 grounded / top_p 0.9 / min_p 0.15 / repeat 1.05/64 / maxTokens 8192):
 
-| | 350M | 1.2B Instruct |
-|---|---|---|
-| context loaded / model max | 8192 / 8192 | 8192 / **32128** |
-| backend / tps | WebGPU / 4.3 | WebGPU / 23.5 |
-| prompt size | ~4243t | ~4243t |
-| answer size | ~222t (wallet) | ~83t (wallet) |
+|                            | 350M           | 1.2B Instruct    |
+| -------------------------- | -------------- | ---------------- |
+| context loaded / model max | 8192 / 8192    | 8192 / **32128** |
+| backend / tps              | WebGPU / 4.3   | WebGPU / 23.5    |
+| prompt size                | ~4243t         | ~4243t           |
+| answer size                | ~222t (wallet) | ~83t (wallet)    |
 
-| Question (ground truth) | 350M | 1.2B Instruct |
-|---|---|---|
-| Wallet holdings ($1,597, 11 tokens: KBTC $545, ETH $528, KRAKMASK $202, BEAST $178, USDC $55…) | **Correct** after F6: ~$1509, top holdings and basket split right | **Correct**: $1,508, KBTC $544 / ETH $527 / KRAKMASK $201 / BEAST $177 |
-| Inbox (200 pending, newest by signal ts: BTC in 0.00278 @ ~$204 2026-08-21, BTC out 0.00278 @ ~$202 2026-08-20, …) | Skill fires; 200 pending + recent rows, newest-first after F7 | Skill fires; 200 pending + recent rows |
-| Nado BTC perp (long, 0.00355, entry 77,441, notional $286, uPnL +$11; lev/TP/SL/margin not reported) | Hallucinated lev/TP/SL/margin before F6; after F6 reads digest but still drifts (fills 350M-style) | **Correct**: long; lev/TP/SL/margin "not explicitly reported on Nado (margin available at account level)" |
+| Question (ground truth)                                                                                            | 350M                                                                                               | 1.2B Instruct                                                                                             |
+| ------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| Wallet holdings ($1,597, 11 tokens: KBTC $545, ETH $528, KRAKMASK $202, BEAST $178, USDC $55…)                     | **Correct** after F6: ~$1509, top holdings and basket split right                                  | **Correct**: $1,508, KBTC $544 / ETH $527 / KRAKMASK $201 / BEAST $177                                    |
+| Inbox (200 pending, newest by signal ts: BTC in 0.00278 @ ~$204 2026-08-21, BTC out 0.00278 @ ~$202 2026-08-20, …) | Skill fires; 200 pending + recent rows, newest-first after F7                                      | Skill fires; 200 pending + recent rows                                                                    |
+| Nado BTC perp (long, 0.00355, entry 77,441, notional $286, uPnL +$11; lev/TP/SL/margin not reported)               | Hallucinated lev/TP/SL/margin before F6; after F6 reads digest but still drifts (fills 350M-style) | **Correct**: long; lev/TP/SL/margin "not explicitly reported on Nado (margin available at account level)" |
 
 Before F1–F3 the same 1.2B got $687 net worth (unpriced) — the data layer was
 the binding constraint, not the model.

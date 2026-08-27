@@ -30,12 +30,7 @@ export type WebResult = {
   snippet: string;
 };
 
-export type WebSearchSource =
-  | "duckduckgo-lite"
-  | "duckduckgo-ia"
-  | "jina"
-  | "tavily"
-  | "wikipedia";
+export type WebSearchSource = "duckduckgo-lite" | "duckduckgo-ia" | "jina" | "tavily" | "wikipedia";
 
 export type WebSearchOut = {
   query: string;
@@ -95,7 +90,10 @@ export function dedupeResults(rows: WebResult[]): WebResult[] {
   const seen = new Set<string>();
   const out: WebResult[] = [];
   for (const r of rows) {
-    const key = r.url.replace(/[?#].*$/, "").replace(/\/+$/, "").toLowerCase();
+    const key = r.url
+      .replace(/[?#].*$/, "")
+      .replace(/\/+$/, "")
+      .toLowerCase();
     if (!key || seen.has(key)) continue;
     seen.add(key);
     out.push(r);
@@ -181,7 +179,9 @@ export function parseWikipediaPayload(text: string, limit: number): WebResult[] 
     const [, titles = [], descriptions = [], urls = []] = data;
     return titles.slice(0, limit).map((title, i) => ({
       title: title.slice(0, 120),
-      url: urls[i] ?? `https://en.wikipedia.org/wiki/${encodeURIComponent(title.replaceAll(" ", "_"))}`,
+      url:
+        urls[i] ??
+        `https://en.wikipedia.org/wiki/${encodeURIComponent(title.replaceAll(" ", "_"))}`,
       snippet: (descriptions[i] ?? "").slice(0, SNIPPET_CHARS),
     }));
   } catch {
@@ -319,7 +319,11 @@ async function finalize(out: WebSearchOut, cap: number): Promise<WebSearchOut> {
   const deduped = dedupeResults(out.results).slice(0, cap);
   if (deduped.length === 0) return out;
   const { rows, reranked } = await rerankResults(out.query, deduped);
-  return { ...out, results: rows, note: out.note ?? (reranked ? "rows reranked by local relevance" : undefined) };
+  return {
+    ...out,
+    results: rows,
+    note: out.note ?? (reranked ? "rows reranked by local relevance" : undefined),
+  };
 }
 
 // ── the tool entry ────────────────────────────────────────────────────
@@ -420,7 +424,8 @@ const MAX_HTML_CHARS = 2_000_000;
 export function assertPublicUrl(raw: string): URL {
   const u = new URL(raw.trim());
   if (!/^https?:$/.test(u.protocol)) throw new Error("only http(s) urls are read");
-  if (u.port && u.port !== "80" && u.port !== "443") throw new Error("non-standard ports are not read");
+  if (u.port && u.port !== "80" && u.port !== "443")
+    throw new Error("non-standard ports are not read");
   const host = u.hostname.toLowerCase();
   if (/^(localhost|.*\.local|.*\.internal)$/.test(host)) {
     throw new Error("private addresses are not read");
@@ -557,7 +562,10 @@ export function digestMarkdown(md: string, pageUrl: string): Omit<WebReadOut, "s
   const title = (headingLines[0] ?? "").replace(/^#+\s+/, "").trim();
   const outline: string[] = [];
   for (const l of headingLines.slice(1)) {
-    const text = l.replace(/^#+\s+/, "").trim().slice(0, 90);
+    const text = l
+      .replace(/^#+\s+/, "")
+      .trim()
+      .slice(0, 90);
     if (text && !outline.includes(text)) outline.push(text);
     if (outline.length >= OUTLINE_ROWS) break;
   }
@@ -832,7 +840,10 @@ export async function webReadProxy(url: URL, request: Request): Promise<Response
     if (!digest.title && digest.paragraphs.length === 0) {
       return jsonError("page produced no readable text (client-rendered app?)", 422);
     }
-    return Response.json({ ...digest, source: "proxy-html" }, { headers: { "cache-control": "no-store" } });
+    return Response.json(
+      { ...digest, source: "proxy-html" },
+      { headers: { "cache-control": "no-store" } },
+    );
   } catch (err) {
     return jsonError(err instanceof Error ? err.message : "upstream failed", 502);
   }

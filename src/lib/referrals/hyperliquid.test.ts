@@ -21,10 +21,14 @@ describe("msgpackPack", () => {
     //          | fixstr "code" | fixstr(12) "OFFICIALINKO"
     const expected =
       "82" +
-      "a4" + "74797065" +
-      "ab" + "7365745265666572726572" +
-      "a4" + "636f6465" +
-      "ac" + "4f4646494349414c494e4b4f";
+      "a4" +
+      "74797065" +
+      "ab" +
+      "7365745265666572726572" +
+      "a4" +
+      "636f6465" +
+      "ac" +
+      "4f4646494349414c494e4b4f";
     expect(hex(msgpackPack({ type: "setReferrer", code: "OFFICIALINKO" }))).toBe(expected);
   });
 
@@ -80,9 +84,7 @@ describe("l1ActionHash", () => {
   it("produces a different hash per nonce and per vault flag", () => {
     const h1 = hex(l1ActionHash(action, 1000, null));
     const h2 = hex(l1ActionHash(action, 1001, null));
-    const hVault = hex(
-      l1ActionHash(action, 1000, "0x1111111111111111111111111111111111111111"),
-    );
+    const hVault = hex(l1ActionHash(action, 1000, "0x1111111111111111111111111111111111111111"));
     expect(h1).not.toBe(h2);
     expect(h1).not.toBe(hVault);
   });

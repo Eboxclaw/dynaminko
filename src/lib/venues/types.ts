@@ -6,12 +6,7 @@
 
 export type VenueId = "velodrome" | "inkyswap" | "nado" | "hyperliquid" | "tydro";
 
-export type PositionKind =
-  | "perp"
-  | "spot"
-  | "lp-concentrated"
-  | "lp-constant-product"
-  | "lending";
+export type PositionKind = "perp" | "spot" | "lp-concentrated" | "lp-constant-product" | "lending";
 
 export type Position = {
   id: string;

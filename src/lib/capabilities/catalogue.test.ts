@@ -42,7 +42,10 @@ describe("capabilityCatalogue", () => {
   it("excluded hop tools are still present in the book but in the exclusion set", () => {
     const defs = capabilityCatalogue();
     for (const id of HOP_EXCLUDED_IDS) {
-      expect(defs.some((d) => d.id === id), `${id} should stay in the book`).toBe(true);
+      expect(
+        defs.some((d) => d.id === id),
+        `${id} should stay in the book`,
+      ).toBe(true);
     }
   });
 

@@ -7,9 +7,9 @@ import { keccak_256 } from "@noble/hashes/sha3.js";
 
 import { decodeReserves, readTydro } from "@/lib/venues/tydro";
 
-const word = (v: string | number) =>
-  (typeof v === "number" ? v.toString(16) : v).padStart(64, "0");
-const addrWord = (a: string) => "000000000000000000000000" + a.toLowerCase().replace(/^0x/, "").padStart(40, "0");
+const word = (v: string | number) => (typeof v === "number" ? v.toString(16) : v).padStart(64, "0");
+const addrWord = (a: string) =>
+  "000000000000000000000000" + a.toLowerCase().replace(/^0x/, "").padStart(40, "0");
 /** String bytes are left-aligned within their padded word (ABI), unlike an
  * address which is right-aligned. */
 const dataWord = (hexBytes: string) => hexBytes.padEnd(64, "0");
@@ -48,7 +48,11 @@ describe("decodeReserves", () => {
 });
 
 describe("Tydro selectors are pinned to their signatures", () => {
-  const sel = (sig: string) => "0x" + Buffer.from(keccak_256(Buffer.from(sig))).subarray(0, 4).toString("hex");
+  const sel = (sig: string) =>
+    "0x" +
+    Buffer.from(keccak_256(Buffer.from(sig)))
+      .subarray(0, 4)
+      .toString("hex");
   it("matches the constants the reader uses", () => {
     expect(sel("getAllReservesTokens()")).toBe("0xb316ff89");
     expect(sel("getReserveTokensAddresses(address)")).toBe("0xd2493b6c");

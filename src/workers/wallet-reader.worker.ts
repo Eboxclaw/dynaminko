@@ -59,8 +59,7 @@ ctx.addEventListener("message", async (event: MessageEvent<ReaderRequest>) => {
         ctx.postMessage({
           type: "error",
           walletId: msg.address,
-          message:
-            reportsR.reason instanceof Error ? reportsR.reason.message : "venue read failed",
+          message: reportsR.reason instanceof Error ? reportsR.reason.message : "venue read failed",
         } satisfies ReaderResponse);
       }
       ctx.postMessage({ type: "done", at: Date.now() } satisfies ReaderResponse);

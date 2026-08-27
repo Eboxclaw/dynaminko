@@ -5,7 +5,12 @@
 import type { Entry, Sentiment, Signal, Thesis } from "./store";
 
 export type AxisId =
-  "coverage" | "alignment" | "discipline" | "execution" | "payoff" | "steadiness";
+  | "coverage"
+  | "alignment"
+  | "discipline"
+  | "execution"
+  | "payoff"
+  | "steadiness";
 
 export type AxisPart = { label: string; value: number; of: number };
 

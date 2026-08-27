@@ -7,9 +7,9 @@ const skills = readFileSync("src/lib/skills/registry.ts", "utf8");
 
 const ids = [...registry.matchAll(/id: "([a-z]+)\.([a-zA-Z]+)"/g)].map((m) => m[0]);
 const groups = new Set(
-  [...registry.matchAll(/group: "([a-z]+)"/g)].map((m) => m[1]).concat(
-    ["velodrome", "inkyswap", "hyperliquid", "nado", "tydro"],
-  ),
+  [...registry.matchAll(/group: "([a-z]+)"/g)]
+    .map((m) => m[1])
+    .concat(["velodrome", "inkyswap", "hyperliquid", "nado", "tydro"]),
 );
 const skillIds = [...skills.matchAll(/\n    id: "([a-z.]+)"/g)].map((m) => m[1]);
 

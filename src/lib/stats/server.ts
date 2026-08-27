@@ -55,8 +55,7 @@ export async function statsEndpoint(request: Request): Promise<Response> {
   if (request.method === "GET") {
     if (!cfg) return json({ configured: false });
     try {
-      const keys =
-        ((await pipeline([["keys", "spark:*"]]))?.[0] as string[] | undefined) ?? [];
+      const keys = ((await pipeline([["keys", "spark:*"]]))?.[0] as string[] | undefined) ?? [];
       const values = keys.length
         ? (((await pipeline([["mget", ...keys]]))?.[0] as Array<string | null>) ?? [])
         : [];

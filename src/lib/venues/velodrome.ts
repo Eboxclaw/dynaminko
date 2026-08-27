@@ -136,7 +136,11 @@ export async function readVelodrome(
       slotByPool.set(pool, { sqrtPriceX96: toBigInt(w[0]), tick: Number(toSigned(w[1])) });
     });
 
-  const meta = await readTokenMeta(chainId, raws.flatMap((p) => [p.token0, p.token1]), signal);
+  const meta = await readTokenMeta(
+    chainId,
+    raws.flatMap((p) => [p.token0, p.token1]),
+    signal,
+  );
   const now = Date.now();
 
   report.positions = raws.map((p, i): Position => {
@@ -177,7 +181,6 @@ export async function readVelodrome(
         inRange: inRange == null ? null : inRange ? "in" : "out",
         feesOwed0: Number(p.owed0) / 10 ** m0.decimals,
         feesOwed1: Number(p.owed1) / 10 ** m1.decimals,
-
       },
       fetchedAt: now,
       value: null,

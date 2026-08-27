@@ -1,5 +1,14 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { Check, Copy, Ghost, Inbox, Lightbulb, NotebookText, Plus, ShieldCheck } from "lucide-react";
+import {
+  Check,
+  Copy,
+  Ghost,
+  Inbox,
+  Lightbulb,
+  NotebookText,
+  Plus,
+  ShieldCheck,
+} from "lucide-react";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
 

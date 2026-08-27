@@ -3,7 +3,13 @@
 // renders — never from extracted signals. No model, no network: the reader
 // worker has already filled the IDB cache.
 
-import { addAlert, getDoc, patchSettings, readCachedSnapshot, readCachedVenueReports } from "@/lib/store";
+import {
+  addAlert,
+  getDoc,
+  patchSettings,
+  readCachedSnapshot,
+  readCachedVenueReports,
+} from "@/lib/store";
 import { SECTOR_BY_ID, classifyAsset, type SectorId } from "@/lib/sectors";
 import { buildPortfolio, type Holding } from "@/lib/portfolio";
 import { composeBaskets, composeNetWorth, openPerps, type MergedHolding } from "@/lib/exposure";
@@ -38,10 +44,19 @@ export async function holdingsPicture() {
   const quotes = (await idbGet<Quote[]>("quotes:latest")) ?? [];
   const portfolio = buildPortfolio(snapshot, quotes, overrides);
   const merged = composeBaskets(portfolio, reports, quotes, overrides);
-  return { portfolio, merged, reports, netWorth: composeNetWorth(portfolio, reports), perps: openPerps(reports) };
+  return {
+    portfolio,
+    merged,
+    reports,
+    netWorth: composeNetWorth(portfolio, reports),
+    perps: openPerps(reports),
+  };
 }
 
-export async function snapshot(_args: Record<string, unknown>, ctx: CommandContext): Promise<CommandResult> {
+export async function snapshot(
+  _args: Record<string, unknown>,
+  ctx: CommandContext,
+): Promise<CommandResult> {
   const id = "portfolio.snapshot";
   ctx.count();
   const picture = await holdingsPicture();
@@ -67,7 +82,10 @@ export async function snapshot(_args: Record<string, unknown>, ctx: CommandConte
       venueSpotValueUsd: Math.round(merged.venueSpotTotal),
       totalValueUsd: Math.round(merged.total),
       netWorthUsd: Math.round(netWorth.net),
-      venues: netWorth.venueEquity > 0 ? `wallet ${Math.round(netWorth.wallet)} + venues ${Math.round(netWorth.venueEquity)}` : null,
+      venues:
+        netWorth.venueEquity > 0
+          ? `wallet ${Math.round(netWorth.wallet)} + venues ${Math.round(netWorth.venueEquity)}`
+          : null,
       tokens: rows.length,
       baskets,
       openPerps: perps.trades.length,
@@ -80,12 +98,19 @@ export async function snapshot(_args: Record<string, unknown>, ctx: CommandConte
   );
 }
 
-export async function positions(args: Record<string, unknown>, ctx: CommandContext): Promise<CommandResult> {
+export async function positions(
+  args: Record<string, unknown>,
+  ctx: CommandContext,
+): Promise<CommandResult> {
   const id = "portfolio.positions";
   ctx.count();
   const picture = await holdingsPicture();
   if (!picture)
-    return ok(id, { rows: [], stale: true }, "No wallet snapshot cached yet; sync your wallet first.");
+    return ok(
+      id,
+      { rows: [], stale: true },
+      "No wallet snapshot cached yet; sync your wallet first.",
+    );
   const limit = typeof args.limit === "number" ? args.limit : 10;
   const basket = str(args.basket) as SectorId | null;
   const rows = picture.merged.holdings
@@ -154,5 +179,9 @@ export function createAlert(args: Record<string, unknown>, ctx: CommandContext):
   const direction = str(args.direction) === "below" ? "below" : "above";
   const alert = addAlert({ kind: "price", symbol, direction, target, note: str(args.note) ?? "" });
   ctx.count();
-  return ok(id, { id: alert.id, symbol, direction, target }, `Alert on ${symbol} ${direction} ${target}.`);
+  return ok(
+    id,
+    { id: alert.id, symbol, direction, target },
+    `Alert on ${symbol} ${direction} ${target}.`,
+  );
 }

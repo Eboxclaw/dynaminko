@@ -5,11 +5,22 @@ import { SKILLS } from "@/lib/skills/registry";
 import { TOOLS } from "@/lib/tools/registry";
 
 export type CapabilityKind =
-  "tool" | "skill" | "command" | "batch_command" | "agent_capability" | "concept";
+  | "tool"
+  | "skill"
+  | "command"
+  | "batch_command"
+  | "agent_capability"
+  | "concept";
 export type BatchMode = "single" | "batch" | "aggregate" | "workspace";
 /** The book: what area of the app a capability serves. */
 export type CapabilityCategory =
-  "journal" | "portfolio" | "theses" | "venues" | "alerts" | "assistant" | "models";
+  | "journal"
+  | "portfolio"
+  | "theses"
+  | "venues"
+  | "alerts"
+  | "assistant"
+  | "models";
 /** The book: how a capability executes and what it costs to run. */
 export type CapabilityExec = "read" | "compute" | "write-approval" | "model";
 
@@ -114,7 +125,13 @@ const COMMAND_ALIASES: Record<string, string[]> = {
     "pending trades",
     "unanswered trades",
   ],
-  "journal.apply_answer": ["resolve all pending trades", "resolve pending trades", "bulk resolve", "bulk answer inbox", "apply answer"],
+  "journal.apply_answer": [
+    "resolve all pending trades",
+    "resolve pending trades",
+    "bulk resolve",
+    "bulk answer inbox",
+    "apply answer",
+  ],
   "journal.review_thesis": [
     "review my thesis",
     "what changed in my thesis",
@@ -158,72 +175,80 @@ export function capabilityCatalogue(): CapabilityDefinition[] {
   // semantic aliases ("find trades", "most traded", …) are folded into the
   // tool entry so routing coverage does not shrink.
   const toolIds = new Set(TOOLS.filter((t) => t.live).map((t) => t.id));
-  const tools = TOOLS.filter((t) => t.live).map((t): CapabilityDefinition => ({
-    id: t.id,
-    kind: "tool",
-    label: t.label,
-    purpose: t.purpose,
-    aliases: [t.group, t.action, t.label, ...(COMMAND_ALIASES[t.id] ?? [])],
-    examples: COMMAND_EXAMPLES[t.id] ?? [],
-    inputs: t.inputs,
-    output: t.output,
-    access: t.access,
-    modelRequired: false,
-    batchMode: "single",
-    category: categoryOf(t.id),
-    exec: execOf("tool", t.access, false),
-  }));
+  const tools = TOOLS.filter((t) => t.live).map(
+    (t): CapabilityDefinition => ({
+      id: t.id,
+      kind: "tool",
+      label: t.label,
+      purpose: t.purpose,
+      aliases: [t.group, t.action, t.label, ...(COMMAND_ALIASES[t.id] ?? [])],
+      examples: COMMAND_EXAMPLES[t.id] ?? [],
+      inputs: t.inputs,
+      output: t.output,
+      access: t.access,
+      modelRequired: false,
+      batchMode: "single",
+      category: categoryOf(t.id),
+      exec: execOf("tool", t.access, false),
+    }),
+  );
 
-  const skills = SKILLS.map((s): CapabilityDefinition => ({
-    id: s.id,
-    kind: "skill",
-    label: s.label,
-    purpose: s.purpose,
-    aliases: [s.label, ...(s.aliases ?? []), ...s.tools],
-    examples: [],
-    inputs: s.tools.length ? `Runs tools: ${s.tools.join(", ")}` : "user text",
-    output: s.aiRole,
-    access: "COMPUTE",
-    modelRequired: s.aiRequired,
-    batchMode: s.tools.length > 1 ? "aggregate" : "single",
-    category: categoryOf(s.id),
-    exec: execOf("skill", "COMPUTE", s.aiRequired),
-  }));
+  const skills = SKILLS.map(
+    (s): CapabilityDefinition => ({
+      id: s.id,
+      kind: "skill",
+      label: s.label,
+      purpose: s.purpose,
+      aliases: [s.label, ...(s.aliases ?? []), ...s.tools],
+      examples: [],
+      inputs: s.tools.length ? `Runs tools: ${s.tools.join(", ")}` : "user text",
+      output: s.aiRole,
+      access: "COMPUTE",
+      modelRequired: s.aiRequired,
+      batchMode: s.tools.length > 1 ? "aggregate" : "single",
+      category: categoryOf(s.id),
+      exec: execOf("skill", "COMPUTE", s.aiRequired),
+    }),
+  );
 
-  const commands = COMMAND_DEFS.filter((c) => !toolIds.has(c.id)).map((c): CapabilityDefinition => ({
-    id: c.id,
-    kind:
-      c.batchMode === "batch" || c.batchMode === "aggregate" || c.batchMode === "workspace"
-        ? "batch_command"
-        : "command",
-    label: c.id,
-    purpose: c.description,
-    aliases: COMMAND_ALIASES[c.id] ?? c.capability,
-    examples: COMMAND_EXAMPLES[c.id] ?? [],
-    inputs: Object.keys(c.args).join(", ") || "none",
-    output: "CommandResult",
-    access: c.access,
-    modelRequired: false,
-    batchMode: c.batchMode,
-    category: categoryOf(c.id),
-    exec: execOf("command", c.access, false),
-  }));
+  const commands = COMMAND_DEFS.filter((c) => !toolIds.has(c.id)).map(
+    (c): CapabilityDefinition => ({
+      id: c.id,
+      kind:
+        c.batchMode === "batch" || c.batchMode === "aggregate" || c.batchMode === "workspace"
+          ? "batch_command"
+          : "command",
+      label: c.id,
+      purpose: c.description,
+      aliases: COMMAND_ALIASES[c.id] ?? c.capability,
+      examples: COMMAND_EXAMPLES[c.id] ?? [],
+      inputs: Object.keys(c.args).join(", ") || "none",
+      output: "CommandResult",
+      access: c.access,
+      modelRequired: false,
+      batchMode: c.batchMode,
+      category: categoryOf(c.id),
+      exec: execOf("command", c.access, false),
+    }),
+  );
 
-  const concepts = CONCEPTS.map((name): CapabilityDefinition => ({
-    id: `concept.${name.toLowerCase()}`,
-    kind: "concept",
-    label: name,
-    purpose: `Application concept: ${name}.`,
-    aliases: [name.toLowerCase()],
-    examples: [],
-    inputs: "none",
-    output: "context",
-    access: "NONE",
-    modelRequired: false,
-    batchMode: "single",
-    category: "assistant",
-    exec: "read",
-  }));
+  const concepts = CONCEPTS.map(
+    (name): CapabilityDefinition => ({
+      id: `concept.${name.toLowerCase()}`,
+      kind: "concept",
+      label: name,
+      purpose: `Application concept: ${name}.`,
+      aliases: [name.toLowerCase()],
+      examples: [],
+      inputs: "none",
+      output: "context",
+      access: "NONE",
+      modelRequired: false,
+      batchMode: "single",
+      category: "assistant",
+      exec: "read",
+    }),
+  );
 
   const agent: CapabilityDefinition = {
     id: "agent.inko",
