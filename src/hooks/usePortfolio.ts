@@ -51,11 +51,13 @@ function readInWorker(address: string, chainId: number): Promise<WalletSnapshot>
 export function useActiveWallet() {
   const doc = useDoc();
   const active: WalletRef | null = useMemo(() => {
-    if (!doc.activeWallet) return doc.wallets[0] ?? null;
+    // A paused wallet is deactivated: never resolved as active, and skipped
+    // by the fallback. Rows stay listed via `wallets` for the toggle.
+    const firstEligible = doc.wallets.find((w) => !w.paused) ?? null;
+    if (!doc.activeWallet) return firstEligible;
     return (
-      doc.wallets.find((w) => walletKey(w.chainId, w.address) === doc.activeWallet) ??
-      doc.wallets[0] ??
-      null
+      doc.wallets.find((w) => walletKey(w.chainId, w.address) === doc.activeWallet && !w.paused) ??
+      firstEligible
     );
   }, [doc.activeWallet, doc.wallets]);
   return { active, wallets: doc.wallets, chains: CHAINS };

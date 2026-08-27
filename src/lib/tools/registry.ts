@@ -8,6 +8,7 @@ import {
   getDoc,
   readCachedSnapshot,
   readCachedVenueReports,
+  activeConnectedWallet,
   prepareAttestation,
   commitAttestation,
 } from "@/lib/store";
@@ -224,12 +225,22 @@ export const TOOLS: ToolDef[] = [
     output: "{ thesisId, title, message, prevHash, alreadyAttested, signer } | { error }",
     live: true,
     run: async (i: { thesisId: string }) => {
+      // The signer is the app's active connected wallet, never just the
+      // account the injected provider happens to have selected.
+      const signer = activeConnectedWallet();
+      if (!signer)
+        return {
+          error:
+            "No active connected wallet. The user must connect a wallet (wallet chip) and keep it unpaused before an attestation can be drafted.",
+        };
       const accounts = await currentAccounts();
-      if (accounts.length === 0)
-        return { error: "No wallet is connected. Ask the user to connect one in Settings." };
-      const draft = prepareAttestation(i.thesisId, accounts[0]);
+      if (!accounts.includes(signer.address))
+        return {
+          error: `The wallet has ${accounts[0] ?? "no account"} selected, but the active wallet is ${signer.address}. Ask the user to select the active account in their wallet.`,
+        };
+      const draft = prepareAttestation(i.thesisId, signer.address);
       if (!draft) return { error: `No thesis with id ${i.thesisId}.` };
-      return { ...draft, signer: accounts[0] };
+      return { ...draft, signer: signer.address };
     },
   }),
   def({
@@ -244,9 +255,14 @@ export const TOOLS: ToolDef[] = [
     output: "{ thesisId, address, entryHash, signedAt } | { error }",
     live: true,
     run: async (i: { thesisId: string; draft: { message: string; prevHash: string } }) => {
+      const signer = activeConnectedWallet();
+      if (!signer) return { error: "No active connected wallet. Ask the user to connect one." };
       const accounts = await currentAccounts();
-      if (accounts.length === 0) return { error: "No wallet is connected." };
-      const address = accounts[0];
+      if (!accounts.includes(signer.address))
+        return {
+          error: `The wallet has ${accounts[0] ?? "no account"} selected, but the active wallet is ${signer.address}. The user must select the active account before signing.`,
+        };
+      const address = signer.address;
       const sig = await personalSign(i.draft.message, address);
       const saved = commitAttestation(i.thesisId, address, sig, {
         message: i.draft.message,

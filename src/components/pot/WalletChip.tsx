@@ -6,9 +6,10 @@ import { CHAINS, DEFAULT_CHAIN_ID } from "@/chains";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { useActiveWallet } from "@/hooks/usePortfolio";
 import { useInjectedWallet } from "@/hooks/useInjectedWallet";
+import { currentChainId } from "@/lib/chain/injected";
 import { shortAddress } from "@/lib/format";
 import { track } from "@/lib/stats/client";
-import { addWallet, removeWallet, setActiveWallet, walletKey } from "@/lib/store";
+import { addWallet, removeWallet, setActiveWallet, setWalletPaused, walletKey } from "@/lib/store";
 import { cn } from "@/lib/utils";
 
 const ADDRESS_RE = /^0x[a-fA-F0-9]{40}$/;
@@ -72,14 +73,26 @@ export function WalletPanel({
     try {
       const accounts = await injected.connect();
       if (!accounts[0]) return;
+      // The app is Ink-first: if the wallet sits on another network, prompt
+      // the switch with the docs-verified params in chains/ink.ts. A decline
+      // still connects; the panel then shows a "Switch to Ink" action.
+      let cid = await currentChainId();
+      if (cid == null || !CHAINS.some((c) => c.id === cid)) {
+        try {
+          await injected.switchTo(DEFAULT_CHAIN_ID);
+          cid = await currentChainId();
+        } catch {
+          toast("Connect stays read-only until the wallet is on Ink.");
+        }
+      }
       addWallet({
         address: accounts[0],
-        chainId: injected.chainId ?? DEFAULT_CHAIN_ID,
+        chainId: cid ?? DEFAULT_CHAIN_ID,
         label: injected.name,
         kind: "connected",
       });
       track("wallet_watched");
-      toast.success(`${injected.name} connected, read only`);
+      toast.success(`${injected.name} connected · reads only until you attest`);
       onDone?.();
     } catch {
       toast.error("Connection cancelled");
@@ -90,7 +103,9 @@ export function WalletPanel({
     <div className="space-y-4 p-4">
       <div>
         <p className="text-[13px] font-medium">Your wallets</p>
-        <p className="text-[12px] text-ink-faint">Read only. Nothing is signed, nothing is sent.</p>
+        <p className="text-[12px] text-ink-faint">
+          Reads only. Signing happens only when you attest, always an explicit wallet prompt.
+        </p>
       </div>
 
       {wallets.length > 0 && (
@@ -98,18 +113,22 @@ export function WalletPanel({
           {wallets.map((w) => {
             const key = walletKey(w.chainId, w.address);
             const chain = CHAINS.find((c) => c.id === w.chainId);
+            const wrongNetwork = w.kind === "connected" && w.chainId !== DEFAULT_CHAIN_ID;
             return (
               <li key={key}>
                 <div
                   className={cn(
                     "flex items-center gap-2 rounded-2xl px-2.5 py-2 transition",
                     key === activeKey ? "bg-accent-soft" : "hover:bg-sunken",
+                    w.paused && "opacity-50",
                   )}
                 >
                   <button
                     type="button"
                     onClick={() => {
-                      setActiveWallet(key);
+                      // Activating a paused row unpauses it: one intent, one action.
+                      if (w.paused) setWalletPaused(key, false);
+                      else setActiveWallet(key);
                       onDone?.();
                     }}
                     className="flex min-w-0 flex-1 items-center gap-2 text-left"
@@ -125,9 +144,22 @@ export function WalletPanel({
                       </span>
                       <span className="block text-[11px] text-ink-faint">
                         {chain?.name ?? "Unknown network"}
+                        {wrongNetwork && " · not Ink"}
                       </span>
                     </span>
                     {key === activeKey && <Check className="ml-auto h-4 w-4 text-accent" />}
+                  </button>
+                  <button
+                    type="button"
+                    aria-label={w.paused ? "Activate wallet" : "Pause wallet"}
+                    title={w.paused ? "Activate: reads and attest on" : "Pause: no reads, no attest"}
+                    onClick={() => setWalletPaused(key, !w.paused)}
+                    className={cn(
+                      "doodle-pill px-2 py-0.5 text-[11px]",
+                      w.paused ? "text-ink-faint" : "bg-ink text-paper",
+                    )}
+                  >
+                    {w.paused ? "Off" : "On"}
                   </button>
                   <button
                     type="button"
@@ -143,6 +175,37 @@ export function WalletPanel({
           })}
         </ul>
       )}
+
+      {(() => {
+        // The active connected wallet sits on another network: reads and
+        // attest need Ink. One deliberate click prompts the switch.
+        const aw = wallets.find((w) => walletKey(w.chainId, w.address) === activeKey);
+        if (!aw || aw.kind !== "connected" || aw.chainId === DEFAULT_CHAIN_ID) return null;
+        return (
+          <button
+            type="button"
+            onClick={async () => {
+              try {
+                await injected.switchTo(DEFAULT_CHAIN_ID);
+                // Re-key the row onto Ink mainnet; the address is unchanged.
+                addWallet({
+                  address: aw.address,
+                  chainId: DEFAULT_CHAIN_ID,
+                  label: aw.label,
+                  kind: "connected",
+                });
+                removeWallet(walletKey(aw.chainId, aw.address));
+                toast.success("Wallet switched to Ink");
+              } catch {
+                toast.error("Switch cancelled");
+              }
+            }}
+            className="doodle-pill w-full border border-stroke px-3 py-2 text-[12px] text-ink-soft hover:bg-accent-soft"
+          >
+            Wallet is on another network · Switch to Ink
+          </button>
+        );
+      })()}
 
       <div className="space-y-2">
         <div className="flex gap-2">
@@ -173,9 +236,20 @@ export function WalletPanel({
             </option>
           ))}
         </select>
+        <button
+          type="button"
+          onClick={connect}
+          disabled={!injected.available || injected.connecting}
+          className="doodle-pill flex w-full items-center justify-center gap-2 border border-stroke px-3 py-2 text-[12px] text-ink transition hover:bg-accent-soft disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          <Plug className="h-3.5 w-3.5" strokeWidth={1.9} />
+          {injected.connecting
+            ? "Connecting…"
+            : injected.available
+              ? `Connect ${injected.name}`
+              : "No wallet found in this browser"}
+        </button>
       </div>
-
-      {/* Connect is deliberately hidden: this phase is read-only. */}
     </div>
   );
 }

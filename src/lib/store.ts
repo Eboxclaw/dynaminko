@@ -115,6 +115,9 @@ export type WalletRef = {
   label: string;
   kind: "watch" | "connected";
   addedAt: number;
+  /** Paused wallets stay listed but are not read and cannot attest.
+   * Optional so documents saved before the flag load unchanged. */
+  paused?: boolean;
 };
 
 /** One line in the agent activity log. Local, append-only, capped. */
@@ -572,7 +575,11 @@ export function walletKey(chainId: number, address: string) {
 export function addWallet(ref: Omit<WalletRef, "addedAt">) {
   update((d) => {
     const key = walletKey(ref.chainId, ref.address);
-    if (!d.wallets.some((w) => walletKey(w.chainId, w.address) === key)) {
+    const existing = d.wallets.find((w) => walletKey(w.chainId, w.address) === key);
+    if (existing) {
+      // Re-connecting or re-watching is explicit intent to use it again.
+      existing.paused = false;
+    } else {
       d.wallets.unshift({ ...ref, address: ref.address.toLowerCase(), addedAt: Date.now() });
     }
     d.activeWallet = key;
@@ -585,11 +592,42 @@ export function setActiveWallet(key: string | null) {
   });
 }
 
+/** Active/deactivate toggle. Pausing keeps the wallet listed but stops all
+ * reads and attest for it; unpausing makes it the active wallet again. */
+export function setWalletPaused(key: string, paused: boolean) {
+  update((d) => {
+    const w = d.wallets.find((x) => walletKey(x.chainId, x.address) === key);
+    if (!w) return;
+    w.paused = paused;
+    if (paused) {
+      if (d.activeWallet === key) d.activeWallet = null;
+    } else {
+      d.activeWallet = key;
+    }
+  });
+}
+
+/** The one wallet that may sign (attestations): the resolved active wallet,
+ * only when it is a connected wallet and not paused. Everything that signs
+ * must go through this instead of trusting the injected provider's selected
+ * account. Resolution mirrors useActiveWallet: the explicit active slot,
+ * else the first unpaused wallet. */
+export function activeConnectedWallet(): WalletRef | null {
+  const d = getDoc();
+  const resolved = d.activeWallet
+    ? d.wallets.find((w) => walletKey(w.chainId, w.address) === d.activeWallet)
+    : d.wallets.find((w) => !w.paused);
+  if (!resolved || resolved.paused || resolved.kind !== "connected") return null;
+  return resolved;
+}
+
 export function removeWallet(key: string) {
   update((d) => {
     d.wallets = d.wallets.filter((w) => walletKey(w.chainId, w.address) !== key);
-    if (d.activeWallet === key)
-      d.activeWallet = d.wallets[0] ? walletKey(d.wallets[0].chainId, d.wallets[0].address) : null;
+    if (d.activeWallet === key) {
+      const next = d.wallets.find((w) => !w.paused);
+      d.activeWallet = next ? walletKey(next.chainId, next.address) : null;
+    }
   });
 }
 

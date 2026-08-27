@@ -1,15 +1,21 @@
 // Attestation ledger: draft/commit chain, stale-draft rejection, and
 // on-chain verification (with recoverSigner mocked to stay deterministic).
+// Also: wallet pause/activate semantics and activeConnectedWallet gating.
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  activeConnectedWallet,
   addThesis,
+  addWallet,
   attestationMessage,
   commitAttestation,
   getDoc,
   patchThesis,
   prepareAttestation,
+  removeWallet,
+  setActiveWallet,
+  setWalletPaused,
   verifyAttestation,
   wipe,
 } from "@/lib/store";
@@ -171,5 +177,91 @@ describe("verifyAttestation", () => {
     // on-chain recovery of the new message would not match the stored sig.
     const rederived = attestationMessage(thesis(t.id), d.prevHash, ALICE.toLowerCase());
     expect(rederived).not.toBe(d.message);
+  });
+});
+
+describe("wallet pause + activeConnectedWallet", () => {
+  const INK = 57073;
+  const connected = (address: string) => {
+    addWallet({ address, chainId: INK, label: "test", kind: "connected" });
+  };
+  const watched = (address: string) => {
+    addWallet({ address, chainId: INK, label: "test", kind: "watch" });
+  };
+  const keyOf = (address: string) => `${INK}:${address.toLowerCase()}`;
+
+  it("returns the active connected wallet", () => {
+    connected(ALICE);
+    expect(activeConnectedWallet()?.address).toBe(ALICE.toLowerCase());
+  });
+
+  it("returns null for a watch-only active wallet", () => {
+    watched(ALICE);
+    expect(activeConnectedWallet()).toBeNull();
+  });
+
+  it("returns null when the connected wallet is paused", () => {
+    connected(ALICE);
+    setWalletPaused(keyOf(ALICE), true);
+    expect(activeConnectedWallet()).toBeNull();
+    expect(getDoc().activeWallet).toBeNull();
+  });
+
+  it("unpausing reactivates the wallet", () => {
+    connected(ALICE);
+    setWalletPaused(keyOf(ALICE), true);
+    setWalletPaused(keyOf(ALICE), false);
+    expect(activeConnectedWallet()?.address).toBe(ALICE.toLowerCase());
+    expect(getDoc().activeWallet).toBe(keyOf(ALICE));
+  });
+
+  it("pausing the active wallet empties the slot; readers resolve the next eligible", () => {
+    connected(ALICE);
+    connected(BOB);
+    setWalletPaused(keyOf(BOB), true);
+    // The slot goes null on pause of the active wallet; the hook resolves
+    // the first unpaused wallet (ALICE) at read time.
+    expect(getDoc().activeWallet).toBeNull();
+    expect(activeConnectedWallet()?.address).toBe(ALICE.toLowerCase());
+    setWalletPaused(keyOf(ALICE), true);
+    expect(activeConnectedWallet()).toBeNull();
+  });
+
+  it("the active slot never resolves a paused wallet", () => {
+    connected(ALICE);
+    connected(BOB);
+    setWalletPaused(keyOf(ALICE), true);
+    // activeWallet still names ALICE while BOB is active; resolution must
+    // surface BOB (first unpaused), and pausing BOB leaves nothing.
+    expect(getDoc().activeWallet).toBe(keyOf(BOB));
+    expect(activeConnectedWallet()?.address).toBe(BOB.toLowerCase());
+  });
+
+  it("re-adding a paused wallet unpauses it (explicit intent)", () => {
+    connected(ALICE);
+    setWalletPaused(keyOf(ALICE), true);
+    connected(ALICE);
+    expect(activeConnectedWallet()?.address).toBe(ALICE.toLowerCase());
+  });
+
+  it("removal falls back to the first unpaused wallet", () => {
+    connected(ALICE);
+    watched(BOB); // active = BOB
+    setWalletPaused(keyOf(ALICE), true);
+    removeWallet(keyOf(BOB));
+    // ALICE is paused: no eligible fallback, nothing may sign.
+    expect(getDoc().activeWallet).toBeNull();
+    expect(activeConnectedWallet()).toBeNull();
+  });
+
+  it("setActiveWallet to a paused wallet signs nothing", () => {
+    connected(ALICE);
+    setWalletPaused(keyOf(ALICE), true);
+    connected(BOB);
+    setWalletPaused(keyOf(BOB), true);
+    setActiveWallet(keyOf(ALICE));
+    // The slot names a paused wallet: resolution must refuse it.
+    expect(getDoc().activeWallet).toBe(keyOf(ALICE));
+    expect(activeConnectedWallet()).toBeNull();
   });
 });

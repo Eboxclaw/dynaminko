@@ -19,8 +19,8 @@ import { useAgent } from "@/hooks/useAgent";
 import { useDoc } from "@/hooks/useDoc";
 import { personalSign, currentAccounts } from "@/lib/chain/injected";
 import { describeSignal, suggestThesis } from "@/lib/agent/extract";
-import { dayLabel, relativeTime, usd } from "@/lib/format";
-import { addThesis, commitAttestation, prepareAttestation, type Signal } from "@/lib/store";
+import { dayLabel, relativeTime, shortAddress, usd } from "@/lib/format";
+import { addThesis, activeConnectedWallet, commitAttestation, prepareAttestation, type Signal } from "@/lib/store";
 import { cn } from "@/lib/utils";
 
 type Tab = "inbox" | "entries" | "theses" | "ghosts";
@@ -191,11 +191,22 @@ function JournalHub() {
     if (signing) return;
     const thesis = doc.theses.find((t) => t.id === thesisId);
     if (!thesis || thesis.attestation) return;
+    // The signature must come from the app's active connected wallet, not
+    // from whatever account the wallet extension happens to have selected.
+    const signer = activeConnectedWallet();
+    if (!signer) {
+      toast.error("Connect a wallet to attest (wallet icon, top right).");
+      return;
+    }
     setSigning(thesisId);
     try {
       const accounts = await currentAccounts();
-      if (accounts.length === 0) throw new Error("No wallet connected. Connect one in Settings.");
-      const address = accounts[0];
+      if (!accounts.includes(signer.address)) {
+        throw new Error(
+          `Your wallet has ${shortAddress(accounts[0] ?? "no account")} selected, but ${shortAddress(signer.address)} is the active wallet here. Select the active account in your wallet, then attest again.`,
+        );
+      }
+      const address = signer.address;
       // Draft: the exact canonical claim that will be signed. The user then
       // reviews and approves it in their wallet.
       const draft = prepareAttestation(thesisId, address);

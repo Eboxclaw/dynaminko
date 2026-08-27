@@ -31,7 +31,7 @@ Wallet reads Real. Ink Blockscout public API + JSON-RPC, no API key, runs inside
 Prices Real. CoinGecko public API, server-cached
 Trade detection Real. Extracted from actual transfer logs, not synthesized
 Local storage Real. Single versioned document in localStorage, subscription-based, with a fixed infinite-render-loop bug (see git log, "Fix the blank screen")
-Wallet connect Real, read-only. Hand-rolled EIP-1193 listener, zero dependencies, no signing
+Wallet connect Real. Hand-rolled EIP-1193 listener, zero dependencies. Reads by default; EIP-191 signing exists only for thesis attestations, always behind an explicit wallet prompt, always from the app's active connected wallet. Wallets can be paused (no reads, no attest) from the wallet chip
 On-device AI Real. @wllama/wllama (llama.cpp compiled to WASM) running in-browser, lazy-loaded behind explicit user action. Ships with the LiquidAI LFM 2.5 family (230M / 450M / 1.2B / 2.6B, Q4_K_M) as selectable models, downloaded on explicit user action from /agents
 Portfolio 3D ring Real. three.js, dynamically imported so it never blocks startup, falls back cleanly under prefers-reduced-motion
 PWA Installable, with a service worker (public/sw.js) backing notifications and asset caching
