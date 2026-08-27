@@ -258,3 +258,10 @@ export function sectorColor(id: SectorId, dark = false): string {
   if (id === "unsorted") return dark ? "oklch(0.5 0.01 60)" : "oklch(0.72 0.01 60)";
   return dark ? `oklch(0.72 0.13 ${s.hue})` : `oklch(0.66 0.14 ${s.hue})`;
 }
+
+/** Muted, low-chroma twin of sectorColor for inline dots that must stay quiet. */
+export function sectorColorSoft(id: SectorId): string {
+  const s = SECTOR_BY_ID[id] ?? SECTOR_BY_ID.unsorted;
+  if (id === "unsorted") return "oklch(0.78 0.01 60)";
+  return `oklch(0.75 0.055 ${s.hue})`;
+}

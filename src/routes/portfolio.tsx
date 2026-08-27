@@ -20,6 +20,7 @@ import {
   SOURCE_LABEL,
   classifyAsset,
   sectorColor,
+  sectorColorSoft,
   type SectorId,
 } from "@/lib/sectors";
 import { patchSettings } from "@/lib/store";
@@ -141,15 +142,11 @@ function PortfolioPage() {
             {grouped.map((g) => (
               <section key={g.id}>
                 <header className="flex items-baseline gap-3 border-y border-stroke bg-sunken px-4 py-1.5 first:border-t-0">
-                  <span
-                    className="h-2.5 w-2.5 shrink-0 rounded-full"
-                    style={{ background: sectorColor(g.id) }}
-                  />
                   <span className="flex-1 text-[13px] font-medium">
                     {SECTOR_BY_ID[g.id]?.label}
                     {g.id === "unsorted" && (
                       <span className="ml-2 text-[11px] font-normal normal-case text-ink-faint">
-                        tap a dot to sort
+                        sort from the by-asset view
                       </span>
                     )}
                   </span>
@@ -619,7 +616,7 @@ function HoldingRow({
       >
         {pct(h.change24h)}
       </span>
-      <BasketPicker symbol={h.symbol} current={h.sector} overrides={overrides} />
+      {showBasket && <BasketPicker symbol={h.symbol} current={h.sector} overrides={overrides} />}
     </li>
   );
 }
@@ -741,9 +738,12 @@ function BasketPicker({
           place();
           setOpen((v) => !v);
         }}
-        className="flex h-7 w-7 items-center justify-center rounded-full border border-stroke hover:border-ink"
+        className="flex h-5 w-5 items-center justify-center rounded-full hover:bg-sunken"
       >
-        <span className="h-2.5 w-2.5 rounded-full" style={{ background: sectorColor(current) }} />
+        <span
+          className="h-1.5 w-1.5 rounded-full"
+          style={{ background: sectorColorSoft(current) }}
+        />
       </button>
       {overridden && (
         <span className="pointer-events-none absolute -right-0.5 -top-0.5 h-1.5 w-1.5 rounded-full bg-ink" />
