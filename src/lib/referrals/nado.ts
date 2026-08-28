@@ -19,11 +19,19 @@
 // until then callers see a thrown error and the UI shows its unavailable
 // state rather than a wrong "not bound".
 //
+// Outbound prefill (2026-08-28): Nado's share-link format is the app root
+// with ?join=<code>, which pre-registers the referrer on first visit. The
+// team code ships as the silent default, mirroring DEFAULT_HL_REFERRAL_CODE.
+//
 // Reference: https://docs.nado.xyz/incentives-and-rewards/referrals
 //            https://docs.nado.xyz/developer-resources/api/gateway/signing
 
-const NADO_REFERRALS_APP_URL = "https://app.nado.xyz/referrals";
+const NADO_APP_URL = "https://app.nado.xyz/";
 const ARCHIVE = "https://archive.prod.nado.xyz/v1";
+
+/** Referral code pre-filled on every outbound Nado link for users who have
+ * saved no code of their own (mirrors DEFAULT_HL_REFERRAL_CODE). */
+export const DEFAULT_NADO_REFERRAL_CODE = "officialinko";
 
 export type NadoReferralBinding = {
   bound: boolean;
@@ -49,15 +57,14 @@ export async function getNadoReferralBinding(
 }
 
 /**
- * Builds the deep-link out to Nado's dashboard for manual referral binding.
- * The `code` query param is not a documented prefill on their page — treat
- * the link as "open the referrals dashboard" and show the code for manual
- * entry; keep passing it since an undocumented prefill can only help.
+ * Builds the outbound Nado link in their share-link format:
+ * app.nado.xyz/?join=<code>. When the user saved no affiliate code of their
+ * own, the team code rides along silently, so every Nado link the app opens
+ * carries a referrer unless the user replaced it.
  */
 export function buildNadoReferralDeepLink(affiliateCode?: string): string {
-  if (!affiliateCode) return NADO_REFERRALS_APP_URL;
-  const url = new URL(NADO_REFERRALS_APP_URL);
-  url.searchParams.set("code", affiliateCode);
+  const url = new URL(NADO_APP_URL);
+  url.searchParams.set("join", affiliateCode ?? DEFAULT_NADO_REFERRAL_CODE);
   return url.toString();
 }
 

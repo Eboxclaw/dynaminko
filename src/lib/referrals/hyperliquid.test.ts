@@ -9,7 +9,7 @@ import { describe, expect, it, vi } from "vitest";
 import { keccak_256 } from "@noble/hashes/sha3.js";
 
 import { l1ActionHash, msgpackPack } from "./hyperliquid";
-import { getNadoReferralBinding } from "./nado";
+import { buildNadoReferralDeepLink, getNadoReferralBinding } from "./nado";
 
 function hex(bytes: Uint8Array): string {
   return [...bytes].map((b) => b.toString(16).padStart(2, "0")).join("");
@@ -116,5 +116,15 @@ describe("getNadoReferralBinding", () => {
       json: async () => ({ referral_code: null }),
     } as Response);
     expect(await getNadoReferralBinding("0xabc123")).toEqual({ bound: false, code: null });
+  });
+});
+
+describe("buildNadoReferralDeepLink", () => {
+  it("prefills the team code in Nado's share-link join format when none is saved", () => {
+    expect(buildNadoReferralDeepLink()).toBe("https://app.nado.xyz/?join=officialinko");
+  });
+
+  it("uses the saved affiliate code when one exists", () => {
+    expect(buildNadoReferralDeepLink("FRIENDCODE")).toBe("https://app.nado.xyz/?join=FRIENDCODE");
   });
 });

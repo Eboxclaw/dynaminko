@@ -6,7 +6,7 @@ import { WalletPanel } from "@/components/pot/WalletChip";
 import { getInjected } from "@/lib/chain/injected";
 import { usd } from "@/lib/format";
 import type { TypedDataSigner } from "@/lib/referrals/hyperliquid";
-import { buildNadoReferralDeepLink } from "@/lib/referrals/nado";
+import { buildNadoReferralDeepLink, DEFAULT_NADO_REFERRAL_CODE } from "@/lib/referrals/nado";
 import { setReferrer, DEFAULT_HL_REFERRAL_CODE } from "@/lib/referrals/hyperliquid";
 import { exportDoc, patchReferralSettings, patchSettings, walletKey, wipe } from "@/lib/store";
 
@@ -356,7 +356,9 @@ function SettingsPage() {
                     setNadoOk(false);
                     setNadoError(null);
                   }}
-                  placeholder={doc.settings.referrals.nado?.referralCode ?? "e.g. FRIENDCODE"}
+                  placeholder={
+                    doc.settings.referrals.nado?.referralCode ?? DEFAULT_NADO_REFERRAL_CODE
+                  }
                   className="min-w-0 flex-1 rounded-[2px] border border-stroke bg-paper px-2.5 py-1 text-[12px] outline-none focus:border-ink"
                 />
                 <button
