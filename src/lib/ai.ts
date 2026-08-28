@@ -736,14 +736,20 @@ export function splitThinking(text: string): { thinking: string | null; answer: 
 const TOOL_CALL_PAIRS = [
   /<tool_call_start\b[^>]*>[\s\S]*?<\/tool_call_end\s*>/gi,
   /<tool_call\b[^>]*>[\s\S]*?<\/tool_call\s*>/gi,
+  // Pipe-delimited dialect (LFM2 chat-template tokens leaking into output).
+  // It usually arrives unterminated at the end of an answer, so an unclosed
+  // opener cuts the rest of the text.
+  /<\|tool_call_start\|>[\s\S]*?(?:<\|tool_call_end\|>|$)/gi,
 ];
 const STRAY_TOOL_CALL_TAG = /<\/?tool_call(?:_start|_end)?\b[^>]*>/g;
+const STRAY_PIPE_TAG = /<\|\/?tool_call(?:_start|_end)?\|>/g;
 
 export function stripToolCallMarkup(text: string): string {
   if (!/tool_call/i.test(text)) return text;
   let out = text;
   for (const re of TOOL_CALL_PAIRS) out = out.replace(re, " ");
   out = out.replace(STRAY_TOOL_CALL_TAG, " ");
+  out = out.replace(STRAY_PIPE_TAG, " ");
   if (out === text) return text; // mentioned "tool_call" in prose, nothing to strip
   return out
     .replace(/[ \t]{2,}/g, " ")

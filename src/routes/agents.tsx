@@ -49,6 +49,7 @@ import {
 } from "@/lib/ai/retrieval";
 import { downloadProvider, loadDownloadedProvider, providerCached } from "@/lib/ai/embedding";
 import { encoderReady } from "@/lib/ai/encoder";
+import { unverifiedNumbers } from "@/lib/agent/grounding";
 
 import { AGENTS, automationOn } from "@/lib/agents/registry";
 import { COMMANDS, parseCommand, suggestions, type Suggestion } from "@/lib/chat/commands";
@@ -95,6 +96,31 @@ const RAIL = [
 ] as const;
 
 type RailTab = (typeof RAIL)[number]["id"];
+
+/**
+ * First http(s) URL from a captured web.search result. The observation's data
+ * is whatever captureResult clamped (native object when small, JSON string
+ * when oversized), so both shapes are accepted. Used by the 2-hop fallback
+ * when the model declines to pick a page.
+ */
+function searchResultUrl(data: unknown): string | null {
+  let payload: unknown = data;
+  if (typeof payload === "string") {
+    try {
+      payload = JSON.parse(payload);
+    } catch {
+      return null;
+    }
+  }
+  const results = (payload as { result?: { results?: unknown } } | null | undefined)?.result
+    ?.results;
+  if (!Array.isArray(results)) return null;
+  for (const r of results) {
+    const url = (r as { url?: unknown } | null)?.url;
+    if (typeof url === "string" && /^https?:\/\//i.test(url)) return url.slice(0, 512);
+  }
+  return null;
+}
 
 export const Route = createFileRoute("/agents")({
   validateSearch: (s: Record<string, unknown>) => ({
@@ -530,7 +556,12 @@ function ChatConsole({
    * (null on any failure), so callers like /compress can use the result
    * without guessing at React state that has not flushed yet.
    */
-  const speak = async (system: string, user: string, ground = false): Promise<string | null> => {
+  const speak = async (
+    system: string,
+    user: string,
+    ground = false,
+    opts: { skipRecords?: boolean; skipHop?: boolean } = {},
+  ): Promise<string | null> => {
     // Chat never downloads weights, but a model already on this device is
     // woken up here so the first message does not need a manual Load.
     turn.stage("model", ai.target.label);
@@ -565,8 +596,10 @@ function ChatConsole({
       const conversational = ground && isConversational(user);
 
       // Retrieval before generation: a handful of records, never the journal.
+      // Web-research turns skip it: journal cards for a same-named ticker
+      // (INKO the token vs the Ink chain) mislead more than they ground.
       let records: string[] = [];
-      if (ground && !conversational) {
+      if (ground && !conversational && !opts.skipRecords) {
         const found = await retrieveContext(user, 6);
         if (found.count) {
           records = found.lines;
@@ -630,7 +663,12 @@ function ChatConsole({
           (d) =>
             (d.kind === "tool" || d.kind === "command" || d.kind === "batch_command") &&
             (d.access === "READ" || d.access === "COMPUTE") &&
-            !excluded.has(d.id),
+            !excluded.has(d.id) &&
+            // Capability selection can surface web.search on its own; the
+            // toggle is the user's actual web permission and wins here too,
+            // otherwise a toggle-off turn still searched and then the 2-hop
+            // refused to read what it found.
+            (d.id !== "web.search" || web),
         );
         if (ground && !conversational && hopAllowed.length === 0) {
           const defaults = new Set<string>(DEFAULT_HOP_IDS);
@@ -649,7 +687,11 @@ function ChatConsole({
         }
       }
 
-      if (ground && !conversational && hopAllowed.length > 0) {
+      // A skill turn that already collected the evidence (research.web ran
+      // its own search + read) does not need the model to pick another tool:
+      // the extra hop duplicated the search and re-triggered tool-call leaks
+      // in the answer.
+      if (ground && !conversational && hopAllowed.length > 0 && !opts.skipHop) {
         turn.stage("tool", "decide");
         const pick = skipDecide
           ? {
@@ -665,37 +707,46 @@ function ChatConsole({
           turn.settle("tool", "ok", `${pick.def.id} · ${pick.why || "model-chosen"}`);
           try {
             const input = buildToolInput(pick);
-            const out =
-              pick.def.kind === "command"
-                ? await runCommand(pick.def.id, input)
-                : await runTool(TOOL_BY_ID[pick.def.id], input);
-            const summary =
-              pick.def.kind === "command"
-                ? ((out as CommandResult).summary ?? (out as CommandResult).status)
-                : summarise(out);
-            const capture = captureResult(out);
-            const isWebSearch = pick.def.id === "web.search";
-            push({
-              role: "tool",
-              text: `${pick.def.id} · model-chosen`,
-              card: {
-                source: `${pick.def.id} (model pick)`,
-                facts: isWebSearch
-                  ? searchFacts(out, pick.why)
-                  : [pick.why, summary].filter(Boolean),
-                data: { query: pick.query, result: capture.clamped } as Record<string, unknown>,
+            // Run a pick in the registry that owns it: the hop menu admits
+            // batch_command capabilities, and executing one as a tool used to
+            // call runTool(undefined), the "reading 'run'" crash that hit the
+            // first turn of a session. A tool-kind id missing from the tool
+            // registry fails closed as a visible skip instead.
+            const hopTool = pick.def.kind === "tool" ? (TOOL_BY_ID[pick.def.id] ?? null) : null;
+            if (pick.def.kind === "tool" && !hopTool) {
+              turn.settle("tool", "skipped", `${pick.def.id} has no wired implementation`);
+            } else {
+              const out = hopTool
+                ? await runTool(hopTool, input)
+                : await runCommand(pick.def.id, input);
+              const summary =
+                pick.def.kind === "command"
+                  ? ((out as CommandResult).summary ?? (out as CommandResult).status)
+                  : summarise(out);
+              const capture = captureResult(out);
+              const isWebSearch = pick.def.id === "web.search";
+              push({
+                role: "tool",
+                text: `${pick.def.id} · model-chosen`,
+                card: {
+                  source: `${pick.def.id} (model pick)`,
+                  facts: isWebSearch
+                    ? searchFacts(out, pick.why)
+                    : [pick.why, summary].filter(Boolean),
+                  data: { query: pick.query, result: capture.clamped } as Record<string, unknown>,
+                  offloadKey: capture.offloadKey,
+                },
+              });
+              observationsRef.current.push({
+                id: pick.def.id,
+                kind: pick.def.kind === "command" ? "command" : "tool",
+                source: pick.def.id,
+                status: "ok",
+                summary,
+                data: capture.clamped,
                 offloadKey: capture.offloadKey,
-              },
-            });
-            observationsRef.current.push({
-              id: pick.def.id,
-              kind: pick.def.kind === "command" ? "command" : "tool",
-              source: pick.def.id,
-              status: "ok",
-              summary,
-              data: capture.clamped,
-              offloadKey: capture.offloadKey,
-            });
+              });
+            }
           } catch (err) {
             turn.settle("tool", "error", err instanceof Error ? err.message : "tool failed");
           }
@@ -705,64 +756,80 @@ function ChatConsole({
 
         // v1 2-hop chain: after a web.search that returned results, offer one
         // follow-up web.read on a URL from those results. Hard-capped at one
-        // extra hop, web group only.
+        // extra hop, web group only. The model picks the page; when it passes,
+        // the top result is read deterministically so the promised follow-up
+        // actually fires instead of silently ending the chain. No toggle gate
+        // here: reaching this point means a web.search really ran this turn.
         const lastObs = observationsRef.current.at(-1);
-        if (
-          web &&
-          ground &&
-          !conversational &&
-          lastObs?.id === "web.search" &&
-          lastObs.status === "ok"
-        ) {
+        if (ground && !conversational && lastObs?.id === "web.search" && lastObs.status === "ok") {
           const readDef = capabilityCatalogue().find((d) => d.id === "web.read");
-          if (readDef) {
+          const readTool = TOOL_BY_ID["web.read"] ?? null;
+          // One runner for both the model-picked page and the fallback page so
+          // the card and observation keep exactly the same shape.
+          const runFollowUp = async (url: string, why: string) => {
+            const out = await runTool(readTool, { url });
+            const summary = summarise(out);
+            const capture = captureResult(out);
+            push({
+              role: "tool",
+              text: "web.read · follow-up",
+              card: {
+                source: "web.read (follow-up)",
+                facts: readFacts(out, why),
+                data: { result: capture.clamped } as Record<string, unknown>,
+                offloadKey: capture.offloadKey,
+              },
+            });
+            observationsRef.current.push({
+              id: "web.read",
+              kind: "tool",
+              source: "web.read",
+              status: "ok",
+              summary,
+              data: capture.clamped,
+              offloadKey: capture.offloadKey,
+            });
+          };
+          if (readDef && readTool) {
             turn.stage("tool", "decide");
             const readPick = await decideAction(
               `Read one page from these results to learn more:\n${captureResult(lastObs.data).clamped ?? "search results"}`,
               [readDef],
             );
-            if (readPick) {
-              turn.settle("tool", "ok", `${readPick.def.id} · ${readPick.why || "model-chosen"}`);
-              try {
-                const input = buildToolInput(readPick);
-                const out = await runTool(TOOL_BY_ID[readPick.def.id], input);
-                const summary = summarise(out);
-                const capture = captureResult(out);
-                const isRead = readPick.def.id === "web.read";
-                push({
-                  role: "tool",
-                  text: `${readPick.def.id} · follow-up`,
-                  card: {
-                    source: `${readPick.def.id} (follow-up)`,
-                    facts: isRead
-                      ? readFacts(out, readPick.why)
-                      : [readPick.why, summary].filter(Boolean),
-                    data: { result: capture.clamped } as Record<string, unknown>,
-                    offloadKey: capture.offloadKey,
-                  },
-                });
-                observationsRef.current.push({
-                  id: readPick.def.id,
-                  kind: "tool",
-                  source: readPick.def.id,
-                  status: "ok",
-                  summary,
-                  data: capture.clamped,
-                  offloadKey: capture.offloadKey,
-                });
-              } catch (err) {
-                turn.settle("tool", "error", err instanceof Error ? err.message : "tool failed");
+            try {
+              if (readPick?.url) {
+                turn.settle("tool", "ok", `web.read · ${readPick.why || "model-chosen"}`);
+                await runFollowUp(readPick.url, readPick.why || "model-chosen");
+              } else {
+                const fallbackUrl = searchResultUrl(lastObs.data);
+                if (fallbackUrl) {
+                  turn.settle("tool", "ok", "web.read · top result (model did not pick)");
+                  await runFollowUp(fallbackUrl, "top result of the search");
+                } else {
+                  turn.settle(
+                    "tool",
+                    "skipped",
+                    readPick ? "model picked web.read without a url" : "no page selected by model",
+                  );
+                }
               }
-            } else {
-              turn.settle("tool", "skipped", "no page selected by model");
+            } catch (err) {
+              turn.settle("tool", "error", err instanceof Error ? err.message : "tool failed");
             }
           }
         }
       }
 
       const budgetTokens = Math.floor(ai.ctx * 0.75);
+      // When a skill already ran this turn its observation carries the same
+      // portfolio numbers FACTS would repeat; both riding along doubled the
+      // prompt (4495t of a 6144 budget) and taught the model to answer by
+      // dumping the pile. Skill turns read the numbers from the observation.
+      const hasSkillObservation = observationsRef.current.some((o) => o.kind === "skill");
       const portfolioLines =
-        ground && !conversational ? await portfolioFactLines().catch(() => "") : "";
+        ground && !conversational && !hasSkillObservation
+          ? await portfolioFactLines().catch(() => "")
+          : "";
       const stateLines = [
         factLines(),
         ...(portfolioLines ? [portfolioLines] : []),
@@ -844,6 +911,34 @@ function ChatConsole({
       const text = stripToolCallMarkup(answer || raw || "").trim();
       const cleanThink = think ? stripToolCallMarkup(think) : null;
 
+      // Fail-closed numeric grounding: a number the turn's evidence never
+      // carried is the signature of an invented or wrongly derived figure.
+      // The note rides inside the message so the user sees exactly which
+      // numbers to distrust; the log line keeps the full list for auditing.
+      let finalText = text;
+      if (ground && !conversational && text) {
+        const evidenceText = [
+          stateLines,
+          records.join("\n"),
+          ...observationsRef.current.map(
+            (o) =>
+              `${o.summary ?? ""} ${
+                typeof o.data === "string" ? o.data : JSON.stringify(o.data ?? {})
+              }`,
+          ),
+        ].join("\n");
+        const misses = unverifiedNumbers(text, evidenceText);
+        if (misses.length > 0) {
+          finalText = `${text}\n\n(not found in this turn's data: ${misses
+            .slice(0, 5)
+            .join(", ")}${misses.length > 5 ? ` +${misses.length - 5} more` : ""})`;
+          log("agent", "grounding", {
+            level: "warn",
+            detail: `${misses.length} unverified numbers: ${misses.slice(0, 10).join(" ")}`,
+          });
+        }
+      }
+
       // Effective settings for this answer, so a later comparison can read
       // exactly which temperature / context / sampling produced each line.
       const spec = ai.spec;
@@ -855,7 +950,7 @@ function ChatConsole({
           `temp ${ground ? 0.2 : (spec?.sampling?.temperature ?? 0.4)} (top_p ${topP}, min_p ${spec?.sampling?.minP ?? "—"}, rep ${spec?.sampling?.repeatPenalty ?? "—"}/${spec?.sampling?.penaltyLastN ?? "—"}) · ` +
           `maxTokens ${ai.maxTokens} · ctx ${ai.loadedCtx}/${spec?.maxCtx ?? "?"} · ` +
           `${ai.backend} · prompt ~${build.estTokens}t · ` +
-          `answer ~${estimateTokens(text)}t · tps ${ai.speed?.tps ?? "?"}` +
+          `answer ~${estimateTokens(finalText)}t · tps ${ai.speed?.tps ?? "?"}` +
           (build.sections.some((s) => s.truncated)
             ? ` · shed: ${build.sections
                 .filter((s) => s.truncated)
@@ -870,7 +965,7 @@ function ChatConsole({
         turn.fail("The model completed without producing a response.", "no_output");
         return null;
       }
-      push({ role: "assistant", text, thinking: cleanThink });
+      push({ role: "assistant", text: finalText, thinking: cleanThink });
       turn.settle(
         "answer",
         "ok",
@@ -894,7 +989,12 @@ function ChatConsole({
     opts: { question?: string; alwaysSpeak?: boolean } = {},
   ) => {
     turn.stage("skill", skillId);
-    const result = await runSkill(skillId, args);
+    // research.web's deterministic half searches from input.note; routing only
+    // carried the question in opts, so without this the skill always answered
+    // "No query provided" and the turn fell through to a model-chosen search.
+    const skillArgs =
+      skillId === "research.web" && opts.question ? { ...args, note: opts.question } : args;
+    const result = await runSkill(skillId, skillArgs);
     turn.settle("skill", "ok", `${result.skill.tools.length} tools`);
     // One capture for both surfaces; the parked payload is the exact object
     // the observation clamps ({facts, data}), so a later readback of the key
@@ -914,12 +1014,15 @@ function ChatConsole({
     if (result.aiRequired || reasoning || opts.alwaysSpeak) {
       // A routed question keeps the user's words as the prompt; the skill's
       // numbers ride along as an observation instead of a paraphrase prompt.
+      // The anti-dump wording is explicit because the 450M otherwise answers
+      // by restating every FACTS line it sees.
       await speak(
         opts.question
-          ? "You are a trading-journal analyst. Ground every sentence in TURN OBSERVATIONS and FACTS. Be concrete and brief."
+          ? "You are a trading-journal analyst. Answer the user's question in 2 to 4 sentences from TURN OBSERVATIONS and FACTS. Do not restate every fact line. Do not narrate your process."
           : "You are a trading-journal analyst. Use only the structured result. Be concrete and brief.",
         opts.question ?? result.prompt,
         Boolean(opts.question),
+        { skipRecords: skillId === "research.web", skipHop: skillId === "research.web" },
       );
     } else {
       turn.complete();

@@ -84,7 +84,7 @@ export async function snapshot(
       netWorthUsd: Math.round(netWorth.net),
       venues:
         netWorth.venueEquity > 0
-          ? `wallet ${Math.round(netWorth.wallet)} + venues ${Math.round(netWorth.venueEquity)}`
+          ? `wallet ${Math.round(netWorth.wallet)} + venue account equity ${Math.round(netWorth.venueEquity)}`
           : null,
       tokens: rows.length,
       baskets,

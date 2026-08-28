@@ -199,8 +199,12 @@ export async function portfolioFactLines(): Promise<string> {
     }
 
     if (netWorth.net > 0) {
+      // "account equity" not "venues": the holdings line above counts venue
+      // spot balances, which is a different number than the margin account's
+      // equity (equity includes uPnL). Same word for both read the model (and
+      // the user) as a contradiction.
       lines.push(
-        `net_worth: $${Math.round(netWorth.net)} (wallet $${Math.round(netWorth.wallet)} + venues $${Math.round(netWorth.venueEquity)})`,
+        `net_worth: $${Math.round(netWorth.net)} (wallet $${Math.round(netWorth.wallet)} + venue account equity $${Math.round(netWorth.venueEquity)}, incl. uPnL)`,
       );
     }
 

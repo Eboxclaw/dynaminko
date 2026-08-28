@@ -108,7 +108,7 @@ export function digestStep(stepId: string, out: unknown): { lines: string[] } {
         break;
       }
       lines.push(
-        `net worth: $${money(o.net) ?? 0} (wallet $${money(o.wallet) ?? 0} + venues $${money(o.venueEquity) ?? 0})`,
+        `net worth: $${money(o.net) ?? 0} (wallet $${money(o.wallet) ?? 0} + venue account equity $${money(o.venueEquity) ?? 0}, incl. uPnL)`,
       );
       break;
     }
