@@ -1,24 +1,29 @@
 // Web search for news and external facts the journal cannot answer. The
-// chain is keyless by default and degrades gracefully at every step:
+// chain degrades gracefully at every step:
 //
 //   1. same-origin /api/web-search (src/server.ts) — the worker fetches
 //      lite.duckduckgo.com server-side, where browser CORS does not apply,
 //      and parses real result rows. Works in dev and on the deployed app.
 //   2. s.jina.ai directly from the browser — CORS-enabled, so it also works
-//      from a purely static host with no server routes. Keyless at a low
-//      rate; an optional free key (localStorage) raises the limit.
+//      from a purely static host. Requires a free key (localStorage): the
+//      keyless endpoint answers 401 since Jina ended anonymous access.
 //   3. /api/web-search?provider=tavily — only when a Tavily key is stored;
 //      the key rides a same-origin header, never a third-party origin.
-//   4. api.duckduckgo.com Instant Answer JSON — CORS-enabled fallback that
+//   4. /api/web-search?provider=jina — the same Jina key, but fetched by
+//      the worker: reaches providers the browser itself is blocked from.
+//   5. api.duckduckgo.com Instant Answer JSON — CORS-enabled fallback that
 //      returns an abstract plus related links instead of live SERP rows.
-//   5. en.wikipedia.org opensearch — CORS-enabled (origin=*), the last
-//      resort for entity questions when every SERP transport fails.
+//   6. en.wikipedia.org full-text search — CORS-enabled (origin=*), the
+//      last resort; unlike the old opensearch call it answers natural-
+//      language phrases, not just title prefixes.
 //
 // First non-empty transport wins: the happy path stays a single request and
-// the scarce keyless quotas (Jina ~20 RPM) are never spent when DuckDuckGo
-// answers. Rows are deduped by URL and, when the always-warm MiniLM encoder
-// is available, reordered by local cosine relevance (imports lazily so the
-// server bundle never pulls the embedding runtime).
+// scarce quotas are never spent when DuckDuckGo answers. When everything
+// fails the note names each transport's outcome, so a dead provider is
+// visible instead of a generic "blocked". Rows are deduped by URL and, when
+// the always-warm MiniLM encoder is available, reordered by local cosine
+// relevance (imports lazily so the server bundle never pulls the embedding
+// runtime).
 //
 // Output is normalized and bounded (5 rows, snippets trimmed) so it enters
 // observations like any other tool result; the capture-level clampResult and
@@ -103,16 +108,18 @@ export function dedupeResults(rows: WebResult[]): WebResult[] {
 
 /** lite.duckduckgo.com is a plain table of anchors and snippet cells.
  * Attribute order inside the anchor varies, so href is pulled from the tag
- * attributes after the class match, not inline in one regex. */
+ * attributes after the class match, not inline in one regex. Class
+ * attributes arrive single-quoted on the live endpoint (class='result-link'),
+ * so both quote styles must match. */
 export function parseLite(html: string, limit: number): WebResult[] {
   const out: WebResult[] = [];
-  const snippetBlock = /class="result-snippet"[^>]*>([\s\S]*?)<\/td>/g;
+  const snippetBlock = /class=(['"])result-snippet\1[^>]*>([\s\S]*?)<\/td>/g;
   const snippets: string[] = [];
-  for (const m of html.matchAll(snippetBlock)) snippets.push(stripTags(m[1]));
+  for (const m of html.matchAll(snippetBlock)) snippets.push(stripTags(m[2]));
   let i = 0;
-  for (const m of html.matchAll(/<a\b([^>]*\bclass="result-link"[^>]*)>([\s\S]*?)<\/a>/g)) {
+  for (const m of html.matchAll(/<a\b([^>]*\bclass=(['"])result-link\2[^>]*)>([\s\S]*?)<\/a>/g)) {
     if (out.length >= limit) break;
-    const href = /href="([^"]+)"/.exec(m[1])?.[1];
+    const href = /href=(["'])([^"']+)\1/.exec(m[1])?.[2];
     if (!href) continue;
     const raw = decodeURIComponent(href);
     // lite wraps outbound links as //duckduckgo.com/l/?uddg=<encoded>
@@ -123,7 +130,7 @@ export function parseLite(html: string, limit: number): WebResult[] {
     // trackers), never organic results.
     if (/^https?:\/\/([^/]+\.)?duckduckgo\.com\//i.test(url)) continue;
     out.push({
-      title: stripTags(m[2]).slice(0, 120),
+      title: stripTags(m[3]).slice(0, 120),
       url,
       snippet: (snippets[i] ?? "").slice(0, SNIPPET_CHARS),
     });
@@ -172,18 +179,20 @@ export function parseJinaPayload(text: string, limit: number): WebResult[] {
   return out;
 }
 
-/** opensearch replies [query, titles[], descriptions[], urls[]]. */
-export function parseWikipediaPayload(text: string, limit: number): WebResult[] {
+/** list=search replies {query:{search:[{title, snippet(html-fragment)}]}}. */
+export function parseWikipediaSearch(text: string, limit: number): WebResult[] {
   try {
-    const data = JSON.parse(text) as [string, string[], string[], string[]];
-    const [, titles = [], descriptions = [], urls = []] = data;
-    return titles.slice(0, limit).map((title, i) => ({
-      title: title.slice(0, 120),
-      url:
-        urls[i] ??
-        `https://en.wikipedia.org/wiki/${encodeURIComponent(title.replaceAll(" ", "_"))}`,
-      snippet: (descriptions[i] ?? "").slice(0, SNIPPET_CHARS),
-    }));
+    const data = JSON.parse(text) as {
+      query?: { search?: { title?: string; snippet?: string }[] };
+    };
+    return (data.query?.search ?? [])
+      .slice(0, limit)
+      .filter((r) => r.title)
+      .map((r) => ({
+        title: r.title!.slice(0, 120),
+        url: `https://en.wikipedia.org/wiki/${encodeURIComponent(r.title!.replaceAll(" ", "_"))}`,
+        snippet: stripTags(r.snippet ?? "").slice(0, SNIPPET_CHARS),
+      }));
   } catch {
     return [];
   }
@@ -275,14 +284,15 @@ async function instantAnswer(query: string, limit: number): Promise<WebSearchOut
   };
 }
 
-/** Last-resort entity lookup; opensearch is CORS-open via origin=*. */
+/** Last-resort full-text search; list=search is CORS-open via origin=* and
+ * answers natural-language phrases that title-prefix opensearch could not. */
 async function wikipediaSearch(query: string, limit: number): Promise<WebSearchOut> {
   const res = await fetch(
-    `https://en.wikipedia.org/w/api.php?action=opensearch&format=json&origin=*&limit=${limit}&search=${encodeURIComponent(query)}`,
+    `https://en.wikipedia.org/w/api.php?action=query&list=search&format=json&origin=*&srlimit=${limit}&srsearch=${encodeURIComponent(query)}`,
     { signal: AbortSignal.timeout(8_000) },
   );
   if (!res.ok) throw new Error(`wikipedia ${res.status}`);
-  return { query, source: "wikipedia", results: parseWikipediaPayload(await res.text(), limit) };
+  return { query, source: "wikipedia", results: parseWikipediaSearch(await res.text(), limit) };
 }
 
 // ── local rerank ──────────────────────────────────────────────────────
@@ -328,61 +338,80 @@ async function finalize(out: WebSearchOut, cap: number): Promise<WebSearchOut> {
 
 // ── the tool entry ────────────────────────────────────────────────────
 
-/** tool: web.search — keyless provider chain, first non-empty transport wins. */
+/** tool: web.search — provider chain, first non-empty transport wins.
+ * Every fallthrough records a one-line status so the failure note (when it
+ * comes to that) says which transport died and why. */
 export async function webSearch(query: string, limit = MAX_ROWS): Promise<WebSearchOut> {
   const q = query.trim().slice(0, 200);
   const cap = Math.min(8, Math.max(1, limit || MAX_ROWS));
   if (!q) return { query: "", source: "duckduckgo-ia", results: [], note: "empty query" };
   const keys = getWebKeys();
+  const statuses: string[] = [];
 
   // 1. DuckDuckGo lite through the same-origin proxy.
   try {
     const res = await fetch(`/api/web-search?q=${encodeURIComponent(q)}&limit=${cap}`);
-    if (res.ok) {
+    if (!res.ok) {
+      statuses.push(`ddg-proxy ${res.status}`);
+    } else {
       const data = (await res.json()) as WebSearchOut;
       if (Array.isArray(data.results) && data.results.length > 0) {
         return finalize({ ...data, results: data.results.slice(0, cap) }, cap);
       }
+      statuses.push("ddg-proxy empty");
     }
   } catch {
-    /* static host or proxy down: fall through the direct transports */
+    statuses.push("ddg-proxy unreachable");
   }
 
-  // 2. Jina direct from the browser; keyed when a key exists.
+  // 2. Jina direct from the browser; keyed when a key exists. Keyless calls
+  // get 401 these days, so this hop mostly matters once a key is stored.
   try {
     const jina = await jinaSearchDirect(q, cap, keys.jina);
     if (jina.results.length > 0) return finalize(jina, cap);
-  } catch {
-    /* keyless rate limit or network: next transport */
+    statuses.push("jina empty");
+  } catch (err) {
+    statuses.push(err instanceof Error ? err.message : "jina failed");
   }
 
   // 3. Tavily through our proxy, only when configured.
   if (keys.tavily) {
     const tavily = await proxyProvider("tavily", q, cap, keys.tavily);
     if (tavily) return finalize(tavily, cap);
+    statuses.push("tavily no rows");
+  } else {
+    statuses.push("tavily no key");
   }
 
-  // 4. DuckDuckGo Instant Answer.
+  // 4. Jina through our proxy: same key, but the worker's egress can reach
+  // providers the browser itself is blocked from.
+  const jinaProxy = await proxyProvider("jina", q, cap, keys.jina);
+  if (jinaProxy) return finalize(jinaProxy, cap);
+  statuses.push("jina-proxy no rows");
+
+  // 5. DuckDuckGo Instant Answer.
   try {
     const ia = await instantAnswer(q, cap);
     if (ia.results.length > 0) return finalize(ia, cap);
-  } catch {
-    /* final transport below */
+    statuses.push("ddg-ia empty");
+  } catch (err) {
+    statuses.push(err instanceof Error ? err.message : "ddg-ia failed");
   }
 
-  // 5. Wikipedia entity lookup.
+  // 6. Wikipedia full-text search.
   try {
     const wiki = await wikipediaSearch(q, cap);
     if (wiki.results.length > 0) return wiki;
-  } catch {
-    /* nothing left to try */
+    statuses.push("wikipedia empty");
+  } catch (err) {
+    statuses.push(err instanceof Error ? err.message : "wikipedia failed");
   }
 
   return {
     query: q,
     source: "duckduckgo-ia",
     results: [],
-    note: "web search returned no rows: all transports failed or are blocked; report this instead of inventing results",
+    note: `web search returned no rows (${statuses.join("; ")}); report this instead of inventing results`,
   };
 }
 
@@ -759,6 +788,7 @@ export async function webSearchProxy(url: URL, request: Request): Promise<Respon
         accept: "text/html",
       },
       redirect: "follow",
+      signal: AbortSignal.timeout(15_000),
     });
     if (!res.ok) {
       return jsonError(`duckduckgo ${res.status}`, 502);

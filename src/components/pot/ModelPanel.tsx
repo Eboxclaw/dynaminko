@@ -14,6 +14,7 @@ import { semanticLabel, type ModelAction } from "@/lib/ai/capability";
 import { CLOUD_PROVIDERS, cloudState, type CloudProviderId } from "@/lib/ai/cloud";
 import { diagnosticsRows } from "@/lib/ai/runtime";
 import { patchAssistant, patchCloudCredential, patchSettings } from "@/lib/store";
+import { getWebKeys, setWebKeys, type WebProviderKeys } from "@/lib/tools/web";
 import { cn } from "@/lib/utils";
 
 const BACKEND_LABEL: Record<string, string> = {
@@ -86,6 +87,7 @@ export function ModelPanel({ ai }: { ai: ReturnType<typeof useAi> }) {
           <CloudModels ai={ai} />
         </Card>
       )}
+      <WebSearchKeys />
     </div>
   );
 }
@@ -545,5 +547,76 @@ function CloudModels({ ai }: { ai: ReturnType<typeof useAi> }) {
         the LFM 2.5 family need no key and no network after the first download.
       </p>
     </div>
+  );
+}
+
+/** Web search works keyless through the DuckDuckGo proxy; these optional keys
+ * unlock the Jina and Tavily transports. Jina stopped answering keyless
+ * calls (401), so without a key here that transport is skipped in practice. */
+function WebSearchKeys() {
+  const [keys, setKeys] = useState<WebProviderKeys>(() => getWebKeys());
+  const patch = (next: WebProviderKeys) => {
+    setKeys(next);
+    setWebKeys(next);
+  };
+  return (
+    <Card title="Web search keys">
+      <p className="border-b border-stroke px-4 py-2.5 text-[12px] text-ink-soft">
+        Optional. The agent searches the web keylessly by default; a Jina key enables its search
+        transport (keyless calls are refused) and a Tavily key adds the most reliable one. Keys are
+        stored in this browser only.
+      </p>
+      <div className="grid gap-2 px-4 py-3 sm:grid-cols-2">
+        <label className="grid gap-1">
+          <span className="eyebrow">Jina</span>
+          <input
+            type="password"
+            value={keys.jina ?? ""}
+            placeholder="jina_…"
+            autoComplete="off"
+            onChange={(e) => patch({ ...keys, jina: e.target.value || undefined })}
+            className="doodle-pill w-full bg-transparent px-3 py-1 text-[12px]"
+          />
+        </label>
+        <label className="grid gap-1">
+          <span className="eyebrow">Tavily</span>
+          <input
+            type="password"
+            value={keys.tavily ?? ""}
+            placeholder="tvly-…"
+            autoComplete="off"
+            onChange={(e) => patch({ ...keys, tavily: e.target.value || undefined })}
+            className="doodle-pill w-full bg-transparent px-3 py-1 text-[12px]"
+          />
+        </label>
+      </div>
+      <div className="flex flex-wrap items-center gap-3 px-4 pb-3">
+        <a
+          href="https://jina.ai/api-keys"
+          target="_blank"
+          rel="noreferrer"
+          className="eyebrow underline"
+        >
+          get a jina key
+        </a>
+        <a
+          href="https://app.tavily.com"
+          target="_blank"
+          rel="noreferrer"
+          className="eyebrow underline"
+        >
+          get a tavily key
+        </a>
+        {(keys.jina || keys.tavily) && (
+          <button
+            type="button"
+            onClick={() => patch({})}
+            className="doodle-pill px-3 py-1 text-[11px] text-loss"
+          >
+            Clear keys
+          </button>
+        )}
+      </div>
+    </Card>
   );
 }

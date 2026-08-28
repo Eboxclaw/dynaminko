@@ -1,9 +1,11 @@
-// Web search: parsers locked against fixtures (DDG lite table, Jina JSON and
-// markdown, Wikipedia opensearch), URL dedupe, key storage guards, the
-// client-side fallback chain order (first non-empty transport wins, keys ride
-// headers, local rerank only reorders when the encoder answers), and the
-// provider-routed proxy handlers. fetch and the encoder are mocked because
-// the node test environment has neither network nor a warm embedding model.
+// Web search: parsers locked against fixtures (DDG lite table in both quote
+// styles the endpoint serves, Jina JSON and markdown, Wikipedia full-text
+// search), URL dedupe, key storage guards, the client-side fallback chain
+// order (first non-empty transport wins, keys ride headers, every fallthrough
+// leaves a status for the failure note, local rerank only reorders when the
+// encoder answers), and the provider-routed proxy handlers. fetch and the
+// encoder are mocked because the node test environment has neither network
+// nor a warm embedding model.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -18,7 +20,7 @@ const {
   getWebKeys,
   parseJinaPayload,
   parseLite,
-  parseWikipediaPayload,
+  parseWikipediaSearch,
   setWebKeys,
   webRead,
   webReadProxy,
@@ -89,6 +91,26 @@ describe("parseLite", () => {
     expect(rows[1]).toMatchObject({ url: "https://example.com/b" });
   });
 
+  it("parses the live single-quoted markup the endpoint actually serves", () => {
+    // Locked against a real lite.duckduckgo.com response: class attributes
+    // arrive single-quoted there, which the parser used to miss entirely.
+    const live = `
+<table>
+<tr><td valign="top"><a rel="nofollow" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fexample.com%2Fa&amp;rut=abc" class='result-link'>Example A</a></td></tr>
+<tr><td class='result-snippet'>Snippet A</td></tr>
+<tr><td valign="top"><a rel="nofollow" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fexample.com%2Fb&amp;rut=def" class='result-link'>Example B</a></td></tr>
+<tr><td class='result-snippet'>Snippet B</td></tr>
+</table>`;
+    const rows = parseLite(live, 8);
+    expect(rows).toHaveLength(2);
+    expect(rows[0]).toMatchObject({
+      title: "Example A",
+      url: "https://example.com/a",
+      snippet: "Snippet A",
+    });
+    expect(rows[1]).toMatchObject({ url: "https://example.com/b", snippet: "Snippet B" });
+  });
+
   it("caps rows at the limit", () => {
     expect(parseLite(LITE_HTML, 1)).toHaveLength(1);
   });
@@ -114,22 +136,29 @@ describe("parseJinaPayload", () => {
   });
 });
 
-describe("parseWikipediaPayload", () => {
-  it("zips titles, descriptions and urls", () => {
-    const rows = parseWikipediaPayload(
-      `["q", ["T1","T2"], ["d1","d2"], ["https://en.wikipedia.org/wiki/T1","https://en.wikipedia.org/wiki/T2"]]`,
+describe("parseWikipediaSearch", () => {
+  it("maps full-text rows to wiki urls and strips match markup", () => {
+    const rows = parseWikipediaSearch(
+      JSON.stringify({
+        query: {
+          search: [
+            { title: "Topic One", snippet: `a <span class="searchmatch">trending</span> asset` },
+            { title: "Topic Two", snippet: "plain" },
+          ],
+        },
+      }),
       8,
     );
     expect(rows).toHaveLength(2);
     expect(rows[0]).toMatchObject({
-      title: "T1",
-      url: "https://en.wikipedia.org/wiki/T1",
-      snippet: "d1",
+      title: "Topic One",
+      url: "https://en.wikipedia.org/wiki/Topic_One",
+      snippet: "a trending asset",
     });
   });
 
   it("returns nothing on a malformed payload", () => {
-    expect(parseWikipediaPayload("<html>error page</html>", 8)).toEqual([]);
+    expect(parseWikipediaSearch("<html>error page</html>", 8)).toEqual([]);
   });
 });
 
@@ -205,12 +234,18 @@ describe("webSearch chain", () => {
   it("tries every tier in order and lands on Wikipedia last", async () => {
     const fetchMock = vi.mocked(fetch);
     fetchMock
-      .mockResolvedValueOnce(badUpstream as Response) // proxy ddg: anomaly wall
-      .mockRejectedValueOnce(new Error("jina rate limited")) // jina direct
-      .mockRejectedValueOnce(new Error("ia down")) // ddg instant answer
+      .mockResolvedValueOnce(badUpstream as Response) // 1. proxy ddg: anomaly wall
+      .mockRejectedValueOnce(new Error("jina rate limited")) // 2. jina direct
+      // 3. tavily skipped: no key stored, no fetch call
+      .mockResolvedValueOnce(badUpstream as Response) // 4. jina via proxy
+      .mockRejectedValueOnce(new Error("ia down")) // 5. ddg instant answer
       .mockResolvedValueOnce(
-        // wikipedia opensearch
-        okText(`["q",["Topic"],["desc"],["https://en.wikipedia.org/wiki/Topic"]]`) as Response,
+        // 6. wikipedia full-text search
+        okText(
+          JSON.stringify({
+            query: { search: [{ title: "Topic", snippet: "desc" }] },
+          }),
+        ) as Response,
       );
     const out = await webSearch("q");
     expect(out.source).toBe("wikipedia");
@@ -218,7 +253,9 @@ describe("webSearch chain", () => {
       title: "Topic",
       url: "https://en.wikipedia.org/wiki/Topic",
     });
-    expect(fetchMock).toHaveBeenCalledTimes(4);
+    expect(fetchMock).toHaveBeenCalledTimes(5);
+    // The jina-via-proxy hop routes through the same-origin endpoint.
+    expect(String(fetchMock.mock.calls[2][0])).toContain("provider=jina");
   });
 
   it("reranks rows when the encoder answers, and notes it", async () => {
@@ -244,11 +281,15 @@ describe("webSearch chain", () => {
     expect(out.note).toContain("reranked");
   });
 
-  it("reports honestly when every transport fails", async () => {
+  it("reports honestly when every transport fails, naming each status", async () => {
     vi.mocked(fetch).mockRejectedValue(new Error("offline"));
     const out = await webSearch("q");
     expect(out.results).toEqual([]);
     expect(out.note).toContain("instead of inventing results");
+    expect(out.note).toContain("ddg-proxy unreachable");
+    expect(out.note).toContain("offline"); // jina direct failure detail
+    expect(out.note).toContain("tavily no key");
+    expect(out.note).toContain("jina-proxy no rows");
   });
 });
 
