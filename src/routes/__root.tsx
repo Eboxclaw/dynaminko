@@ -70,6 +70,56 @@ function ErrorComponent({ error, reset }: { error: Error; reset: () => void }) {
 
 const THEME_SCRIPT = `(function(){try{var t=localStorage.getItem("pot.theme");if(t==="dark"){document.documentElement.classList.add("dark")}}catch(e){}})();`;
 
+// Pre-style fallback for the window before styles.css applies (or where it
+// fails outright): paper/ink defaults for both themes and a cap on the brand
+// marks so a failed stylesheet renders a readable page instead of raw HTML
+// with a screen-filling logo. The block is UNLAYERED, which would beat
+// Tailwind's layered rules forever, so RootComponent removes it at boot once
+// the real stylesheet is confirmed alive. Token values mirror :root / .dark
+// in src/styles.css.
+const BOOT_BASE_CSS = `html,body{margin:0;padding:0;background:#f6f5f3;color:#101012;font-family:system-ui,-apple-system,"Segoe UI",sans-serif}html.dark,html.dark body{background:#0a0a0b;color:#f3f2f0}aside svg,header svg{max-height:32px;width:auto}a{color:inherit;text-decoration:none}`;
+
+/** True when at least one same-origin stylesheet parsed real rules (the
+ * Google-fonts sheet is cross-origin and unreadable, hence the try/catch).
+ * Decides whether the unlayered boot fallback can safely step aside. */
+function realStylesheetAlive(): boolean {
+  for (const sheet of document.styleSheets) {
+    try {
+      if (sheet.cssRules.length > 4) return true;
+    } catch {
+      /* cross-origin sheet: not ours */
+    }
+  }
+  return false;
+}
+
+// Boot watchdog: if the app has not hydrated 8s after the shell arrives,
+// say so instead of leaving a silent, apparently-dead page. The notice is
+// self-styled so it works even with the stylesheet gone, and is only ever
+// injected on the failure path (nothing for hydration to reconcile when
+// boot succeeds). Retry reloads; a late boot removes the card via the
+// __potBooted flag set in RootComponent.
+const BOOT_WATCHDOG_SCRIPT = `(function(){
+if(window.__potWatchdog)return;window.__potWatchdog=true;
+function reveal(){
+if(window.__potBooted)return;
+if(document.getElementById("pot-boot-notice"))return;
+var dark=false;try{dark=document.documentElement.classList.contains("dark")}catch(e){}
+var line="13px/1.5 system-ui,-apple-system,'Segoe UI',sans-serif";
+var d=document.createElement("div");d.id="pot-boot-notice";
+d.style.cssText="position:fixed;left:16px;right:16px;bottom:16px;margin:0 auto;max-width:440px;z-index:2147483000;display:flex;gap:12px;align-items:center;justify-content:space-between;padding:12px 14px;border-radius:8px;border:1px solid "+(dark?"#26262a":"#dedcd7")+";background:"+(dark?"#131315":"#fdfdfc")+";color:"+(dark?"#f3f2f0":"#101012")+";font:"+line+";box-shadow:0 6px 20px rgba(0,0,0,.12)";
+var t=document.createElement("div");
+t.innerHTML="<strong>Still loading.</strong> The app is taking longer than usual. Your data stays in this browser.";
+var b=document.createElement("button");b.textContent="Retry";
+b.style.cssText="flex:none;cursor:pointer;padding:6px 14px;border-radius:999px;border:0;background:"+(dark?"#f3f2f0":"#101012")+";color:"+(dark?"#0a0a0b":"#f6f5f3")+";font:600 12px system-ui,sans-serif";
+b.onclick=function(){location.reload()};
+d.appendChild(t);d.appendChild(b);
+(document.body||document.documentElement).appendChild(d);
+}
+window.__potShowBootNotice=reveal;
+setTimeout(reveal,8000);
+})();`;
+
 export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()({
   head: () => ({
     meta: [
@@ -109,7 +159,7 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
         href: "https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=Caveat:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap",
       },
     ],
-    scripts: [{ children: THEME_SCRIPT }],
+    scripts: [{ children: THEME_SCRIPT }, { children: BOOT_WATCHDOG_SCRIPT }],
   }),
   shellComponent: RootShell,
   component: RootComponent,
@@ -121,9 +171,26 @@ function RootShell({ children }: { children: ReactNode }) {
   return (
     <html lang="en">
       <head>
+        <style id="pot-boot-base" dangerouslySetInnerHTML={{ __html: BOOT_BASE_CSS }} />
         <HeadContent />
       </head>
       <body>
+        <noscript>
+          <div
+            style={{
+              margin: 16,
+              padding: "12px 14px",
+              borderRadius: 8,
+              border: "1px solid #dedcd7",
+              background: "#fdfdfc",
+              color: "#101012",
+              font: "13px/1.5 system-ui, sans-serif",
+            }}
+          >
+            This app needs JavaScript. Everything is stored only in this browser, and nothing loads
+            without it.
+          </div>
+        </noscript>
         {children}
         <Scripts />
         <Analytics />
@@ -135,6 +202,14 @@ function RootShell({ children }: { children: ReactNode }) {
 function RootComponent() {
   const { queryClient } = Route.useRouteContext();
   useStorage();
+  useEffect(() => {
+    // Boot complete: disarm the watchdog and clear its notice if it fired.
+    (window as unknown as { __potBooted?: boolean }).__potBooted = true;
+    document.getElementById("pot-boot-notice")?.remove();
+    // Step the pre-style fallback aside only when the real stylesheet is
+    // alive; if CSS is genuinely gone the fallback keeps the page readable.
+    if (realStylesheetAlive()) document.getElementById("pot-boot-base")?.remove();
+  }, []);
   return (
     <QueryClientProvider client={queryClient}>
       <Outlet />
