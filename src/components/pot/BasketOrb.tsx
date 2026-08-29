@@ -170,6 +170,10 @@ export function BasketOrb({ slices }: { slices: OrbSlice[] }) {
       group.rotation.x = 0.34;
       scene.add(group);
 
+      // the slice wheel spins; the emblem stays legible on its own axis
+      const wheel = new THREE.Group();
+      group.add(wheel);
+
       const meshes: import("three").Mesh[] = [];
       const materials: import("three").Material[] = [];
       const geometries: import("three").BufferGeometry[] = [];
@@ -194,7 +198,7 @@ export function BasketOrb({ slices }: { slices: OrbSlice[] }) {
           new THREE.MeshBasicMaterial({ color: ink, transparent: true, opacity: 0.18 }),
         ),
       );
-      group.add(guide);
+      wheel.add(guide);
 
       let angle = -Math.PI / 2;
       data.forEach((d) => {
