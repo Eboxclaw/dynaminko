@@ -73,12 +73,13 @@ function buildEmblem(THREE: typeof import("three"), material: import("three").Ma
   geos.push(new THREE.ExtrudeGeometry(bar, extrude));
 
   geos.forEach((g) => {
-    g.center();
+    // centre the extrusion on its own depth only; keep xy in artwork space
+    g.translate(0, 0, -extrude.depth / 2);
     group.add(new THREE.Mesh(g, material));
   });
 
-  // 32-unit artwork down to roughly 2.1 units across
-  group.scale.setScalar(0.062);
+  // 32-unit artwork down to roughly 1.7 units across, sitting inside the ring
+  group.scale.setScalar(0.052);
   return { group, geos };
 }
 
