@@ -266,10 +266,11 @@ export function BasketOrb({ slices }: { slices: OrbSlice[] }) {
         const e = (t - start) / 1000;
         // intro: quick spin that eases into the steady drift
         const intro = 1 - Math.exp(-e * 2.2);
-        group.rotation.y = intro * 1.4 + e * 0.14;
-        emblem.rotation.y = -e * 0.42;
-        emblem.rotation.z = Math.sin(e * 0.5) * 0.06;
-        emblem.scale.setScalar(0.062 * (0.86 + 0.14 * intro));
+        wheel.rotation.y = intro * 1.4 + e * 0.14;
+        // the emblem stays readable: a slow sway, never a full turn
+        emblem.rotation.y = (1 - intro) * -1.2 + Math.sin(e * 0.42) * 0.34;
+        emblem.rotation.x = -0.34 + Math.sin(e * 0.31) * 0.05;
+        emblem.scale.setScalar(0.052 * (0.9 + 0.1 * intro));
         px += (tx - px) * 0.06;
         py += (ty - py) * 0.06;
         group.rotation.x = 0.34 + py;
@@ -288,8 +289,9 @@ export function BasketOrb({ slices }: { slices: OrbSlice[] }) {
       };
 
       if (reduce) {
-        group.rotation.y = 0.35;
-        emblem.rotation.y = -0.4;
+        wheel.rotation.y = 0.35;
+        emblem.rotation.x = -0.34;
+        emblem.rotation.y = 0.18;
         render();
       } else {
         play();
