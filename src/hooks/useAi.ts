@@ -16,6 +16,8 @@ import {
   MODELS,
   MODEL_BY_ID,
   DEFAULT_CTX,
+  persistedCtx,
+  persistCtx,
   stopGeneration,
   unload,
   UNKNOWN_PROFILE,
@@ -88,7 +90,16 @@ export function useAi() {
   const [status, setStatus] = useState<AiStatus>({ phase: "idle" });
   const [output, setOutput] = useState("");
   const [running, setRunning] = useState(false);
-  const [ctx, setCtx] = useState(DEFAULT_CTX);
+  // The context choice persists per model: a /context command survives a
+  // reload, and switching models restores that model's own choice instead of
+  // silently resetting to the default (which made ctx-dependent tests lie).
+  const [ctx, setCtxState] = useState(
+    () => persistedCtx(settings.aiModelId) ?? Math.min(DEFAULT_CTX, MODEL_BY_ID[settings.aiModelId]?.maxCtx ?? DEFAULT_CTX),
+  );
+  const setCtx = useCallback(
+    (n: number) => setCtxState(persistCtx(settings.aiModelId, n)),
+    [settings.aiModelId],
+  );
   const [loadedCtx, setLoadedCtx] = useState(DEFAULT_CTX);
   const [temperature, setTemperature] = useState(0.4);
   const [maxTokens, setMaxTokens] = useState(8192);
@@ -132,6 +143,10 @@ export function useAi() {
       setLoadedCtx(loadedContext());
       setBackend(activeBackend());
     }
+    setCtxState(
+      persistedCtx(settings.aiModelId) ??
+        Math.min(DEFAULT_CTX, MODEL_BY_ID[settings.aiModelId]?.maxCtx ?? DEFAULT_CTX),
+    );
     return () => {
       mounted.current = false;
     };

@@ -314,6 +314,10 @@ async function loadModelInternal(
         {
           n_ctx: nCtx,
           useCache: true,
+          // Reasoning models (2.6B, 1.2B Thinking, 1.2B instruct) get the
+          // template's own thinking path instead of an English sentence
+          // bolted onto the system prompt downstream.
+          reasoning: spec.reasoning,
           n_gpu_layers: p.n_gpu_layers,
           n_threads: p.n_threads,
           n_batch: p.n_batch,
@@ -386,9 +390,14 @@ async function chatMessages(
     .filter((t) => t.role === "system")
     .map((t) => t.content)
     .join("\n\n");
-  const sys = options.thinking
-    ? `${systemText}\n\nThink step by step inside <think></think> tags, then give the answer after the closing tag.`
-    : systemText;
+  // Reasoning models manage thinking through their chat template (enabled at
+  // load); appending our own instruction on top made them spend the answer
+  // inside think tags and fight the template. Only plain models get the
+  // explicit sentence.
+  const sys =
+    options.thinking && spec?.reasoning !== true
+      ? `${systemText}\n\nThink step by step inside <think></think> tags, then give the answer after the closing tag.`
+      : systemText;
 
   const dialogue = turns.filter((t) => t.role !== "system");
   const images = options.images;

@@ -268,7 +268,9 @@ export function buildInferenceProfile(
 
   // Threads: only valuable when cross-origin isolated (SharedArrayBuffer).
   // cores - 1 leaves the UI a thread; floor of 1 for single-core devices.
-  const n_threads = caps.crossOriginIsolated ? Math.max(1, Math.min((caps.cores ?? 4) - 1, 8)) : 1;
+  // Cap raised 8 to 12: big desktops were leaving real threads idle on the
+  // CPU-fallback path, which is exactly where inference is slowest.
+  const n_threads = caps.crossOriginIsolated ? Math.max(1, Math.min((caps.cores ?? 4) - 1, 12)) : 1;
 
   const n_batch = optimalBatch(caps.gpuTier, caps.vramGb);
   const cacheK = recommendedCacheType(caps.gpuTier, caps.deviceMemoryGb);

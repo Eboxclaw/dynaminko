@@ -188,9 +188,41 @@ export function modelFor(cap: Capability, downloaded?: Set<string>): ModelSpec |
   return MODEL_BY_ID[have ?? ids[0]];
 }
 
-export const CTX_CHOICES = [1024, 2048, 4096, 8192, 16384, 32128] as const;
+// The full context ladder. The menu a model actually sees is
+// ctxChoicesFor(spec.maxCtx): every model gets its real maximum, the 2.6B
+// included (65536 is the sane in-browser ceiling for it; its spec allows
+// 128192 but the KV cache at q8_0 would dwarf the weights).
+export const CTX_CHOICES = [1024, 2048, 4096, 8192, 16384, 32128, 65536] as const;
+export function ctxChoicesFor(maxCtx: number): number[] {
+  return (CTX_CHOICES as readonly number[]).filter((c) => c <= maxCtx);
+}
 export const DEFAULT_CTX = 8192;
-export const MAX_CONTEXT_MESSAGES = 5;
+
+// Per-model context persistence: a /context choice survives reloads, keyed
+// by model, clamped to that model's real maximum.
+const CTX_KEY_PREFIX = "inko.ctx.";
+export function persistCtx(modelId: string, n: number): number {
+  const spec = MODEL_BY_ID[modelId];
+  const clamped = spec ? Math.min(Math.max(256, Math.round(n)), spec.maxCtx) : Math.round(n);
+  try {
+    if (typeof localStorage !== "undefined") localStorage.setItem(CTX_KEY_PREFIX + modelId, String(clamped));
+  } catch {
+    /* storage unavailable: the choice stays session-only */
+  }
+  return clamped;
+}
+export function persistedCtx(modelId: string): number | null {
+  try {
+    if (typeof localStorage === "undefined") return null;
+    const raw = localStorage.getItem(CTX_KEY_PREFIX + modelId);
+    const n = raw == null ? NaN : Number(raw);
+    if (!Number.isFinite(n) || n <= 0) return null;
+    const spec = MODEL_BY_ID[modelId];
+    return spec ? Math.min(Math.round(n), spec.maxCtx) : Math.round(n);
+  } catch {
+    return null;
+  }
+}
 
 // ── device profile (pure sync, stays on main thread) ─────────────────
 
@@ -456,12 +488,18 @@ function postAndWait<T>(msg: AiWorkerRequest): Promise<T> {
       reject(e);
     };
 
-    // Timeout to prevent hanging (matches the wall-clock deadline in AGENTS.md)
+    // Timeout to prevent hanging (matches the wall-clock deadline in AGENTS.md).
+    // Chat requests scale with their own max_tokens: a 3 tok/s model streaming
+    // a full answer needs minutes, and the flat 120s used to cut grounded
+    // answers short. Only a load's deadline is ever extended by progress
+    // ticks; when it still fires, the download has been silent too long. Tell
+    // the worker to drop the in-flight guard so the next op is not blocked by
+    // the orphaned runtime it can no longer reach.
+    const chatMaxTokens =
+      msg.type === "chat-messages"
+        ? ((msg as { options?: { maxTokens?: number } }).options?.maxTokens ?? 8192)
+        : 0;
     const timer = setTimeout(() => {
-      // Only a load's deadline is ever extended by progress ticks; when it
-      // still fires, the download has been silent too long. Tell the worker
-      // to drop the in-flight guard so the next op is not blocked by the
-      // orphaned runtime it can no longer reach.
       if (msg.type === "load") {
         w.postMessage({
           type: "cancel-load",
@@ -470,7 +508,7 @@ function postAndWait<T>(msg: AiWorkerRequest): Promise<T> {
         } satisfies AiWorkerRequest);
       }
       doReject(new Error("AI worker request timed out"));
-    }, 120_000);
+    }, Math.max(120_000, chatMaxTokens * 25));
 
     // Register before posting so a response that arrives synchronously
     // still finds its waiter.
@@ -693,12 +731,13 @@ export function chatMessages(
       },
     } satisfies AiWorkerRequest);
 
-    // Timeout safeguard
+    // Timeout safeguard, scaled with the answer budget like the worker bridge
+    // timeout: partial output still resolves, only a truly silent run rejects.
     setTimeout(() => {
       worker?.removeEventListener("message", handler);
       if (out) resolve(out);
       else reject(new Error("chat timed out"));
-    }, 120_000);
+    }, Math.max(120_000, (options.maxTokens ?? 8192) * 25));
   });
 }
 

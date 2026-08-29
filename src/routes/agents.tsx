@@ -51,6 +51,7 @@ import {
 import { downloadProvider, loadDownloadedProvider, providerCached } from "@/lib/ai/embedding";
 import { encoderReady } from "@/lib/ai/encoder";
 import { unverifiedNumbers } from "@/lib/agent/grounding";
+import { extractNativeToolCall, parseCallBody } from "@/lib/ai/nativeTools";
 
 import { AGENTS, automationOn } from "@/lib/agents/registry";
 import { COMMANDS, parseCommand, suggestions, type Suggestion } from "@/lib/chat/commands";
@@ -463,7 +464,11 @@ function ChatConsole({
     try {
       raw = await ai.askMessages(messages, {
         temperature: 0,
-        maxTokens: 96,
+        // 512, not 96: the old cap truncated reasoning models (the 2.6B and
+        // the 1.2B think before they pick, and the grammar cannot save a run
+        // that was cut mid-thought). The grammar still ends a completed pick
+        // early, so the extra budget only burns when a model needs it.
+        maxTokens: 512,
         responseSchema: {
           name: "tool_choice",
           schema: {
@@ -537,7 +542,27 @@ function ChatConsole({
         why: String(parsed.why ?? "").slice(0, 80),
       };
     } catch {
-      return null;
+      // Grammar-less fallback: when the runtime declines responseSchema the
+      // raw is free text, and the model's own dialect is still a valid pick.
+      const native = extractNativeToolCall(raw) ?? parseCallBody(raw);
+      if (!native) return null;
+      const def = allowed.find((d) => d.id === native.id);
+      if (!def) return null;
+      const nq = native.args.query;
+      const nu = native.args.url;
+      const nl = native.args.limit;
+      const limit = typeof nl === "number" ? Math.min(8, Math.max(1, Math.round(nl))) : undefined;
+      if (def.id === "journal.filter" && !(typeof limit === "number" && limit >= 1 && limit <= 8)) {
+        return null;
+      }
+      return {
+        def,
+        query: typeof nq === "string" ? nq.slice(0, 60) : "",
+        url:
+          typeof nu === "string" && /^https?:\/\//i.test(nu) ? nu.slice(0, 512) : undefined,
+        limit,
+        why: "native tool-call dialect",
+      };
     }
   };
 
@@ -706,14 +731,18 @@ function ChatConsole({
       // or a tool fails. A skill turn that already collected the evidence
       // (research.web ran its own search + read) skips the loop: the extra
       // hop duplicated the search and re-triggered tool-call leaks.
+      // Hop state lives outside the loop so the answer phase can promote a
+      // native tool call (the model answering with its template's
+      // tool-call tokens) as one final hop within the same budget.
+      const executedKeys: string[] = [];
+      let hopDeadline = 0;
       if (ground && !conversational && hopAllowed.length > 0 && !opts.skipHop) {
-        const deadline = Date.now() + LIMITS.hopDeadlineMs;
-        const executed: string[] = [];
+        hopDeadline = Date.now() + LIMITS.hopDeadlineMs;
         let lastSearchObs: ToolObservation | null = null;
         let didRead = false;
         for (let hop = 1; hop <= LIMITS.maxToolHops; hop++) {
           turn.stage("tool", hop === 1 ? "decide" : `decide ${hop}/${LIMITS.maxToolHops}`);
-          if (Date.now() > deadline) {
+          if (Date.now() > hopDeadline) {
             turn.settle("tool", "skipped", "hop deadline reached");
             break;
           }
@@ -752,7 +781,7 @@ function ChatConsole({
               if (fallbackUrl) input.url = fallbackUrl;
             }
             const key = hopKey(pick.def.id, input);
-            if (isRepeatHop(key, executed)) {
+            if (isRepeatHop(key, executedKeys)) {
               // A repeated search right after its own search usually means
               // the model wants the page but cannot formulate web.read with a
               // url. Read the search's top result once, deterministically,
@@ -795,7 +824,7 @@ function ChatConsole({
               }
               break;
             }
-            executed.push(key);
+            executedKeys.push(key);
             const out = hopTool
               ? await runTool(hopTool, input)
               : await runCommand(pick.def.id, input);
@@ -838,7 +867,10 @@ function ChatConsole({
         }
       }
 
-      const budgetTokens = Math.floor(ai.ctx * 0.75);
+      // 0.85 of the window, not 0.75: post-penalty answers measure 25 to 60
+      // tokens, so the old reply reserve was dead weight the FACTS pile
+      // tripped over. Revisit if answers grow.
+      const budgetTokens = Math.floor(ai.ctx * 0.85);
       // When a skill already ran this turn its observation carries the same
       // portfolio numbers FACTS would repeat; both riding along doubled the
       // prompt (4495t of a 6144 budget) and taught the model to answer by
@@ -885,11 +917,15 @@ function ChatConsole({
       recordBuild();
       turn.move("generating");
       turn.stage("answer", ai.target.label);
+      // Sampling follows the model spec instead of a hardcode: the Thinking
+      // model's 0.05 finally applies, the 2.6B gets its 0.3, and grounded
+      // turns without a spec keep the old 0.2.
+      const answerTemp = ground ? (ai.spec?.sampling?.temperature ?? 0.2) : undefined;
       let raw: string;
       try {
         raw = await ai.askMessages(build.messages, {
           thinking,
-          temperature: ground ? 0.2 : undefined,
+          temperature: answerTemp,
           images: vision && image ? [image] : undefined,
         });
       } catch (err) {
@@ -907,7 +943,7 @@ function ChatConsole({
         try {
           raw = await ai.askMessages(build.messages, {
             thinking,
-            temperature: ground ? 0.2 : undefined,
+            temperature: answerTemp,
             images: vision && image ? [image] : undefined,
           });
         } catch (err2) {
@@ -916,7 +952,7 @@ function ChatConsole({
           recordBuild();
           raw = await ai.askMessages(build.messages, {
             thinking,
-            temperature: ground ? 0.2 : undefined,
+            temperature: answerTemp,
             images: vision && image ? [image] : undefined,
           });
         }
@@ -939,8 +975,104 @@ function ChatConsole({
       // The model sometimes echoes the tool-call syntax from the prompt into
       // its answer; that tag is noise (the tool already ran) and must not
       // surface or be replayed as history.
-      const text = stripToolCallMarkup(answer || raw || "").trim();
-      const cleanThink = think ? stripToolCallMarkup(think) : null;
+      let text = stripToolCallMarkup(answer || raw || "").trim();
+      let cleanThink = think ? stripToolCallMarkup(think) : null;
+
+      // A tool-trained model sometimes answers with its native tool-call
+      // tokens instead of prose: the 2.6B's entire completion was once a
+      // single web.search call that the markup cleaner then wiped to "no
+      // output". With hop budget left, that call is a real request for more
+      // data: run it as one promoted hop and answer once more from the grown
+      // evidence. Only once, and the retry is told tool calls are closed; an
+      // honest summary of the observations beats a silent failure.
+      if (!text && executedKeys.length < LIMITS.maxToolHops) {
+        const call = extractNativeToolCall(raw);
+        const def = call
+          ? selection.selected.find((d) => d.id === call.id) ??
+            capabilityCatalogue().find((d) => d.id === call.id)
+          : undefined;
+        const wired =
+          call !== null && def !== undefined && (def.kind !== "tool" || !!TOOL_BY_ID[call.id]);
+        if (call && def && wired) {
+          const input: Record<string, unknown> = {};
+          const q = call.args.query ?? call.args.q;
+          if (typeof q === "string" && q.trim()) input.query = q.trim().slice(0, 200);
+          if (typeof call.args.url === "string" && /^https?:\/\//i.test(call.args.url)) {
+            input.url = (call.args.url as string).slice(0, 512);
+          }
+          if (typeof call.args.limit === "number") {
+            input.limit = Math.min(8, Math.max(1, Math.round(call.args.limit)));
+          }
+          const key = hopKey(call.id, input);
+          if (!isRepeatHop(key, executedKeys)) {
+            turn.stage("tool", `${call.id} (native call)`);
+            turn.settle("tool", "ok", `${call.id} · promoted from the answer`);
+            try {
+              const hopTool = def.kind === "tool" ? TOOL_BY_ID[call.id] : null;
+              const out = hopTool
+                ? await runTool(hopTool, input)
+                : await runCommand(call.id, input);
+              const summary =
+                def.kind === "command"
+                  ? ((out as CommandResult).summary ?? (out as CommandResult).status)
+                  : summarise(out);
+              const capture = captureResult(out);
+              push({
+                role: "tool",
+                text: `${call.id} · follow-up`,
+                card: {
+                  source: `${call.id} (native call)`,
+                  facts: [summary].filter(Boolean),
+                  data: { result: capture.clamped } as Record<string, unknown>,
+                  offloadKey: capture.offloadKey,
+                },
+              });
+              observationsRef.current.push({
+                id: call.id,
+                kind: def.kind === "command" ? "command" : "tool",
+                source: call.id,
+                status: "ok",
+                summary,
+                data: capture.clamped,
+                offloadKey: capture.offloadKey,
+              });
+              executedKeys.push(key);
+              // One more answer, now with the tool's data in evidence and an
+              // explicit end to tool calls.
+              const retryBuild = buildTurn({
+                ...buildInput,
+                observations: observationsRef.current,
+                state: `${stateLines}\ntool_calls: closed for this turn; answer now from TURN OBSERVATIONS`,
+              });
+              lastPromptRef.current = retryBuild.estTokens;
+              lastBuildRef.current = retryBuild.sections.map(
+                ({ name, estTokens, truncated }) => ({ name, estTokens, truncated }),
+              );
+              turn.stage("answer", `${ai.target.label} · after promoted call`);
+              raw = await ai.askMessages(retryBuild.messages, {
+                thinking,
+                temperature: answerTemp,
+                images: vision && image ? [image] : undefined,
+              });
+              if (typeof window !== "undefined") {
+                (window as unknown as { __lastRaw?: unknown }).__lastRaw = {
+                  at: new Date().toISOString(),
+                  model: ai.target.label,
+                  retry: true,
+                  chars: raw.length,
+                  head: raw.slice(0, 240),
+                  tail: raw.slice(-240),
+                };
+              }
+              const retried = splitThinking(raw);
+              text = stripToolCallMarkup(retried.answer || raw || "").trim();
+              cleanThink = retried.thinking ? stripToolCallMarkup(retried.thinking) : cleanThink;
+            } catch (err) {
+              turn.settle("tool", "error", err instanceof Error ? err.message : "tool failed");
+            }
+          }
+        }
+      }
 
       // Fail-closed numeric grounding: a number the turn's evidence never
       // carried is the signature of an invented or wrongly derived figure.
@@ -978,7 +1110,7 @@ function ChatConsole({
         level: "info",
         detail:
           `${ai.target.label} · quant ${spec?.quant ?? "?"} · ` +
-          `temp ${ground ? 0.2 : (spec?.sampling?.temperature ?? 0.4)} (top_p ${topP}, min_p ${spec?.sampling?.minP ?? "—"}, rep ${spec?.sampling?.repeatPenalty ?? "—"}/${spec?.sampling?.penaltyLastN ?? "—"}) · ` +
+          `temp ${answerTemp ?? (spec?.sampling?.temperature ?? 0.4)} (top_p ${topP}, min_p ${spec?.sampling?.minP ?? "—"}, rep ${spec?.sampling?.repeatPenalty ?? "—"}/${spec?.sampling?.penaltyLastN ?? "—"}) · ` +
           `maxTokens ${ai.maxTokens} · ctx ${ai.loadedCtx}/${spec?.maxCtx ?? "?"} · ` +
           `${ai.backend} · prompt ~${build.estTokens}t · ` +
           `answer ~${estimateTokens(finalText)}t · tps ${ai.speed?.tps ?? "?"}` +
@@ -989,6 +1121,21 @@ function ChatConsole({
                 .join(",")}`
             : ""),
       });
+
+      // Still no prose with observations in hand: answer honestly from what
+      // the tools found instead of failing. "no output" stays reserved for
+      // runs that produced neither prose nor evidence.
+      if (!text && observationsRef.current.length > 0) {
+        const lines = observationsRef.current
+          .slice(-4)
+          .map((o) => `${o.source}: ${o.summary ?? "ran"}`)
+          .join("; ");
+        text = `I gathered the data but could not compose the full answer. What the tools found: ${lines}.`;
+        log("agent", "answer", {
+          level: "warn",
+          detail: "no prose from the model; deterministic observation summary used",
+        });
+      }
 
       // Zero output is a failure, never a quiet success.
       if (!text) {
@@ -1297,8 +1444,18 @@ function ChatConsole({
       if (name === "context") {
         const n = Number(rest);
         if (Number.isFinite(n) && n > 0) {
-          ai.setCtx(n);
-          push({ role: "note", text: `Context window set to ${n} tokens. Reload to apply.` });
+          const maxCtx = ai.spec?.maxCtx;
+          const capped = maxCtx ? Math.min(n, maxCtx) : n;
+          ai.setCtx(capped);
+          push({
+            role: "note",
+            text:
+              `Context window set to ${capped} tokens` +
+              (capped < n
+                ? ` (capped: ${ai.spec?.label ?? "this model"} tops out at ${maxCtx})`
+                : "") +
+              `. Saved for ${ai.spec?.label ?? "this model"}; reload to apply.`,
+          });
           return;
         }
         // No number: show exactly what the model saw on the last turn. The
@@ -1321,7 +1478,7 @@ function ChatConsole({
           .join("\n");
         push({
           role: "note",
-          text: `last prompt ${lastT}t of ${Math.floor(ai.ctx * 0.75)}t budget · model ${ai.spec?.label ?? ai.target.label}\n${table}\nhistory scope: this session only · ${messages.length} messages stored\n(! = section truncated/shed; memory is the only cross-session section)`,
+          text: `last prompt ${lastT}t of ${Math.floor(ai.ctx * 0.85)}t budget · model ${ai.spec?.label ?? ai.target.label}\n${table}\nhistory scope: this session only · ${messages.length} messages stored\n(! = section truncated/shed; memory is the only cross-session section)`,
         });
         return;
       }
