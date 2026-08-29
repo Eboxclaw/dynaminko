@@ -223,7 +223,7 @@ export function BasketOrb({ slices }: { slices: OrbSlice[] }) {
           ),
         );
         mesh.rotation.z = angle;
-        group.add(mesh);
+        wheel.add(mesh);
         meshes.push(mesh);
 
         // boundary tick
@@ -235,7 +235,7 @@ export function BasketOrb({ slices }: { slices: OrbSlice[] }) {
         );
         tick.position.set(Math.cos(angle) * (R + 0.3), Math.sin(angle) * (R + 0.3), 0);
         tick.rotation.z = angle - Math.PI / 2;
-        group.add(tick);
+        wheel.add(tick);
         meshes.push(tick);
 
         angle += d.share * Math.PI * 2;
