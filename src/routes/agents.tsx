@@ -572,9 +572,10 @@ function ChatConsole({
   };
 
   /** Map the model's structured tool pick to the argument shape each tool
-   *  expects. Only fields that exist in the tool's real input type are emitted.
-   *  Tools that don't use ticker/basket/limit get their usual query-only form
-   *  and behave identically to today. */
+   *  expects. Only fields the capability declares in `inputs` are emitted:
+   *  a model inventing a query for a no-input tool (the 350M sent "BALK",
+   *  "basket"... to portfolio.netWorth) must not change the call, and must
+   *  not dodge the repeat guard by varying the invented string. */
   const buildToolInput = (pick: {
     def: CapabilityDefinition;
     query: string;
@@ -583,12 +584,15 @@ function ChatConsole({
     limit?: number;
     url?: string;
   }): Record<string, unknown> => {
+    const takes = (field: string) =>
+      pick.def.inputs === field ||
+      new RegExp(`\\b${field}\\b`).test(pick.def.inputs);
     const input: Record<string, unknown> = {};
-    if (pick.query) input.query = pick.query;
-    if (pick.url) input.url = pick.url;
-    if (pick.ticker) input.ticker = pick.ticker;
-    if (pick.basket) input.basket = pick.basket;
-    if (typeof pick.limit === "number") input.limit = pick.limit;
+    if (pick.query && takes("query")) input.query = pick.query;
+    if (pick.url && takes("url")) input.url = pick.url;
+    if (pick.ticker && takes("ticker")) input.ticker = pick.ticker;
+    if (pick.basket && takes("basket")) input.basket = pick.basket;
+    if (typeof pick.limit === "number" && takes("limit")) input.limit = pick.limit;
     return input;
   };
 
