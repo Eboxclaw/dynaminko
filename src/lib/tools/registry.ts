@@ -14,6 +14,7 @@ import {
 } from "@/lib/store";
 import { request as requestNotifications } from "@/lib/notify";
 import { buildPortfolio } from "@/lib/portfolio";
+import { readLedgerTrades } from "@/lib/ledger";
 import { composeNetWorth, openPerps } from "@/lib/exposure";
 import { readVelodrome } from "@/lib/venues/velodrome";
 import { readNado } from "@/lib/venues/nado";
@@ -499,11 +500,17 @@ export const TOOLS: ToolDef[] = [
     group: "chain",
     action: "transfers",
     label: "Read transfers",
-    purpose: "Ink Blockscout transfer history for the active wallet.",
-    access: "EXTERNAL",
-    inputs: "{ address: string, chainId: number }",
-    output: "ChainTransfer[]",
-    live: false,
+    purpose:
+      "Persistent local transfer history for the active wallet: every filed transfer, not just the recent window.",
+    access: "READ",
+    inputs: "{ limit?: number }",
+    output: "LedgerTrade[]",
+    live: true,
+    run: async (input?: { limit?: number }) => {
+      const wallet = getDoc().activeWallet;
+      if (!wallet) return [];
+      return readLedgerTrades(wallet, typeof input?.limit === "number" ? input.limit : 100);
+    },
   }),
   def({
     id: "market.quote",

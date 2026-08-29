@@ -4,15 +4,29 @@ import { useCallback, useMemo } from "react";
 import { CHAINS, getChain } from "@/chains";
 import type { WalletSnapshot } from "@/lib/chain/blockscout";
 import { idbGet, idbSet } from "@/lib/cache/idb";
-import { buildPortfolio, tradesFromSnapshot } from "@/lib/portfolio";
+import {
+  ingestTransfers,
+  mergeTrades,
+  readLedgerTrades,
+  recordSync,
+  sinceBlockFor,
+  withQuotes,
+} from "@/lib/ledger";
+import { buildPortfolio, tradesFromSnapshot, type Trade } from "@/lib/portfolio";
 import { fetchQuotes, type Quote } from "@/lib/prices";
 import { walletKey, type WalletRef } from "@/lib/store";
 import type { ReaderResponse } from "@/workers/wallet-reader.worker";
 
 import { useDoc } from "./useDoc";
 
-/** Runs the chain read inside a worker so parsing never blocks the UI. */
-function readInWorker(address: string, chainId: number): Promise<WalletSnapshot> {
+/** Runs the chain read inside a worker so parsing never blocks the UI.
+ * `sinceBlock` scopes the transfer leg to an incremental re-sync; balances
+ * are always read in full. */
+function readInWorker(
+  address: string,
+  chainId: number,
+  sinceBlock: number | null = null,
+): Promise<WalletSnapshot> {
   return new Promise((resolve, reject) => {
     const worker = new Worker(new URL("../workers/wallet-reader.worker.ts", import.meta.url), {
       type: "module",
@@ -43,7 +57,7 @@ function readInWorker(address: string, chainId: number): Promise<WalletSnapshot>
     worker.postMessage({
       type: "scan",
       chainId,
-      wallets: [{ id: address, address }],
+      wallets: [{ id: address, address, sinceBlock }],
     });
   });
 }
@@ -76,10 +90,19 @@ export function usePortfolio() {
     refetchInterval: 120_000,
     queryFn: async () => {
       if (!active) return null;
-      const cacheKey = `snapshot:${key}`;
+      const wallet = walletKey(active.chainId, active.address);
+      const cacheKey = `snapshot:${wallet}`;
       try {
-        const fresh = await readInWorker(active.address, active.chainId);
+        // Incremental when the ledger has a fresh bookmark, full on first
+        // contact and at least daily so the ledger self-heals.
+        const since = await sinceBlockFor(wallet);
+        const fresh = await readInWorker(active.address, active.chainId, since);
         void idbSet(cacheKey, fresh);
+        // File the transfers into the persistent ledger, then bookmark how
+        // far the read reached. The snapshot only carries the recent window;
+        // the ledger is the history.
+        const filed = await ingestTransfers(wallet, fresh.transfers);
+        await recordSync(wallet, filed.maxBlock, since == null);
         return fresh;
       } catch (err) {
         const cached = await idbGet<WalletSnapshot>(cacheKey);
@@ -121,7 +144,23 @@ export function usePortfolio() {
     () => buildPortfolio(snapshot, quotes, overrides),
     [snapshot, quotes, overrides],
   );
-  const trades = useMemo(() => tradesFromSnapshot(snapshot, quotes), [snapshot, quotes]);
+  // History beyond the current transfer window comes from the persistent
+  // ledger; the snapshot-derived feed only contributes rows the ledger has
+  // not filed yet (it is filed during the snapshot query, so this is usually
+  // a superset read plus a safety net).
+  const tradesKey = `${symbols.join(",")}:${snapshot?.fetchedAt ?? 0}`;
+  const tradesQuery = useQuery({
+    queryKey: ["ledger-trades", key, tradesKey],
+    enabled: Boolean(active && snapshot),
+    staleTime: 60_000,
+    queryFn: async (): Promise<Trade[]> => {
+      if (!active) return [];
+      const wallet = walletKey(active.chainId, active.address);
+      const rows = withQuotes(await readLedgerTrades(wallet, 500), quotes);
+      return mergeTrades(rows, tradesFromSnapshot(snapshot, quotes));
+    },
+  });
+  const trades = tradesQuery.data ?? [];
 
   const refresh = useCallback(() => {
     void snapshotQuery.refetch();

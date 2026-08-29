@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 
-import { idbGet, idbSet } from "@/lib/cache/idb";
+import { idbGet, idbSet, storeByIndex, storePut } from "@/lib/cache/idb";
 import { track } from "@/lib/stats/client";
 import { walletKey } from "@/lib/store";
 import { readVenues, reportValue, type VenueAction, type VenueReport } from "@/lib/venues";
@@ -9,6 +9,14 @@ import type { ReaderRequest, ReaderResponse } from "@/workers/wallet-reader.work
 import { useActiveWallet } from "./usePortfolio";
 
 type VenueData = { reports: VenueReport[]; actions: VenueAction[] };
+
+type CachedAction = VenueAction & { wallet: string };
+
+/** Venue actions survive failed reads: the store dedupes signals by id, so
+ * re-serving the cached list only re-files what is already there. */
+function cachedActionsFor(key: string): Promise<VenueAction[]> {
+  return storeByIndex<CachedAction>("actions", "wallet", key);
+}
 
 /** Runs venue reads in the shared reader worker; falls back to the main thread. */
 function readInWorker(address: string, chainId: number): Promise<VenueData> {
@@ -44,9 +52,9 @@ function readInWorker(address: string, chainId: number): Promise<VenueData> {
 
 /**
  * Reads LP and trading-account positions plus venue actions (trades, deposits,
- * withdrawals) for the active wallet. Successful reports are cached; a failed
- * venue falls back to its last good answer, flagged stale, instead of blanking
- * the row. Actions are not cached — the store dedupes them by id on ingest.
+ * withdrawals) for the active wallet. Successful reports and actions are
+ * cached; a failed read falls back to the last good answer, flagged stale,
+ * instead of blanking the row or losing the inbox's pending list.
  */
 export function useVenues() {
   const { active } = useActiveWallet();
@@ -59,7 +67,8 @@ export function useVenues() {
     refetchInterval: 180_000,
     queryFn: async (): Promise<VenueData> => {
       if (!active) return { reports: [], actions: [] };
-      const cacheKey = `venues:${key}`;
+      const wallet = walletKey(active.chainId, active.address);
+      const cacheKey = `venues:${wallet}`;
       const cached = (await idbGet<VenueReport[]>(cacheKey).catch(() => null)) ?? [];
       let fresh: VenueData;
       try {
@@ -68,7 +77,10 @@ export function useVenues() {
           if (r.status === "ok") track(`venue_read_${r.venueId}`);
         }
       } catch {
-        return { reports: cached.map((r) => ({ ...r, stale: true })), actions: [] };
+        return {
+          reports: cached.map((r) => ({ ...r, stale: true })),
+          actions: await cachedActionsFor(wallet),
+        };
       }
       const merged = fresh.reports.map((r) => {
         if (r.status !== "error") return r;
@@ -79,6 +91,10 @@ export function useVenues() {
       void idbSet(
         cacheKey,
         merged.filter((r) => r.status === "ok"),
+      );
+      void storePut(
+        "actions",
+        fresh.actions.map((a) => ({ ...a, wallet })),
       );
       return { reports: merged, actions: fresh.actions };
     },
