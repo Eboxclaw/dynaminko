@@ -70,4 +70,24 @@ describe("splitThinking + stripToolCallMarkup together", () => {
     const { answer } = splitThinking(raw);
     expect(stripToolCallMarkup(answer)).toBe("You are up about 12%.");
   });
+
+  it("splits a real <think> block with an answer after it", () => {
+    const raw = "<think>\nLet me check the holdings.\n</think>You hold $1,907 across 6 tokens.";
+    const { thinking, answer } = splitThinking(raw);
+    expect(thinking).toBe("Let me check the holdings.");
+    expect(answer).toBe("You hold $1,907 across 6 tokens.");
+  });
+
+  it("tolerates an unterminated <think> block", () => {
+    const raw = "<think>reasoning that never closed";
+    const { thinking } = splitThinking(raw);
+    expect(thinking).toContain("reasoning");
+  });
+
+  it("never chops prose that merely contains the word thinking", () => {
+    const raw = "I am thinking about your holdings: BTC is the largest position.";
+    const { thinking, answer } = splitThinking(raw);
+    expect(thinking).toBeNull();
+    expect(answer).toBe(raw);
+  });
 });

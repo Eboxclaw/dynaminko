@@ -719,11 +719,20 @@ export async function chat(
 }
 
 export function splitThinking(text: string): { thinking: string | null; answer: string } {
-  const m = / thinking([\s\S]*?)(?:<\/think>|$)/i.exec(text);
+  // Proper tag first: <think>…</think>, lenient about whitespace, tolerant of
+  // an unterminated block (the model died or is still mid-think).
+  let m = /<\s*think\s*>([\s\S]*?)(?:<\/\s*think\s*>|$)/i.exec(text);
+  if (!m) {
+    // Degraded form: detokenization sometimes delivers the opener as a bare
+    // " thinking" at the very start of the output, glued to its content
+    // ("thinkingplan…"). Only the anchored form counts, so prose that merely
+    // contains the word is never chopped.
+    m = /^\s*think([\s\S]*?)(?:<\/\s*think\s*>|$)/i.exec(text);
+  }
   if (!m) return { thinking: null, answer: text };
   return {
     thinking: m[1].trim(),
-    answer: text.slice(m.index + m[0].length).trim(),
+    answer: (text.slice(0, m.index) + text.slice(m.index + m[0].length)).trim(),
   };
 }
 

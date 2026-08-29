@@ -12,6 +12,8 @@ import { failed, type CommandDefinition, type CommandResult } from "./types";
 export const LIMITS = {
   /** normal agent loop */
   maxToolHops: 5,
+  /** wall clock for the answer-phase hop loop */
+  hopDeadlineMs: 60_000,
   /** goal mode */
   maxCyclesLocal: 2,
   maxCallsPerCycle: 5,

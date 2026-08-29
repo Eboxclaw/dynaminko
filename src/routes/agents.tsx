@@ -26,6 +26,7 @@ import {
   skillObservation,
   type ToolObservation,
 } from "@/lib/agent/context";
+import { hopEvidence, hopKey, isRepeatHop } from "@/lib/agent/hops";
 import { captureResult, readOffloaded, type CapturedResult } from "@/lib/agent/offload";
 import {
   capabilityCatalogue,
@@ -112,9 +113,13 @@ function searchResultUrl(data: unknown): string | null {
       return null;
     }
   }
-  const results = (payload as { result?: { results?: unknown } } | null | undefined)?.result
+  // Both shapes reach this helper: the raw search output ({results}) and the
+  // card wrapper ({result: clamped}).
+  const direct = (payload as { results?: unknown } | null | undefined)?.results;
+  const wrapped = (payload as { result?: { results?: unknown } } | null | undefined)?.result
     ?.results;
-  if (!Array.isArray(results)) return null;
+  const results = Array.isArray(direct) ? direct : Array.isArray(wrapped) ? wrapped : null;
+  if (!results) return null;
   for (const r of results) {
     const url = (r as { url?: unknown } | null)?.url;
     if (typeof url === "string" && /^https?:\/\//i.test(url)) return url.slice(0, 512);
@@ -411,14 +416,17 @@ function ChatConsole({
   };
 
   /**
-   * One constrained decision: which single read-only capability would help
-   * answer this question, if any. Grammar-constrained JSON (wllama turns the
+   * One constrained decision: which read-only capability would help answer
+   * this question next, if any. Grammar-constrained JSON (wllama turns the
    * schema into a GBNF grammar), so even the 450M cannot emit an invalid
    * choice. Any failure degrades to "no hop", never blocks the answer.
+   * `evidence` carries what earlier hops observed, so a follow-up hop can
+   * build on them; `remaining` lets the pick weigh spending the budget.
    */
   const decideAction = async (
     user: string,
     allowed: CapabilityDefinition[],
+    opts: { evidence?: string; remaining?: number } = {},
   ): Promise<{
     def: CapabilityDefinition;
     query: string;
@@ -439,13 +447,16 @@ function ChatConsole({
       {
         role: "system",
         content:
-          "You select one tool to answer the user's question, or none. Answer with the JSON the schema allows. The query is the search term for the tool, at most 6 words, or empty. Pick none when the answer is already in FACTS.",
+          "You select one tool to answer the user's question, or none. Answer with the JSON the schema allows. The query is the search term for the tool, at most 6 words, or empty; pass limit only when the tool paginates. Only pick a tool when you can fill its required inputs; otherwise pick another tool or none. Pick none when the answer is already in FACTS or in earlier results." +
+          (opts.remaining != null ? ` At most ${opts.remaining} more tool picks this turn.` : ""),
       },
       {
         role: "user",
         content: `QUESTION\n${user}\n\nTOOLS\n${allowed
           .map((d) => `${d.id}: ${d.purpose} (inputs: ${d.inputs})`)
-          .join("\n")}\n\nFACTS\n${facts}`,
+          .join("\n")}\n\nFACTS\n${facts}${
+          web ? "\nweb_search: active, prefer web.search for news and external facts" : ""
+        }${opts.evidence ? `\n\nEARLIER RESULTS THIS TURN\n${opts.evidence}` : ""}`,
       },
     ];
     let raw: string;
@@ -687,23 +698,39 @@ function ChatConsole({
         }
       }
 
-      // A skill turn that already collected the evidence (research.web ran
-      // its own search + read) does not need the model to pick another tool:
-      // the extra hop duplicated the search and re-triggered tool-call leaks
-      // in the answer.
+      // The hop loop: the model picks one read-only tool per hop and sees
+      // what every earlier hop observed, so a follow-up hop can build on the
+      // one before it (search then read, positions then history). Stop
+      // conditions: the model picks none, the hop budget (LIMITS.maxToolHops)
+      // or wall clock runs out, a hop repeats one that already ran this turn,
+      // or a tool fails. A skill turn that already collected the evidence
+      // (research.web ran its own search + read) skips the loop: the extra
+      // hop duplicated the search and re-triggered tool-call leaks.
       if (ground && !conversational && hopAllowed.length > 0 && !opts.skipHop) {
-        turn.stage("tool", "decide");
-        const pick = skipDecide
-          ? {
-              def: hopAllowed[0],
-              query: user,
-              ticker: undefined,
-              basket: undefined,
-              limit: undefined,
-              why: "external intent, web.search forced",
-            }
-          : await decideAction(user, hopAllowed);
-        if (pick) {
+        const deadline = Date.now() + LIMITS.hopDeadlineMs;
+        const executed: string[] = [];
+        let lastSearchObs: ToolObservation | null = null;
+        let didRead = false;
+        for (let hop = 1; hop <= LIMITS.maxToolHops; hop++) {
+          turn.stage("tool", hop === 1 ? "decide" : `decide ${hop}/${LIMITS.maxToolHops}`);
+          if (Date.now() > deadline) {
+            turn.settle("tool", "skipped", "hop deadline reached");
+            break;
+          }
+          const pick = skipDecide
+            ? {
+                def: hopAllowed[0],
+                query: user,
+                why: "external intent, web.search forced",
+              }
+            : await decideAction(user, hopAllowed, {
+                evidence: hopEvidence(observationsRef.current),
+                remaining: LIMITS.maxToolHops - hop + 1,
+              });
+          if (!pick) {
+            turn.settle("tool", "skipped", "no tool chosen");
+            break;
+          }
           turn.settle("tool", "ok", `${pick.def.id} · ${pick.why || "model-chosen"}`);
           try {
             const input = buildToolInput(pick);
@@ -715,107 +742,98 @@ function ChatConsole({
             const hopTool = pick.def.kind === "tool" ? (TOOL_BY_ID[pick.def.id] ?? null) : null;
             if (pick.def.kind === "tool" && !hopTool) {
               turn.settle("tool", "skipped", `${pick.def.id} has no wired implementation`);
-            } else {
-              const out = hopTool
-                ? await runTool(hopTool, input)
-                : await runCommand(pick.def.id, input);
-              const summary =
-                pick.def.kind === "command"
-                  ? ((out as CommandResult).summary ?? (out as CommandResult).status)
-                  : summarise(out);
-              const capture = captureResult(out);
-              const isWebSearch = pick.def.id === "web.search";
-              push({
-                role: "tool",
-                text: `${pick.def.id} · model-chosen`,
-                card: {
-                  source: `${pick.def.id} (model pick)`,
-                  facts: isWebSearch
-                    ? searchFacts(out, pick.why)
-                    : [pick.why, summary].filter(Boolean),
-                  data: { query: pick.query, result: capture.clamped } as Record<string, unknown>,
-                  offloadKey: capture.offloadKey,
-                },
-              });
-              observationsRef.current.push({
-                id: pick.def.id,
-                kind: pick.def.kind === "command" ? "command" : "tool",
-                source: pick.def.id,
-                status: "ok",
-                summary,
-                data: capture.clamped,
-                offloadKey: capture.offloadKey,
-              });
+              break;
             }
-          } catch (err) {
-            turn.settle("tool", "error", err instanceof Error ? err.message : "tool failed");
-          }
-        } else {
-          turn.settle("tool", "skipped", "no tool chosen");
-        }
-
-        // v1 2-hop chain: after a web.search that returned results, offer one
-        // follow-up web.read on a URL from those results. Hard-capped at one
-        // extra hop, web group only. The model picks the page; when it passes,
-        // the top result is read deterministically so the promised follow-up
-        // actually fires instead of silently ending the chain. No toggle gate
-        // here: reaching this point means a web.search really ran this turn.
-        const lastObs = observationsRef.current.at(-1);
-        if (ground && !conversational && lastObs?.id === "web.search" && lastObs.status === "ok") {
-          const readDef = capabilityCatalogue().find((d) => d.id === "web.read");
-          const readTool = TOOL_BY_ID["web.read"] ?? null;
-          // One runner for both the model-picked page and the fallback page so
-          // the card and observation keep exactly the same shape.
-          const runFollowUp = async (url: string, why: string) => {
-            const out = await runTool(readTool, { url });
-            const summary = summarise(out);
+            // When the model wants a page read but does not name one right
+            // after its own search, the search's top result is the obvious
+            // page: fill it in rather than fail the hop.
+            if (pick.def.id === "web.read" && !input.url && lastSearchObs) {
+              const fallbackUrl = searchResultUrl(lastSearchObs.data);
+              if (fallbackUrl) input.url = fallbackUrl;
+            }
+            const key = hopKey(pick.def.id, input);
+            if (isRepeatHop(key, executed)) {
+              // A repeated search right after its own search usually means
+              // the model wants the page but cannot formulate web.read with a
+              // url. Read the search's top result once, deterministically,
+              // then end the loop either way.
+              const fallbackUrl =
+                pick.def.id === "web.search" && lastSearchObs && !didRead
+                  ? searchResultUrl(lastSearchObs.data)
+                  : null;
+              if (fallbackUrl) {
+                turn.settle("tool", "ok", "web.read · top result (model repeated its search)");
+                try {
+                  const out = await runTool(TOOL_BY_ID["web.read"], { url: fallbackUrl });
+                  const summary = summarise(out);
+                  const capture = captureResult(out);
+                  push({
+                    role: "tool",
+                    text: "web.read · follow-up",
+                    card: {
+                      source: "web.read (follow-up)",
+                      facts: readFacts(out, "top result of the search"),
+                      data: { result: capture.clamped } as Record<string, unknown>,
+                      offloadKey: capture.offloadKey,
+                    },
+                  });
+                  observationsRef.current.push({
+                    id: "web.read",
+                    kind: "tool",
+                    source: "web.read",
+                    status: "ok",
+                    summary,
+                    data: capture.clamped,
+                    offloadKey: capture.offloadKey,
+                  });
+                  didRead = true;
+                } catch (err) {
+                  turn.settle("tool", "error", err instanceof Error ? err.message : "tool failed");
+                }
+              } else {
+                turn.settle("tool", "skipped", "same tool and input already ran this turn");
+              }
+              break;
+            }
+            executed.push(key);
+            const out = hopTool
+              ? await runTool(hopTool, input)
+              : await runCommand(pick.def.id, input);
+            const summary =
+              pick.def.kind === "command"
+                ? ((out as CommandResult).summary ?? (out as CommandResult).status)
+                : summarise(out);
             const capture = captureResult(out);
+            const isWebSearch = pick.def.id === "web.search";
+            const isWebRead = pick.def.id === "web.read";
             push({
               role: "tool",
-              text: "web.read · follow-up",
+              text: isWebRead ? "web.read · follow-up" : `${pick.def.id} · model-chosen`,
               card: {
-                source: "web.read (follow-up)",
-                facts: readFacts(out, why),
-                data: { result: capture.clamped } as Record<string, unknown>,
+                source: `${pick.def.id} (model pick)`,
+                facts: isWebSearch
+                  ? searchFacts(out, pick.why)
+                  : isWebRead
+                    ? readFacts(out, pick.why)
+                    : [pick.why, summary].filter(Boolean),
+                data: { query: pick.query, result: capture.clamped } as Record<string, unknown>,
                 offloadKey: capture.offloadKey,
               },
             });
-            observationsRef.current.push({
-              id: "web.read",
-              kind: "tool",
-              source: "web.read",
+            const obs: ToolObservation = {
+              id: pick.def.id,
+              kind: pick.def.kind === "command" ? "command" : "tool",
+              source: pick.def.id,
               status: "ok",
               summary,
               data: capture.clamped,
               offloadKey: capture.offloadKey,
-            });
-          };
-          if (readDef && readTool) {
-            turn.stage("tool", "decide");
-            const readPick = await decideAction(
-              `Read one page from these results to learn more:\n${captureResult(lastObs.data).clamped ?? "search results"}`,
-              [readDef],
-            );
-            try {
-              if (readPick?.url) {
-                turn.settle("tool", "ok", `web.read · ${readPick.why || "model-chosen"}`);
-                await runFollowUp(readPick.url, readPick.why || "model-chosen");
-              } else {
-                const fallbackUrl = searchResultUrl(lastObs.data);
-                if (fallbackUrl) {
-                  turn.settle("tool", "ok", "web.read · top result (model did not pick)");
-                  await runFollowUp(fallbackUrl, "top result of the search");
-                } else {
-                  turn.settle(
-                    "tool",
-                    "skipped",
-                    readPick ? "model picked web.read without a url" : "no page selected by model",
-                  );
-                }
-              }
-            } catch (err) {
-              turn.settle("tool", "error", err instanceof Error ? err.message : "tool failed");
-            }
+            };
+            observationsRef.current.push(obs);
+            if (isWebSearch) lastSearchObs = obs;
+          } catch (err) {
+            turn.settle("tool", "error", err instanceof Error ? err.message : "tool failed");
+            break;
           }
         }
       }
@@ -902,6 +920,19 @@ function ChatConsole({
             images: vision && image ? [image] : undefined,
           });
         }
+      }
+
+      // Diagnostics for the no-output class of failures: keep the untouched
+      // completion on the window so a failing run can be inspected (model,
+      // size, head, tail) without restarting anything.
+      if (typeof window !== "undefined") {
+        (window as unknown as { __lastRaw?: unknown }).__lastRaw = {
+          at: new Date().toISOString(),
+          model: ai.target.label,
+          chars: raw.length,
+          head: raw.slice(0, 240),
+          tail: raw.slice(-240),
+        };
       }
 
       const { thinking: think, answer } = splitThinking(raw);

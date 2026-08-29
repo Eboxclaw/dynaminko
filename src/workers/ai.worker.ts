@@ -387,7 +387,7 @@ async function chatMessages(
     .map((t) => t.content)
     .join("\n\n");
   const sys = options.thinking
-    ? `${systemText}\n\nThink step by step inside  thinking… response, then give the answer after it.`
+    ? `${systemText}\n\nThink step by step inside <think></think> tags, then give the answer after the closing tag.`
     : systemText;
 
   const dialogue = turns.filter((t) => t.role !== "system");
