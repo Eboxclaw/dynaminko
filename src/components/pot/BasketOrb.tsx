@@ -151,7 +151,7 @@ export function BasketOrb({ slices }: { slices: OrbSlice[] }) {
 
       const scene = new THREE.Scene();
       const camera = new THREE.PerspectiveCamera(34, w / h, 0.1, 100);
-      camera.position.set(0, 2.7, 7.8);
+      camera.position.set(0, 2.15, 6.35);
       camera.lookAt(0, 0, 0);
 
       const css = getComputedStyle(document.documentElement);
@@ -167,7 +167,7 @@ export function BasketOrb({ slices }: { slices: OrbSlice[] }) {
       scene.add(key, rim, fill);
 
       const group = new THREE.Group();
-      group.rotation.x = 0.34;
+      group.rotation.x = 0.30;
       scene.add(group);
 
       // the slice wheel spins; the emblem stays legible on its own axis
