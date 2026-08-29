@@ -653,7 +653,9 @@ function ChatConsole({
             text: `retrieval · ${found.count} records`,
             card: {
               source: `journal.retrieve (${found.how})`,
-              facts: found.lines.slice(0, 5),
+              // Retrieval ranks by relevance; the reader wants latest first,
+              // same as every other date-bearing surface.
+              facts: [...found.lines].sort((a, b) => b.localeCompare(a)).slice(0, 5),
               data: { count: found.count, how: found.how },
             },
           });
@@ -2010,9 +2012,9 @@ function ChatConsole({
 }
 
 /**
- * One tool or approval message. Facts are summary-first: at most three are
- * shown, the rest fold behind a "+ N more" toggle. The card id (source) stays
- * visible either way, so the card remains targetable by the agent.
+ * One tool or approval message. Cards render collapsed by default: the card
+ * id (source) plus the first fact, everything else behind one toggle. The id
+ * stays visible either way, so the card remains targetable by the agent.
  */
 function ToolCard({
   card,
@@ -2030,8 +2032,8 @@ function ToolCard({
   const [fullText, setFullText] = useState<string | null>(null);
   const [loadingFull, setLoadingFull] = useState(false);
   const facts = card?.facts ?? [];
-  const hidden = facts.length - 3;
-  const shown = expanded ? facts : facts.slice(0, 3);
+  const hidden = facts.length - 1;
+  const shown = expanded ? facts : facts.slice(0, 1);
   const offloadKey = card?.offloadKey;
 
   const loadFull = async () => {
@@ -2122,7 +2124,7 @@ function ToolCard({
           {expanded ? "less" : `+${hidden} more`}
         </button>
       )}
-      {card && offloadKey && (
+      {card && offloadKey && expanded && (
         <>
           <button
             type="button"
@@ -2140,23 +2142,24 @@ function ToolCard({
             </pre>
           )}
           {fullOpen && loadingFull && <p className="eyebrow mt-1.5">loading full result…</p>}
-          {/* When the card is a web.read result, show a link-out to the page */}
-          {card?.source?.startsWith("web.read") &&
-            typeof card.data === "object" &&
-            (card.data as Record<string, unknown>).result &&
-            typeof (card.data as Record<string, unknown>).result === "object" && (
-              <a
-                href={(card.data as Record<string, { url: string }>).result?.url ?? "#"}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="doodle-pill mt-1.5 inline-flex px-2.5 py-0.5 text-[11px]"
-                onClick={(e) => e.stopPropagation()}
-              >
-                open site ↗
-              </a>
-            )}
         </>
       )}
+      {/* When the card is a web.read result, show a link-out to the page; the
+       * jump to the source stays available even while the card is collapsed. */}
+      {card?.source?.startsWith("web.read") &&
+        typeof card.data === "object" &&
+        (card.data as Record<string, unknown>).result != null &&
+        typeof (card.data as Record<string, unknown>).result === "object" && (
+          <a
+            href={(card.data as Record<string, { url: string }>).result?.url ?? "#"}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="doodle-pill mt-1.5 inline-flex px-2.5 py-0.5 text-[11px]"
+            onClick={(e) => e.stopPropagation()}
+          >
+            open site ↗
+          </a>
+        )}
       {approval && (
         <div className="mt-1">
           <p className="break-words text-[13px]">
