@@ -14,6 +14,7 @@ import { Route as ThesesRouteImport } from './routes/theses'
 import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as PotRouteImport } from './routes/pot'
 import { Route as PortfolioRouteImport } from './routes/portfolio'
+import { Route as OrbPreviewRouteImport } from './routes/orb-preview'
 import { Route as JournalRouteImport } from './routes/journal'
 import { Route as AlertsRouteImport } from './routes/alerts'
 import { Route as AgentsRouteImport } from './routes/agents'
@@ -44,6 +45,11 @@ const PortfolioRoute = PortfolioRouteImport.update({
   path: '/portfolio',
   getParentRoute: () => rootRouteImport,
 } as any)
+const OrbPreviewRoute = OrbPreviewRouteImport.update({
+  id: '/orb-preview',
+  path: '/orb-preview',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const JournalRoute = JournalRouteImport.update({
   id: '/journal',
   path: '/journal',
@@ -70,6 +76,7 @@ export interface FileRoutesByFullPath {
   '/agents': typeof AgentsRoute
   '/alerts': typeof AlertsRoute
   '/journal': typeof JournalRoute
+  '/orb-preview': typeof OrbPreviewRoute
   '/portfolio': typeof PortfolioRoute
   '/pot': typeof PotRoute
   '/settings': typeof SettingsRoute
@@ -81,6 +88,7 @@ export interface FileRoutesByTo {
   '/agents': typeof AgentsRoute
   '/alerts': typeof AlertsRoute
   '/journal': typeof JournalRoute
+  '/orb-preview': typeof OrbPreviewRoute
   '/portfolio': typeof PortfolioRoute
   '/pot': typeof PotRoute
   '/settings': typeof SettingsRoute
@@ -93,6 +101,7 @@ export interface FileRoutesById {
   '/agents': typeof AgentsRoute
   '/alerts': typeof AlertsRoute
   '/journal': typeof JournalRoute
+  '/orb-preview': typeof OrbPreviewRoute
   '/portfolio': typeof PortfolioRoute
   '/pot': typeof PotRoute
   '/settings': typeof SettingsRoute
@@ -106,6 +115,7 @@ export interface FileRouteTypes {
     | '/agents'
     | '/alerts'
     | '/journal'
+    | '/orb-preview'
     | '/portfolio'
     | '/pot'
     | '/settings'
@@ -117,6 +127,7 @@ export interface FileRouteTypes {
     | '/agents'
     | '/alerts'
     | '/journal'
+    | '/orb-preview'
     | '/portfolio'
     | '/pot'
     | '/settings'
@@ -128,6 +139,7 @@ export interface FileRouteTypes {
     | '/agents'
     | '/alerts'
     | '/journal'
+    | '/orb-preview'
     | '/portfolio'
     | '/pot'
     | '/settings'
@@ -140,6 +152,7 @@ export interface RootRouteChildren {
   AgentsRoute: typeof AgentsRoute
   AlertsRoute: typeof AlertsRoute
   JournalRoute: typeof JournalRoute
+  OrbPreviewRoute: typeof OrbPreviewRoute
   PortfolioRoute: typeof PortfolioRoute
   PotRoute: typeof PotRoute
   SettingsRoute: typeof SettingsRoute
@@ -184,6 +197,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof PortfolioRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/orb-preview': {
+      id: '/orb-preview'
+      path: '/orb-preview'
+      fullPath: '/orb-preview'
+      preLoaderRoute: typeof OrbPreviewRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/journal': {
       id: '/journal'
       path: '/journal'
@@ -220,6 +240,7 @@ const rootRouteChildren: RootRouteChildren = {
   AgentsRoute: AgentsRoute,
   AlertsRoute: AlertsRoute,
   JournalRoute: JournalRoute,
+  OrbPreviewRoute: OrbPreviewRoute,
   PortfolioRoute: PortfolioRoute,
   PotRoute: PotRoute,
   SettingsRoute: SettingsRoute,

@@ -2,6 +2,87 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 export type OrbSlice = { label: string; share: number };
 
+/* ── emblem geometry ──────────────────────────────────────────────────────
+   The Proof of Thesis mark, rebuilt as extrudable 2D paths. Coordinates come
+   straight from Mark.tsx's 32-unit viewBox, recentred on the origin and
+   Y-flipped so the shape stands upright in three.js space. */
+
+const V = 32;
+const C = (n: number) => n - V / 2; // centre on origin
+const Y = (n: number) => V / 2 - n; // svg y grows down, three grows up
+
+const CHAMFER = 7; // corner cut, matches the svg's diagonal ticks
+const BAND = 1.5; // stroke weight of the frame
+
+/** Outer silhouette: square with the top-left and bottom-right corners cut. */
+function framePoints(inset: number): Array<[number, number]> {
+  const a = 1.5 + inset;
+  const b = 30.5 - inset;
+  const c = CHAMFER;
+  return [
+    [a + c, a],
+    [b, a],
+    [b, b - c],
+    [b - c, b],
+    [a, b],
+    [a, a + c],
+  ];
+}
+
+function toShape(
+  THREE: typeof import("three"),
+  pts: Array<[number, number]>,
+): import("three").Shape {
+  const s = new THREE.Shape();
+  pts.forEach(([x, y], i) => {
+    const px = C(x);
+    const py = Y(y);
+    if (i === 0) s.moveTo(px, py);
+    else s.lineTo(px, py);
+  });
+  s.closePath();
+  return s;
+}
+
+/** Extruded, bevelled emblem: frame + ring + centre bar. */
+function buildEmblem(THREE: typeof import("three"), material: import("three").Material) {
+  const group = new THREE.Group();
+  const extrude = { depth: 1.5, bevelEnabled: true, bevelSize: 0.22, bevelThickness: 0.22, bevelSegments: 2, curveSegments: 24 };
+  const geos: import("three").BufferGeometry[] = [];
+
+  // frame band
+  const frame = toShape(THREE, framePoints(0));
+  frame.holes.push(toShape(THREE, framePoints(BAND)));
+  geos.push(new THREE.ExtrudeGeometry(frame, extrude));
+
+  // circle band
+  const ring = new THREE.Shape();
+  ring.absarc(0, 0, 7, 0, Math.PI * 2, false);
+  const inner = new THREE.Path();
+  inner.absarc(0, 0, 7 - BAND, 0, Math.PI * 2, true);
+  ring.holes.push(inner);
+  geos.push(new THREE.ExtrudeGeometry(ring, extrude));
+
+  // vertical bar
+  const bar = new THREE.Shape();
+  bar.moveTo(-BAND / 2, Y(9));
+  bar.lineTo(BAND / 2, Y(9));
+  bar.lineTo(BAND / 2, Y(23));
+  bar.lineTo(-BAND / 2, Y(23));
+  bar.closePath();
+  geos.push(new THREE.ExtrudeGeometry(bar, extrude));
+
+  geos.forEach((g) => {
+    // centre the extrusion on its own depth only; keep xy in artwork space
+    g.translate(0, 0, -extrude.depth / 2);
+    group.add(new THREE.Mesh(g, material));
+  });
+
+  // 32-unit artwork down to roughly 1.7 units across, sitting inside the ring
+  group.scale.setScalar(0.052);
+  return { group, geos };
+}
+
 /**
  * Portfolio basket ring. GPU-accelerated via three.js/WebGL, lazily imported so
  * it never enters the SSR graph. Mobile-first: capped pixel ratio, reduced
@@ -42,6 +123,7 @@ export function BasketOrb({ slices }: { slices: OrbSlice[] }) {
 
       const small = window.matchMedia("(max-width: 640px)").matches;
       const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      const fine = window.matchMedia("(pointer: fine)").matches;
 
       let renderer: import("three").WebGLRenderer;
       try {
@@ -69,71 +151,130 @@ export function BasketOrb({ slices }: { slices: OrbSlice[] }) {
 
       const scene = new THREE.Scene();
       const camera = new THREE.PerspectiveCamera(34, w / h, 0.1, 100);
-      camera.position.set(0, 2.9, 7.6);
+      camera.position.set(0, 2.15, 6.35);
       camera.lookAt(0, 0, 0);
 
       const css = getComputedStyle(document.documentElement);
       const ink = new THREE.Color(css.getPropertyValue("--ink").trim() || "#101012");
+      const paper = new THREE.Color(css.getPropertyValue("--paper").trim() || "#f6f5f3");
+
+      // Three cheap lights: key, rim, fill. No env map, no HDR fetch.
+      const key = new THREE.DirectionalLight(0xffffff, 2.4);
+      key.position.set(3.5, 5, 4);
+      const rim = new THREE.DirectionalLight(0xffffff, 1.6);
+      rim.position.set(-4, 1.5, -3);
+      const fill = new THREE.HemisphereLight(0xffffff, 0x111111, 0.75);
+      scene.add(key, rim, fill);
 
       const group = new THREE.Group();
-      group.rotation.x = 0.34;
+      group.rotation.x = 0.30;
       scene.add(group);
 
+      // the slice wheel spins; the emblem stays legible on its own axis
+      const wheel = new THREE.Group();
+      group.add(wheel);
+
       const meshes: import("three").Mesh[] = [];
+      const materials: import("three").Material[] = [];
+      const geometries: import("three").BufferGeometry[] = [];
+
+      const track = <T extends import("three").Material>(m: T) => {
+        materials.push(m);
+        return m;
+      };
+
       const radial = small ? 8 : 14;
       const tubular = small ? 56 : 120;
       const peak = Math.max(...data.map((d) => d.share));
-      const GAP = 0.045; // radians of breathing room between slices
+      const GAP = 0.05; // radians of breathing room between slices
+      const R = 2.05;
+
+      // hairline guide ring behind the slices
+      const guideGeo = new THREE.TorusGeometry(R, 0.012, 6, small ? 72 : 160);
+      geometries.push(guideGeo);
+      const guide = new THREE.Mesh(
+        guideGeo,
+        track(
+          new THREE.MeshBasicMaterial({ color: ink, transparent: true, opacity: 0.18 }),
+        ),
+      );
+      wheel.add(guide);
 
       let angle = -Math.PI / 2;
-      data.forEach((d, i) => {
+      data.forEach((d) => {
         const span = Math.max(d.share * Math.PI * 2 - GAP, 0.05);
         const weight = d.share / (peak || 1);
         const geo = new THREE.TorusGeometry(
-          2.05 + i * 0.035,
-          0.06 + weight * 0.17,
+          R,
+          0.055 + weight * 0.155,
           radial,
           Math.max(8, Math.round(tubular * d.share) + 8),
           span,
         );
+        geometries.push(geo);
         const mesh = new THREE.Mesh(
           geo,
-          new THREE.MeshBasicMaterial({
-            color: ink,
-            transparent: true,
-            opacity: 0.22 + 0.68 * weight,
-            wireframe: i % 3 === 2,
-          }),
+          track(
+            new THREE.MeshStandardMaterial({
+              color: ink.clone().lerp(paper, 0.42 - 0.34 * weight),
+              roughness: 0.34 - 0.12 * weight,
+              metalness: 0.55,
+            }),
+          ),
         );
         mesh.rotation.z = angle;
-        mesh.position.z = -weight * 0.18;
-        group.add(mesh);
+        wheel.add(mesh);
         meshes.push(mesh);
+
+        // boundary tick
+        const tickGeo = new THREE.BoxGeometry(0.02, 0.3, 0.02);
+        geometries.push(tickGeo);
+        const tick = new THREE.Mesh(
+          tickGeo,
+          track(new THREE.MeshBasicMaterial({ color: ink, transparent: true, opacity: 0.28 })),
+        );
+        tick.position.set(Math.cos(angle) * (R + 0.3), Math.sin(angle) * (R + 0.3), 0);
+        tick.rotation.z = angle - Math.PI / 2;
+        wheel.add(tick);
+        meshes.push(tick);
+
         angle += d.share * Math.PI * 2;
       });
 
-      const core = new THREE.Mesh(
-        new THREE.IcosahedronGeometry(1.12, small ? 0 : 1),
-        new THREE.MeshBasicMaterial({
+      const emblemMat = track(
+        new THREE.MeshStandardMaterial({
           color: ink,
-          wireframe: true,
-          transparent: true,
-          opacity: 0.16,
+          roughness: 0.22,
+          metalness: 0.72,
         }),
       );
-      group.add(core);
+      const { group: emblem, geos } = buildEmblem(THREE, emblemMat);
+      geometries.push(...geos);
+      group.add(emblem);
 
       let raf = 0;
       let running = false;
       let visible = true;
       const start = performance.now();
+      let px = 0;
+      let py = 0;
+      let tx = 0;
+      let ty = 0;
 
       const render = () => renderer.render(scene, camera);
       const tick = (t: number) => {
         const e = (t - start) / 1000;
-        group.rotation.y = e * 0.14;
-        core.rotation.x = e * 0.2;
-        core.rotation.y = -e * 0.16;
+        // intro: quick spin that eases into the steady drift
+        const intro = 1 - Math.exp(-e * 2.2);
+        wheel.rotation.y = intro * 1.4 + e * 0.14;
+        // the emblem stays readable: a slow sway, never a full turn
+        emblem.rotation.y = (1 - intro) * -1.2 + Math.sin(e * 0.42) * 0.34;
+        emblem.rotation.x = -0.34 + Math.sin(e * 0.31) * 0.05;
+        emblem.scale.setScalar(0.052 * (0.9 + 0.1 * intro));
+        px += (tx - px) * 0.06;
+        py += (ty - py) * 0.06;
+        group.rotation.x = 0.34 + py;
+        group.position.x = px * 0.9;
         render();
         raf = requestAnimationFrame(tick);
       };
@@ -148,10 +289,26 @@ export function BasketOrb({ slices }: { slices: OrbSlice[] }) {
       };
 
       if (reduce) {
-        group.rotation.y = 0.35;
+        wheel.rotation.y = 0.35;
+        emblem.rotation.x = -0.34;
+        emblem.rotation.y = 0.18;
         render();
       } else {
         play();
+      }
+
+      const onPointer = (ev: PointerEvent) => {
+        const r = el.getBoundingClientRect();
+        tx = ((ev.clientX - r.left) / r.width - 0.5) * 0.5;
+        ty = ((ev.clientY - r.top) / r.height - 0.5) * -0.22;
+      };
+      const onLeave = () => {
+        tx = 0;
+        ty = 0;
+      };
+      if (fine && !reduce) {
+        el.addEventListener("pointermove", onPointer);
+        el.addEventListener("pointerleave", onLeave);
       }
 
       const io = new IntersectionObserver(
@@ -182,10 +339,10 @@ export function BasketOrb({ slices }: { slices: OrbSlice[] }) {
         io.disconnect();
         ro.disconnect();
         document.removeEventListener("visibilitychange", onVisibility);
-        [...meshes, core].forEach((m) => {
-          m.geometry.dispose();
-          (m.material as import("three").Material).dispose();
-        });
+        el.removeEventListener("pointermove", onPointer);
+        el.removeEventListener("pointerleave", onLeave);
+        geometries.forEach((g) => g.dispose());
+        materials.forEach((m) => m.dispose());
         renderer.dispose();
         renderer.domElement.remove();
       };
