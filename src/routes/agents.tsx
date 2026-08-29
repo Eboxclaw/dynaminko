@@ -407,6 +407,10 @@ function ChatConsole({
   const openSession = (id: string) => {
     setActiveId(id);
     setMessages(readSession(id));
+    // A session switch starts a clean evidence slate: submit() resets per
+    // turn, this keeps a mid-flight page from ever mixing sessions even
+    // before the next submit.
+    observationsRef.current = [];
   };
 
   const startSession = (title?: string) => {
@@ -414,6 +418,7 @@ function ChatConsole({
     setSessions(listSessions());
     setActiveId(meta.id);
     setMessages([]);
+    observationsRef.current = [];
   };
 
   /**
@@ -464,11 +469,11 @@ function ChatConsole({
     try {
       raw = await ai.askMessages(messages, {
         temperature: 0,
-        // 512, not 96: the old cap truncated reasoning models (the 2.6B and
-        // the 1.2B think before they pick, and the grammar cannot save a run
-        // that was cut mid-thought). The grammar still ends a completed pick
-        // early, so the extra budget only burns when a model needs it.
-        maxTokens: 512,
+        // 2048, not 96 or 512: reasoning models think before they pick, and
+        // the grammar ends a completed pick early so the extra budget only
+        // burns when the model actually needs it. Measured: a 2.6B decide at
+        // 512 spent 33s and still truncated into a second leaked call.
+        maxTokens: 2048,
         responseSchema: {
           name: "tool_choice",
           schema: {
@@ -1131,6 +1136,10 @@ function ChatConsole({
           .map((o) => `${o.source}: ${o.summary ?? "ran"}`)
           .join("; ");
         text = `I gathered the data but could not compose the full answer. What the tools found: ${lines}.`;
+        // finalText was computed while text was still empty; without this the
+        // honest summary was composed and then never pushed (the exact silent
+        // drop that hit the second-leak turn of the 2.6B).
+        finalText = text;
         log("agent", "answer", {
           level: "warn",
           detail: "no prose from the model; deterministic observation summary used",

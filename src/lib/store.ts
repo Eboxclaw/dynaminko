@@ -807,10 +807,15 @@ export function forgetAllMemory() {
 }
 
 /** The MEMORY prompt section: one line per entry, ids addressable so the
- * model can update or forget by id. Bounded by the store cap by construction. */
+ * model can update or forget by id. Bounded by the store cap by construction.
+ * Auto session summaries are old chat history by another name: injecting them
+ * made every new session start with the previous one's context. They stay in
+ * the store (readable on demand with /run memory.read); the prompt only
+ * carries deliberate, user-relevant notes. */
 export function memoryPrompt(entries: MemoryEntry[] = readMemoryRaw()): string {
-  if (!entries.length) return "";
-  return entries.map((e) => `[${e.id}] ${e.text}`).join("\n");
+  const lines = entries.filter((e) => !/^session summary:/i.test(e.text));
+  if (!lines.length) return "";
+  return lines.map((e) => `[${e.id}] ${e.text}`).join("\n");
 }
 
 // ── agent log ──────────────────────────────────────────────────────────────
