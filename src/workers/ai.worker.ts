@@ -15,7 +15,7 @@ import { readDelta } from "@/lib/ai/stream";
 // The registry lives once, on the main thread (lib/ai.ts). This module has no
 // runtime imports of its own, so it bundles into the worker cleanly.
 import { DEFAULT_CTX, DEFAULT_MODEL_ID, MODEL_BY_ID, MODELS, type ModelSpec } from "@/lib/ai";
-import { withNativeToolTurns } from "@/lib/ai/nativeTools";
+import { renderInterceptedCalls, withNativeToolTurns } from "@/lib/ai/nativeTools";
 
 // ── worker global shims ───────────────────────────────────────────────
 //
@@ -510,32 +510,11 @@ async function chatMessages(
   });
 
   // A tool call intercepted by the stream is re-rendered into the model's
-  // own dialect (<|tool_call_start|>[name(k='v')]<|tool_call_end|>) so every
-  // consumer, decide parsers included, reads one uniform surface.
+  // own dialect so every consumer, decide parsers included, reads one
+  // uniform surface.
   if (!out && nativeCalls.length) {
-    const rendered = nativeCalls
-      .filter((c) => c.name)
-      .map((c) => {
-        let argsList = "";
-        const src = c.arguments.trim();
-        if (src && src !== "{}") {
-          try {
-            const parsed = JSON.parse(src) as Record<string, unknown>;
-            argsList = Object.entries(parsed)
-              .map(([k, v]) =>
-                typeof v === "string"
-                  ? `${k}='${v.replace(/\\/g, "\\\\").replace(/'/g, "\\'")}'`
-                  : `${k}=${JSON.stringify(v)}`,
-              )
-              .join(", ");
-          } catch {
-            argsList = "";
-          }
-        }
-        return `${c.name}(${argsList})`;
-      })
-      .join(", ");
-    if (rendered) out = `<|tool_call_start|>[${rendered}]<|tool_call_end|>`;
+    const rendered = renderInterceptedCalls(nativeCalls);
+    if (rendered) out = rendered;
   }
 
   return out.trim();

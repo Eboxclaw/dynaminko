@@ -149,6 +149,40 @@ export function decideTools(
   }));
 }
 
+/**
+ * Re-render tool calls intercepted by the C++ stream (delta.tool_calls
+ * fragments arrive as name + JSON-encoded arguments, content stays empty)
+ * back into the model's own dialect so every consumer reads one surface:
+ * `<|tool_call_start|>[name(k='v', n=5)]<|tool_call_end|>`.
+ */
+export function renderInterceptedCalls(
+  calls: { name: string; arguments: string }[],
+): string {
+  const rendered = calls
+    .filter((c) => c.name)
+    .map((c) => {
+      let argsList = "";
+      const src = c.arguments.trim();
+      if (src && src !== "{}") {
+        try {
+          const parsed = JSON.parse(src) as Record<string, unknown>;
+          argsList = Object.entries(parsed)
+            .map(([k, v]) =>
+              typeof v === "string"
+                ? `${k}='${v.replace(/\\/g, "\\\\").replace(/'/g, "\\'")}'`
+                : `${k}=${JSON.stringify(v)}`,
+            )
+            .join(", ");
+        } catch {
+          argsList = "";
+        }
+      }
+      return `${c.name}(${argsList})`;
+    })
+    .join(", ");
+  return rendered ? `<|tool_call_start|>[${rendered}]<|tool_call_end|>` : "";
+}
+
 // ── native tool protocol composition ────────────────────────────────────
 
 export type NativeToolTurn = {

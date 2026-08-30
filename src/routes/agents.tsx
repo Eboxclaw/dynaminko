@@ -543,7 +543,9 @@ function ChatConsole({
         nativeMenu,
         menuTools: nativeMenu ? ids.length : 0,
         chars: raw.length,
-        head: raw.slice(0, 200),
+        // Complete raw when short (grammar picks usually are): fixtures and
+        // wire audits want the exact output, not a head excerpt.
+        ...(raw.length <= 600 ? { raw } : { head: raw.slice(0, 200) }),
       };
     }
     // Native-menu decides speak the model's own dialect: parse the native
