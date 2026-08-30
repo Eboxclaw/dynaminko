@@ -488,17 +488,9 @@ function postAndWait<T>(msg: AiWorkerRequest): Promise<T> {
       reject(e);
     };
 
-    // Timeout to prevent hanging (matches the wall-clock deadline in AGENTS.md).
-    // Chat requests scale with their own max_tokens: a 3 tok/s model streaming
-    // a full answer needs minutes, and the flat 120s used to cut grounded
-    // answers short. Only a load's deadline is ever extended by progress
-    // ticks; when it still fires, the download has been silent too long. Tell
-    // the worker to drop the in-flight guard so the next op is not blocked by
-    // the orphaned runtime it can no longer reach.
-    const chatMaxTokens =
-      msg.type === "chat-messages"
-        ? ((msg as { options?: { maxTokens?: number } }).options?.maxTokens ?? 8192)
-        : 0;
+    // Non-chat RPC keeps the flat 120s guard; chat requests get the same
+    // 10-minute absolute backstop as the streaming bridge so the layers can
+    // never disagree about when a slow (but alive) run must end.
     const timer = setTimeout(() => {
       if (msg.type === "load") {
         w.postMessage({
@@ -508,7 +500,7 @@ function postAndWait<T>(msg: AiWorkerRequest): Promise<T> {
         } satisfies AiWorkerRequest);
       }
       doReject(new Error("AI worker request timed out"));
-    }, Math.max(120_000, chatMaxTokens * 25));
+    }, msg.type === "chat-messages" ? 600_000 : 120_000);
 
     // Register before posting so a response that arrives synchronously
     // still finds its waiter.
@@ -695,6 +687,7 @@ export function chatMessages(
       switch (msg.type) {
         case "token": {
           out += msg.text;
+          (handler as unknown as { rearmOnToken?: () => void }).rearmOnToken?.();
           onToken?.(msg.text);
           if ((msg as { speed?: unknown }).speed) {
             const s = (msg as { speed: { tps: number; tokens: number } }).speed;
@@ -731,13 +724,29 @@ export function chatMessages(
       },
     } satisfies AiWorkerRequest);
 
-    // Timeout safeguard, scaled with the answer budget like the worker bridge
-    // timeout: partial output still resolves, only a truly silent run rejects.
-    setTimeout(() => {
+    // Idle-based deadline: a model that is still producing tokens is never
+    // cut, however slowly it thinks (the 2.6B measured 0.4 tok/s mid-think;
+    // the old total-wall timer killed it ~80 tokens in). Only silence ends
+    // the run: 75s covers cold prefill on multi-thousand-token prompts, and
+    // a 10-minute absolute backstop still bounds a wedged stream.
+    const IDLE_MS = 75_000;
+    const BACKSTOP_MS = 600_000;
+    let idleTimer: ReturnType<typeof setTimeout> | null = null;
+    let backstop: ReturnType<typeof setTimeout> | null = null;
+    const settle = (withPartial: boolean) => {
+      if (idleTimer) clearTimeout(idleTimer);
+      if (backstop) clearTimeout(backstop);
       worker?.removeEventListener("message", handler);
-      if (out) resolve(out);
+      if (withPartial && out) resolve(out);
       else reject(new Error("chat timed out"));
-    }, Math.max(120_000, (options.maxTokens ?? 8192) * 25));
+    };
+    const armIdle = () => {
+      if (idleTimer) clearTimeout(idleTimer);
+      idleTimer = setTimeout(() => settle(true), IDLE_MS);
+    };
+    backstop = setTimeout(() => settle(true), BACKSTOP_MS);
+    armIdle();
+    (handler as unknown as { rearmOnToken?: () => void }).rearmOnToken = armIdle;
   });
 }
 

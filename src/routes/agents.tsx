@@ -647,18 +647,30 @@ function ChatConsole({
       if (ground && !conversational && !opts.skipRecords) {
         const found = await retrieveContext(user, 6);
         if (found.count) {
-          records = found.lines;
-          push({
-            role: "tool",
-            text: `retrieval · ${found.count} records`,
-            card: {
-              source: `journal.retrieve (${found.how})`,
-              // Retrieval ranks by relevance; the reader wants latest first,
-              // same as every other date-bearing surface.
-              facts: [...found.lines].sort((a, b) => b.localeCompare(a)).slice(0, 5),
-              data: { count: found.count, how: found.how },
-            },
-          });
+          // Wallet-state questions must not receive transfer receipts as
+          // evidence: "Received 1.81e-4 KBTC" is a historical event, and the
+          // models read it as current holdings (live: the 2.6B answered a
+          // wallet question from receipt lines). Trade/pnl lines stay: the
+          // "how is my performance" half of those questions needs them.
+          const walletShape =
+            /\b(wallet|hold(?:ing)?s?|balance|net\s?worth|positions?|portfolio)\b/i.test(user);
+          const lines = walletShape
+            ? found.lines.filter((l) => !/\b(?:Received|Sent)\b/.test(l) || /\bpnl\b/.test(l))
+            : found.lines;
+          if (lines.length) {
+            records = lines;
+            push({
+              role: "tool",
+              text: `retrieval · ${lines.length} records`,
+              card: {
+                source: `journal.retrieve (${found.how})`,
+                // Retrieval ranks by relevance; the reader wants latest first,
+                // same as every other date-bearing surface.
+                facts: [...lines].sort((a, b) => b.localeCompare(a)).slice(0, 5),
+                data: { count: lines.length, how: found.how },
+              },
+            });
+          }
         }
       }
       // Just-in-time capability detail: the one-line book always rides along,
@@ -994,9 +1006,12 @@ function ChatConsole({
       // single web.search call that the markup cleaner then wiped to "no
       // output". With hop budget left, that call is a real request for more
       // data: run it as one promoted hop and answer once more from the grown
-      // evidence. Only once, and the retry is told tool calls are closed; an
-      // honest summary of the observations beats a silent failure.
-      if (!text && executedKeys.length < LIMITS.maxToolHops) {
+      // evidence. The LFM template also makes the model RE-ISSUE a call that
+      // already ran (it expects a tool-role response turn we deliver as
+      // prose): a refused repeat still gets the one closed-calls retry, so
+      // the turn ends in an answer instead of a JSON dump.
+      let leakRetry = false;
+      if (!text) {
         const call = extractNativeToolCall(raw);
         const def = call
           ? selection.selected.find((d) => d.id === call.id) ??
@@ -1015,7 +1030,7 @@ function ChatConsole({
             input.limit = Math.min(8, Math.max(1, Math.round(call.args.limit)));
           }
           const key = hopKey(call.id, input);
-          if (!isRepeatHop(key, executedKeys)) {
+          if (!isRepeatHop(key, executedKeys) && executedKeys.length < LIMITS.maxToolHops) {
             turn.stage("tool", `${call.id} (native call)`);
             turn.settle("tool", "ok", `${call.id} · promoted from the answer`);
             try {
@@ -1048,40 +1063,51 @@ function ChatConsole({
                 offloadKey: capture.offloadKey,
               });
               executedKeys.push(key);
-              // One more answer, now with the tool's data in evidence and an
-              // explicit end to tool calls.
-              const retryBuild = buildTurn({
-                ...buildInput,
-                observations: observationsRef.current,
-                state: `${stateLines}\ntool_calls: closed for this turn; answer now from TURN OBSERVATIONS`,
-              });
-              lastPromptRef.current = retryBuild.estTokens;
-              lastBuildRef.current = retryBuild.sections.map(
-                ({ name, estTokens, truncated }) => ({ name, estTokens, truncated }),
-              );
-              turn.stage("answer", `${ai.target.label} · after promoted call`);
-              raw = await ai.askMessages(retryBuild.messages, {
-                thinking,
-                temperature: answerTemp,
-                images: vision && image ? [image] : undefined,
-              });
-              if (typeof window !== "undefined") {
-                (window as unknown as { __lastRaw?: unknown }).__lastRaw = {
-                  at: new Date().toISOString(),
-                  model: ai.target.label,
-                  retry: true,
-                  chars: raw.length,
-                  head: raw.slice(0, 240),
-                  tail: raw.slice(-240),
-                };
-              }
-              const retried = splitThinking(raw);
-              text = stripToolCallMarkup(retried.answer || raw || "").trim();
-              cleanThink = retried.thinking ? stripToolCallMarkup(retried.thinking) : cleanThink;
+              leakRetry = true;
             } catch (err) {
               turn.settle("tool", "error", err instanceof Error ? err.message : "tool failed");
             }
+          } else if (call) {
+            // Repeat of a hop that already ran (or budget gone): do not
+            // execute again, but still answer once with calls closed.
+            leakRetry = true;
           }
+        }
+      }
+      if (!text && leakRetry) {
+        // One more answer with the tool's data in evidence and an explicit
+        // end to tool calls.
+        try {
+          const retryBuild = buildTurn({
+            ...buildInput,
+            observations: observationsRef.current,
+            state: `${stateLines}\ntool_calls: closed for this turn; answer now from TURN OBSERVATIONS`,
+          });
+          lastPromptRef.current = retryBuild.estTokens;
+          lastBuildRef.current = retryBuild.sections.map(
+            ({ name, estTokens, truncated }) => ({ name, estTokens, truncated }),
+          );
+          turn.stage("answer", `${ai.target.label} · after closed calls`);
+          raw = await ai.askMessages(retryBuild.messages, {
+            thinking,
+            temperature: answerTemp,
+            images: vision && image ? [image] : undefined,
+          });
+          if (typeof window !== "undefined") {
+            (window as unknown as { __lastRaw?: unknown }).__lastRaw = {
+              at: new Date().toISOString(),
+              model: ai.target.label,
+              retry: true,
+              chars: raw.length,
+              head: raw.slice(0, 240),
+              tail: raw.slice(-240),
+            };
+          }
+          const retried = splitThinking(raw);
+          text = stripToolCallMarkup(retried.answer || raw || "").trim();
+          cleanThink = retried.thinking ? stripToolCallMarkup(retried.thinking) : cleanThink;
+        } catch {
+          /* the fallback below still answers from observations */
         }
       }
 
