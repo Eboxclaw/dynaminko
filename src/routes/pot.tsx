@@ -153,43 +153,46 @@ function PotPage() {
     >
       <div className="grid gap-4 lg:grid-cols-[1fr_1.2fr]">
         <Panel eyebrow="Index // Composite">
-          <div className="p-4 text-center">
-            <p className="num text-[64px] font-semibold leading-none tracking-tight">
-              {index.score ?? "—"}
-            </p>
-            <p className="eyebrow mt-3">
-              {index.score == null
-                ? "not enough written yet"
-                : "execution-weighted sentiment × action ÷ result"}
-            </p>
-            <div className="mt-6 flex h-1 w-full overflow-hidden bg-sunken">
-              <div
-                className="h-full bg-ink transition-[width] duration-700"
-                style={{ width: `${index.score ?? 0}%` }}
-              />
+          <div className="grid gap-4 p-4 sm:grid-cols-2 sm:items-center">
+            <div className="text-center sm:text-left">
+              <p className="num text-[56px] font-semibold leading-none tracking-tight sm:text-[64px]">
+                {index.score ?? "—"}
+              </p>
+              <p className="eyebrow mt-3">
+                {index.score == null
+                  ? "not enough written yet"
+                  : "execution-weighted sentiment × action ÷ result"}
+              </p>
+              <div className="mt-5 flex h-1 w-full overflow-hidden bg-sunken">
+                <div
+                  className="h-full bg-ink transition-[width] duration-700"
+                  style={{ width: `${index.score ?? 0}%` }}
+                />
+              </div>
+              <dl className="mt-4 grid grid-cols-3 gap-2 text-left">
+                <div>
+                  <dt className="eyebrow">Last 30d</dt>
+                  <dd className="num text-[15px]">{index.recentScore ?? "—"}</dd>
+                </div>
+                <div>
+                  <dt className="eyebrow">Trend</dt>
+                  <dd
+                    className={cn(
+                      "num text-[15px]",
+                      index.delta != null && index.delta > 0 && "text-gain",
+                      index.delta != null && index.delta < 0 && "text-loss",
+                    )}
+                  >
+                    {index.delta == null ? "—" : `${index.delta > 0 ? "+" : ""}${index.delta}`}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="eyebrow">Axes measured</dt>
+                  <dd className="num text-[15px]">{index.measured}/6</dd>
+                </div>
+              </dl>
             </div>
-            <dl className="mt-5 grid grid-cols-3 gap-2 text-left">
-              <div>
-                <dt className="eyebrow">Last 30d</dt>
-                <dd className="num text-[15px]">{index.recentScore ?? "—"}</dd>
-              </div>
-              <div>
-                <dt className="eyebrow">Trend</dt>
-                <dd
-                  className={cn(
-                    "num text-[15px]",
-                    index.delta != null && index.delta > 0 && "text-gain",
-                    index.delta != null && index.delta < 0 && "text-loss",
-                  )}
-                >
-                  {index.delta == null ? "—" : `${index.delta > 0 ? "+" : ""}${index.delta}`}
-                </dd>
-              </div>
-              <div>
-                <dt className="eyebrow">Axes measured</dt>
-                <dd className="num text-[15px]">{index.measured}/6</dd>
-              </div>
-            </dl>
+            <PotIndexOrb axes={index.axes} />
           </div>
         </Panel>
 
