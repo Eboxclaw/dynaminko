@@ -3,6 +3,7 @@ import { ChevronDown } from "lucide-react";
 import { useState } from "react";
 
 import { Panel, Shell } from "@/components/pot/Shell";
+import { PotIndexOrb } from "@/components/pot/PotIndexOrb";
 import { useDoc } from "@/hooks/useDoc";
 import { relativeTime, usd } from "@/lib/format";
 import { computeIndex, type Axis, type MotivePnl } from "@/lib/pot-index";
