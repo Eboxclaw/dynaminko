@@ -52,6 +52,7 @@ import { downloadProvider, loadDownloadedProvider, providerCached } from "@/lib/
 import { encoderReady } from "@/lib/ai/encoder";
 import { unverifiedNumbers } from "@/lib/agent/grounding";
 import { extractNativeToolCall, parseCallBody } from "@/lib/ai/nativeTools";
+import type { NativeToolTurn } from "@/lib/ai";
 
 import { AGENTS, automationOn } from "@/lib/agents/registry";
 import { COMMANDS, parseCommand, suggestions, type Suggestion } from "@/lib/chat/commands";
@@ -837,6 +838,7 @@ function ChatConsole({
                     summary,
                     data: capture.clamped,
                     offloadKey: capture.offloadKey,
+                    args: { url: fallbackUrl },
                   });
                   didRead = true;
                 } catch (err) {
@@ -880,6 +882,7 @@ function ChatConsole({
               summary,
               data: capture.clamped,
               offloadKey: capture.offloadKey,
+              args: input,
             };
             observationsRef.current.push(obs);
             if (isWebSearch) lastSearchObs = obs;
@@ -903,6 +906,22 @@ function ChatConsole({
         ground && !conversational && !hasSkillObservation
           ? await portfolioFactLines().catch(() => "")
           : "";
+      // Native tool protocol: model-chosen observations become the
+      // call → role:tool response dialogue the LFM template expects (the
+      // model re-issues its call forever when the results arrive as prose).
+      // Skill observations stay prose: the model never called those tools.
+      // When turns carry the data, the prose OBSERVATIONS section drops.
+      let toolTurns: NativeToolTurn[] = observationsRef.current
+        .filter((o) => o.kind !== "skill" && o.kind !== "retrieval")
+        .map((o, i) => ({
+          id: `${o.source}:${i}`,
+          name: o.source,
+          args: o.args ?? {},
+          content:
+            `${o.summary ?? "ran"}\n${
+              typeof o.data === "string" ? o.data : JSON.stringify(o.data ?? {})
+            }`.slice(0, 2400),
+        }));
       const stateLines = [
         factLines(),
         ...(portfolioLines ? [portfolioLines] : []),
@@ -921,7 +940,7 @@ function ChatConsole({
         capabilitiesDigest: capabilityDigest(),
         selectedCapabilities: selection.selected,
         records,
-        observations: observationsRef.current,
+        observations: toolTurns.length ? [] : observationsRef.current,
         history: messages,
         user,
         budgetTokens,
@@ -949,6 +968,7 @@ function ChatConsole({
         raw = await ai.askMessages(build.messages, {
           thinking,
           temperature: answerTemp,
+          toolTurns,
           images: vision && image ? [image] : undefined,
         });
       } catch (err) {
@@ -967,6 +987,7 @@ function ChatConsole({
           raw = await ai.askMessages(build.messages, {
             thinking,
             temperature: answerTemp,
+            toolTurns,
             images: vision && image ? [image] : undefined,
           });
         } catch (err2) {
@@ -976,6 +997,7 @@ function ChatConsole({
           raw = await ai.askMessages(build.messages, {
             thinking,
             temperature: answerTemp,
+            toolTurns,
             images: vision && image ? [image] : undefined,
           });
         }
@@ -1061,6 +1083,7 @@ function ChatConsole({
                 summary,
                 data: capture.clamped,
                 offloadKey: capture.offloadKey,
+                args: input,
               });
               executedKeys.push(key);
               leakRetry = true;
@@ -1076,12 +1099,24 @@ function ChatConsole({
       }
       if (!text && leakRetry) {
         // One more answer with the tool's data in evidence and an explicit
-        // end to tool calls.
+        // end to tool calls. The turns are rebuilt so a promoted call joins
+        // the protocol as its own call → response pair.
         try {
+          toolTurns = observationsRef.current
+            .filter((o) => o.kind !== "skill" && o.kind !== "retrieval")
+            .map((o, i) => ({
+              id: `${o.source}:${i}`,
+              name: o.source,
+              args: o.args ?? {},
+              content:
+                `${o.summary ?? "ran"}\n${
+                  typeof o.data === "string" ? o.data : JSON.stringify(o.data ?? {})
+                }`.slice(0, 2400),
+            }));
           const retryBuild = buildTurn({
             ...buildInput,
-            observations: observationsRef.current,
-            state: `${stateLines}\ntool_calls: closed for this turn; answer now from TURN OBSERVATIONS`,
+            observations: [],
+            state: `${stateLines}\ntool_calls: closed for this turn; answer now from the tool results above`,
           });
           lastPromptRef.current = retryBuild.estTokens;
           lastBuildRef.current = retryBuild.sections.map(
@@ -1091,6 +1126,7 @@ function ChatConsole({
           raw = await ai.askMessages(retryBuild.messages, {
             thinking,
             temperature: answerTemp,
+            toolTurns,
             images: vision && image ? [image] : undefined,
           });
           if (typeof window !== "undefined") {

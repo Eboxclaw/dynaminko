@@ -19,6 +19,12 @@ export type ToolObservation = {
    * until a hop loop can act on the key.
    */
   offloadKey?: string;
+  /**
+   * The input the call actually ran with. Native tool protocol needs it:
+   * the assistant tool_calls message renders the call as the model issued
+   * it, and empty args would render a call the model never made.
+   */
+  args?: Record<string, unknown>;
 };
 
 export type AgentProfile = {

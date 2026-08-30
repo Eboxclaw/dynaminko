@@ -656,6 +656,22 @@ export type ChatOptions = {
   images?: string[];
   responseSchema?: { name: string; schema: Record<string, unknown> };
   onSpeed?: (tps: number, tokens: number) => void;
+  /**
+   * Native tool protocol (LFM chat template): one assistant message carrying
+   * these calls, then one role:"tool" response per call. Delivering tool
+   * results this way is what tells a tool-trained model "your call was
+   * answered"; prose observations inside the system prompt leave the model
+   * re-issuing the call (the 2.6B loop). Arguments stay a mapping: the
+   * template raises on JSON-encoded strings.
+   */
+  toolTurns?: NativeToolTurn[];
+};
+
+export type NativeToolTurn = {
+  id: string;
+  name: string;
+  args: Record<string, unknown>;
+  content: string;
 };
 
 export type ChatRole = "system" | "user" | "assistant";
@@ -721,6 +737,7 @@ export function chatMessages(
         thinking: options.thinking,
         images: options.images,
         responseSchema: options.responseSchema,
+        toolTurns: options.toolTurns,
       },
     } satisfies AiWorkerRequest);
 

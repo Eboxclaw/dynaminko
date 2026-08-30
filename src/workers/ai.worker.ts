@@ -15,6 +15,7 @@ import { readDelta } from "@/lib/ai/stream";
 // The registry lives once, on the main thread (lib/ai.ts). This module has no
 // runtime imports of its own, so it bundles into the worker cleanly.
 import { DEFAULT_CTX, DEFAULT_MODEL_ID, MODEL_BY_ID, MODELS, type ModelSpec } from "@/lib/ai";
+import { withNativeToolTurns } from "@/lib/ai/nativeTools";
 
 // ── worker global shims ───────────────────────────────────────────────
 //
@@ -68,6 +69,7 @@ type ChatOptions = {
   thinking?: boolean;
   images?: string[];
   responseSchema?: { name: string; schema: Record<string, unknown> };
+  toolTurns?: { id: string; name: string; args: Record<string, unknown>; content: string }[];
 };
 
 // ── worker state ─────────────────────────────────────────────────────
@@ -433,8 +435,16 @@ async function chatMessages(
 
   const sampling = spec?.sampling;
 
+  // Native tool protocol: when the turn ran tools on the model's behalf, the
+  // dialogue closes with its calls and their role:"tool" responses (rendered
+  // by the LFM template as <|tool_call_start|> ... <|im_start|>tool turns).
+  const composed =
+    options.toolTurns?.length
+      ? withNativeToolTurns(messages as { role: string; content: unknown }[], options.toolTurns)
+      : (messages as { role: string; content: unknown }[]);
+
   await instance.createChatCompletion({
-    messages: messages as never,
+    messages: composed as never,
     stream: true,
     max_tokens: options.maxTokens ?? 8192,
     temperature: options.temperature ?? sampling?.temperature ?? 0.4,

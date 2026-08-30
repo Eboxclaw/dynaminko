@@ -99,3 +99,55 @@ function coerceArgs(src: unknown): Record<string, string | number | boolean> {
   }
   return out;
 }
+
+// ── native tool protocol composition ────────────────────────────────────
+
+export type NativeToolTurn = {
+  id: string;
+  name: string;
+  args: Record<string, unknown>;
+  content: string;
+};
+
+export type NativeMessage = {
+  role: string;
+  content: unknown;
+  tool_calls?: {
+    id: string;
+    type: "function";
+    function: { name: string; arguments: Record<string, unknown> };
+  }[];
+  tool_call_id?: string;
+};
+
+/**
+ * Append the native tool protocol to a dialogue: one assistant message
+ * carrying every call, then one role:"tool" response per call, in order.
+ * Arguments MUST be a mapping: the LFM chat template raises on JSON-encoded
+ * argument strings ("parse arguments with json.loads() before applying the
+ * chat template"). This is the closed loop a tool-trained model waits for:
+ * without it, the model re-issues its call instead of answering.
+ */
+export function withNativeToolTurns(
+  messages: NativeMessage[],
+  toolTurns: NativeToolTurn[],
+): NativeMessage[] {
+  if (!toolTurns.length) return messages;
+  return [
+    ...messages,
+    {
+      role: "assistant",
+      content: "",
+      tool_calls: toolTurns.map((t) => ({
+        id: t.id,
+        type: "function" as const,
+        function: { name: t.name, arguments: t.args },
+      })),
+    },
+    ...toolTurns.map((t) => ({
+      role: "tool",
+      tool_call_id: t.id,
+      content: t.content,
+    })),
+  ];
+}

@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import { extractNativeToolCall, parseCallBody } from "./nativeTools";
+import {
+  extractNativeToolCall,
+  parseCallBody,
+  withNativeToolTurns,
+  type NativeMessage,
+} from "./nativeTools";
 
 describe("nativeTools", () => {
   it("parses the real captured 2.6B leak (pipe dialect, python args)", () => {
@@ -60,5 +65,41 @@ describe("nativeTools", () => {
       id: "web.search",
       args: { query: "hyperliquid tvl" },
     });
+  });
+});
+
+describe("withNativeToolTurns", () => {
+  const dialogue: NativeMessage[] = [
+    { role: "system", content: "CORE" },
+    { role: "user", content: "whats in my wallet?" },
+  ];
+
+  it("appends one assistant tool_calls message then role:tool responses in order", () => {
+    const out = withNativeToolTurns(dialogue, [
+      { id: "portfolio.read:0", name: "portfolio.read", args: {}, content: "11 holdings" },
+      { id: "web.search:1", name: "web.search", args: { query: "ink" }, content: "3 results" },
+    ]);
+    expect(out).toHaveLength(5);
+    const assistant = out[2];
+    expect(assistant.role).toBe("assistant");
+    expect(assistant.tool_calls).toHaveLength(2);
+    expect(assistant.tool_calls?.[0].function.name).toBe("portfolio.read");
+    expect(assistant.tool_calls?.[1].function.arguments).toEqual({ query: "ink" });
+    const tool1 = out[3];
+    const tool2 = out[4];
+    expect(tool1.role).toBe("tool");
+    expect(tool1.tool_call_id).toBe("portfolio.read:0");
+    expect(tool2.content).toBe("3 results");
+  });
+
+  it("keeps arguments a mapping (the LFM template raises on JSON strings)", () => {
+    const out = withNativeToolTurns(dialogue, [
+      { id: "x", name: "chain.transfers", args: { limit: 3 }, content: "rows" },
+    ]);
+    expect(out[2].tool_calls?.[0].function.arguments).toEqual({ limit: 3 });
+  });
+
+  it("returns the dialogue untouched when no tool turns exist", () => {
+    expect(withNativeToolTurns(dialogue, [])).toBe(dialogue);
   });
 });
