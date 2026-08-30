@@ -684,3 +684,161 @@ NEXT REQUEST IS BETTER
 ```
 
 The runtime should optimize the entire mobile agent turn. WebGPU is not automatically the winner, more CPU threads are not automatically better, and a faster model is not automatically a faster agent. The system wins by minimizing unnecessary work first, then selecting the cheapest measured inference path capable of completing the task.
+
+---
+
+# Integrated review constraints
+
+The following constraints are mandatory additions to the implementation plan after reviewing the deterministic, semantic, skill and context layers in the live repository and comparing the proposed runtime against the alternative inference/harness design.
+
+## 1. Optimize the harness before adding another inference stack
+
+Do not replace the existing wllama/GGUF runtime with a parallel Transformers.js/ONNX inference architecture merely to obtain WebGPU. First benchmark the existing runtime and add a backend adapter around it. Introduce another model format/runtime only when a measured target device/workload proves the existing path insufficient.
+
+WebNN/NPU is therefore an **optional future adapter**, not a guaranteed fallback in the core runtime. Backend availability alone must never determine the winner.
+
+```text
+available backends
+      ↓
+safe candidates
+      ↓
+benchmark / history
+      ↓
+workload
+      ↓
+execution plan
+```
+
+## 2. Do not use static backend priority
+
+Never implement a permanent rule such as `WebGPU → WebNN → WASM`. A backend being available does not imply it is faster for a given model and workload. The broker owns candidate selection; benchmark history decides the preferred path.
+
+## 3. Fix the deterministic → semantic → skill → context path
+
+The current harness has overlapping command/tool/skill/capability layers, repeated capability-catalogue construction, serial composed-skill execution, repeated portfolio/data reads, multiple semantic encoder paths and avoidable context serialization. These are first-class performance and correctness concerns.
+
+The desired path is:
+
+```text
+strong deterministic route
+        ↓
+(no semantic encoder if already certain)
+        ↓
+execution plan
+        ↓
+turn-level data cache
+        ↓
+parallel tool/skill graph
+        ↓
+one evidence compilation
+        ↓
+minimal context
+        ↓
+model only when required
+```
+
+## 4. One semantic pass per turn
+
+Cache the immutable capability catalogue and precomputed semantic targets. For ambiguous requests, embed the query once and derive intent, best capability, top candidates and external/internal classification from the same pass.
+
+Deterministic requests must not pay the semantic encoder cost.
+
+## 5. One execution gateway
+
+Skills must not call `tool.run()` directly while commands use a separate runner. All tool/command execution should eventually pass through one gateway supporting:
+
+- cancellation
+- timeout propagation
+- access/approval policy
+- telemetry
+- turn-level caching
+- consistent errors
+
+The current command timeout design uses a race against a timer; a timed-out operation must not be allowed to continue invisibly. Future command cancellation must propagate into the actual executor.
+
+Writes/retries must also be idempotent where a retry could duplicate a side effect.
+
+## 6. Skills become execution graphs
+
+Replace the implicit sequential `SkillDef.tools` list with a declarative execution graph capable of expressing:
+
+```text
+parallel group
+cache scope
+dependency
+optional step
+cost
+answer mode
+```
+
+Independent deterministic steps should run in parallel. Portfolio-related steps should share one per-turn underlying snapshot instead of rebuilding the same state.
+
+## 7. One canonical capability model
+
+Do not create another registry for the harness. The existing tool/command/skill/capability representations should progressively converge on one canonical capability definition, from which routing views, model-facing schemas and execution views are derived.
+
+The same registry should be usable by the internal agent and any future external harness adapter.
+
+## 8. Context is a compiled artifact
+
+Compile evidence once and reuse the compiled representation for token budgeting and final prompt construction. Do not JSON-stringify or clamp an observation more than once.
+
+Prefer typed `EvidenceBlock`/fact records with priority and provenance over generic character clipping. The 350M path should default to small evidence blocks and explicitly escalate when more detail is necessary.
+
+Memory should be split into tiny always-on identity plus retrieved preferences/history. Do not protect the entire memory store from shedding.
+
+## 9. Benchmark the whole agent turn
+
+Every inference benchmark must have a matching harness benchmark. Track:
+
+```text
+routing
+semantic routing
+execution
+serialization
+evidence compilation
+context compilation
+model load
+prefill
+first token
+decode
+useful result
+```
+
+The KPI remains **time-to-useful-action**. Raw tok/s is a diagnostic metric, not the product KPI.
+
+## 10. Model selection is workload-aware, not RAM-tier-only
+
+Device RAM/core heuristics are cold-start inputs, not final model selection. The broker should consider:
+
+```text
+workload class
+context size
+expected output
+latency target
+memory budget
+backend history
+current runtime health
+```
+
+The 350M model should primarily act as a local controller/router/extractor; the 1.2B tier handles harder reasoning; larger/cloud models handle deep or low-confidence work.
+
+## 11. Memory budget is not actual free memory
+
+Do not treat `navigator.deviceMemory`, adapter limits or a fixed fraction of RAM as ground truth. They are conservative inputs to a budget model. Use SAFE / UNCERTAIN / UNSAFE states and refine margins from observed success/failure.
+
+## 12. Model caching should prefer immutable versioned artifacts
+
+For model weights, prefer cache-first behavior for versioned/content-addressed artifacts. Avoid replacing an actively calibrated model in the background via generic stale-while-revalidate semantics. Model metadata and weights must remain version-consistent.
+
+## 13. Residency replaces a fixed idle timeout
+
+Lifecycle management is required, but a universal 60-second termination policy is only a starting experiment. Use HOT/WARM/COLD state and make disposal decisions from model size, memory budget, recent activity and observed pressure. Preserve the current safe fresh-handle-per-load behavior until wllama lifecycle stability is independently resolved.
+
+## 14. External harness must use explicit capabilities
+
+A future BroadcastChannel bridge should not invoke arbitrary methods by string lookup. It must expose a small allowlisted capability registry with schemas, access levels, approval requirements, cancellation and rate limits. Avoid duplicating domain model types; project the existing application state into the external API.
+
+## 15. WebNN/NPU must remain experimental until measured
+
+Do not make ONNX conversion and a second inference runtime a prerequisite for the current release. If a concrete device class later shows that WebNN/NPU materially improves time-to-useful-action, add it behind the same backend adapter/broker interface and benchmark it against wllama WebGPU/WASM rather than assuming it wins.
