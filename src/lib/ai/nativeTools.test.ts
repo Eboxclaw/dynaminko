@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  decideTools,
   extractNativeToolCall,
+  inputsToSchema,
   parseCallBody,
   withNativeToolTurns,
   type NativeMessage,
@@ -101,5 +103,32 @@ describe("withNativeToolTurns", () => {
 
   it("returns the dialogue untouched when no tool turns exist", () => {
     expect(withNativeToolTurns(dialogue, [])).toBe(dialogue);
+  });
+});
+
+describe("inputsToSchema / decideTools", () => {
+  it("parses a comma-separated inputs string into typed properties", () => {
+    expect(inputsToSchema("query, limit")).toEqual({
+      type: "object",
+      properties: { query: { type: "string" }, limit: { type: "integer" } },
+    });
+  });
+
+  it("yields an empty property set for none/unstructured inputs", () => {
+    expect(inputsToSchema("none")).toEqual({ type: "object", properties: {} });
+    expect(inputsToSchema("current user turn")).toEqual({ type: "object", properties: {} });
+  });
+
+  it("builds one function spec per capability in the template's shape", () => {
+    const tools = decideTools([
+      { id: "web.search", purpose: "Search the web", inputs: "query, limit" },
+      { id: "portfolio.read", purpose: "Read holdings", inputs: "none" },
+    ]);
+    expect(tools).toHaveLength(2);
+    expect(tools[0].type).toBe("function");
+    expect(tools[0].function.name).toBe("web.search");
+    expect(tools[0].function.description).toBe("Search the web");
+    expect(tools[0].function.parameters?.properties.limit).toEqual({ type: "integer" });
+    expect(tools[1].function.parameters?.properties).toEqual({});
   });
 });

@@ -38,6 +38,13 @@ export type ModelSpec = {
   generative: boolean;
   maxCtx: number;
   nLayers: number;
+  /**
+   * Decide-phase tool menu format (opengrok adapter pattern): "book" renders
+   * the plain-text capability list in the user message (default), "native"
+   * passes the capabilities as `tools` so the LFM chat template renders its
+   * own `List of tools: [...]` in the system prompt.
+   */
+  decideMenu?: "book" | "native";
   sampling?: {
     temperature: number;
     minP: number;
@@ -68,6 +75,13 @@ const MODEL_LIST: Omit<ModelSpec, "backend">[] = [
     generative: true,
     maxCtx: 128192,
     nLayers: 32,
+    // decideMenu "native" measured-and-shelved (08-30): with `tools` passed,
+    // the C++ tools path zeroes generation for dot-named tools on this
+    // wllama build (decide empty ~100s, no content and no intercepted
+    // tool_calls). The plain-text book picked correctly in every run. The
+    // helpers stay (decideTools/inputsToSchema + worker tools passthrough
+    // + tool_calls recovery) as tested groundwork for a future build.
+    // decideMenu: "native",
     sampling: { temperature: 0.3, minP: 0.15, repeatPenalty: 1.05, penaltyLastN: 64 },
   },
   {
@@ -665,6 +679,12 @@ export type ChatOptions = {
    * template raises on JSON-encoded strings.
    */
   toolTurns?: NativeToolTurn[];
+  /**
+   * Native tool menu (decide phase, LFM template): rendered as
+   * `List of tools: [...]` inside the system prompt. Only meaningful with
+   * a model whose spec sets decideMenu "native".
+   */
+  tools?: import("@/lib/ai/nativeTools").NativeToolSpec[];
 };
 
 export type NativeToolTurn = {
@@ -738,6 +758,7 @@ export function chatMessages(
         images: options.images,
         responseSchema: options.responseSchema,
         toolTurns: options.toolTurns,
+        tools: options.tools,
       },
     } satisfies AiWorkerRequest);
 

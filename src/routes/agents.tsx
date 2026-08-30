@@ -51,7 +51,7 @@ import {
 import { downloadProvider, loadDownloadedProvider, providerCached } from "@/lib/ai/embedding";
 import { encoderReady } from "@/lib/ai/encoder";
 import { unverifiedNumbers } from "@/lib/agent/grounding";
-import { extractNativeToolCall, parseCallBody } from "@/lib/ai/nativeTools";
+import { extractNativeToolCall, parseCallBody, decideTools } from "@/lib/ai/nativeTools";
 import type { NativeToolTurn } from "@/lib/ai";
 
 import { AGENTS, automationOn } from "@/lib/agents/registry";
@@ -450,6 +450,12 @@ function ChatConsole({
     // spend its one hop on journal.search. Empty when the cache is cold.
     const portfolio = await portfolioFactLines().catch(() => "");
     const facts = [factLines(), portfolio].filter(Boolean).join("\n");
+    // Adapter variant (opengrok pattern): models with decideMenu "native"
+    // get the menu through the template's own `tools` render ("List of
+    // tools: [...]") instead of the plain-text book. The output contract
+    // stays the GBNF JSON pick either way.
+    const nativeMenu = ai.spec?.decideMenu === "native";
+    const tools = nativeMenu ? decideTools(allowed) : undefined;
     const messages: TurnMessage[] = [
       {
         role: "system",
@@ -459,9 +465,13 @@ function ChatConsole({
       },
       {
         role: "user",
-        content: `QUESTION\n${user}\n\nTOOLS\n${allowed
-          .map((d) => `${d.id}: ${d.purpose} (inputs: ${d.inputs})`)
-          .join("\n")}\n\nFACTS\n${facts}${
+        content: `QUESTION\n${user}${
+          nativeMenu
+            ? ""
+            : `\n\nTOOLS\n${allowed
+                .map((d) => `${d.id}: ${d.purpose} (inputs: ${d.inputs})`)
+                .join("\n")}`
+        }\n\nFACTS\n${facts}${
           web ? "\nweb_search: active, prefer web.search for news and external facts" : ""
         }${opts.evidence ? `\n\nEARLIER RESULTS THIS TURN\n${opts.evidence}` : ""}`,
       },
@@ -469,59 +479,111 @@ function ChatConsole({
     let raw: string;
     try {
       raw = await ai.askMessages(messages, {
-        temperature: 0,
-        // 2048, not 96 or 512: reasoning models think before they pick, and
-        // the grammar ends a completed pick early so the extra budget only
-        // burns when the model actually needs it. Measured: a 2.6B decide at
-        // 512 spent 33s and still truncated into a second leaked call.
-        maxTokens: 2048,
-        responseSchema: {
-          name: "tool_choice",
-          schema: {
-            type: "object",
-            properties: {
-              tool: { type: "string", enum: ["none", ...ids] },
-              query: { type: "string" },
-              why: { type: "string" },
-              url: { type: "string" },
-              ticker: { type: "string" },
-              basket: {
-                type: "string",
-                enum: [
-                  "btc",
-                  "eth",
-                  "store-of-value",
-                  "stables",
-                  "defi",
-                  "ai",
-                  "l1",
-                  "l2",
-                  "gaming",
-                  "memes",
-                  "stocks",
-                  "unsorted",
-                ],
+        // Native-menu decides run grammar-less: measured live, the template's
+        // tools render and the GBNF grammar fight (the model wants to emit a
+        // native call, the grammar rejects it, the output collapses to
+        // empty). Without the grammar the model thinks, then calls in its
+        // own dialect; the spec's sampling keeps the think coherent.
+        temperature: nativeMenu ? Math.min(0.3, ai.spec?.sampling?.temperature ?? 0.2) : 0,
+        ...(tools ? { tools } : {}),
+        ...(nativeMenu
+          ? {}
+          : {
+              // 2048, not 96 or 512: reasoning models think before they pick,
+              // and the grammar ends a completed pick early so the extra
+              // budget only burns when the model actually needs it. Measured:
+              // a 2.6B decide at 512 spent 33s and still truncated into a
+              // second leaked call.
+              maxTokens: 2048,
+              responseSchema: {
+                name: "tool_choice",
+                schema: {
+                  type: "object",
+                  properties: {
+                    tool: { type: "string", enum: ["none", ...ids] },
+                    query: { type: "string" },
+                    why: { type: "string" },
+                    url: { type: "string" },
+                    ticker: { type: "string" },
+                    basket: {
+                      type: "string",
+                      enum: [
+                        "btc",
+                        "eth",
+                        "store-of-value",
+                        "stables",
+                        "defi",
+                        "ai",
+                        "l1",
+                        "l2",
+                        "gaming",
+                        "memes",
+                        "stocks",
+                        "unsorted",
+                      ],
+                    },
+                    limit: { type: "integer", minimum: 1, maximum: 8 },
+                  },
+                  required: ["tool", "query", "why"],
+                  additionalProperties: false,
+                },
               },
-              limit: { type: "integer", minimum: 1, maximum: 8 },
-            },
-            required: ["tool", "query", "why"],
-            additionalProperties: false,
-          },
-        },
+            }),
       });
     } catch {
       return null;
     }
-    try {
-      const parsed = JSON.parse(raw) as {
-        tool?: string;
-        query?: string;
-        why?: string;
-        url?: string;
+    // Decide diagnostics, same pattern as __lastRaw: the raw pick output on
+    // the window so a degrading decide (wrong pick, empty menu) can be
+    // interrogated without guessing.
+    if (typeof window !== "undefined") {
+      (window as unknown as { __lastDecide?: unknown }).__lastDecide = {
+        at: new Date().toISOString(),
+        model: ai.target.label,
+        nativeMenu,
+        menuTools: nativeMenu ? ids.length : 0,
+        chars: raw.length,
+        head: raw.slice(0, 200),
+      };
+    }
+    // Native-menu decides speak the model's own dialect: parse the native
+    // call first, then (some runs still answer JSON) the grammar shape, then
+    // the bare call body. The book path keeps JSON first, native as fallback.
+    const pickFromNative = (native: NonNullable<ReturnType<typeof extractNativeToolCall>>) => {
+      const def = allowed.find((d) => d.id === native.id);
+      if (!def) return null;
+      const nq = native.args.query;
+      const nu = native.args.url;
+      const nl = native.args.limit;
+      const limit = typeof nl === "number" ? Math.min(8, Math.max(1, Math.round(nl))) : undefined;
+      if (def.id === "journal.filter" && !(typeof limit === "number" && limit >= 1 && limit <= 8)) {
+        return null;
+      }
+      return {
+        def,
+        query: typeof nq === "string" ? nq.slice(0, 60) : "",
+        url: typeof nu === "string" && /^https?:\/\//i.test(nu) ? nu.slice(0, 512) : undefined,
+        limit,
+        why: "native tool-call dialect",
+      } as {
+        def: CapabilityDefinition;
+        query: string;
+        why: string;
         ticker?: string;
         basket?: string;
         limit?: number;
+        url?: string;
       };
+    };
+    const pickFromJson = (parsed: {
+      tool?: string;
+      query?: string;
+      why?: string;
+      url?: string;
+      ticker?: string;
+      basket?: string;
+      limit?: number;
+    }) => {
       const def = allowed.find((d) => d.id === parsed.tool);
       if (!def) return null;
 
@@ -547,28 +609,17 @@ function ChatConsole({
           typeof parsed.limit === "number" ? Math.min(8, Math.max(1, parsed.limit)) : undefined,
         why: String(parsed.why ?? "").slice(0, 80),
       };
+    };
+    if (nativeMenu) {
+      const native = extractNativeToolCall(raw);
+      if (native) return pickFromNative(native);
+    }
+    try {
+      return pickFromJson(JSON.parse(raw));
     } catch {
-      // Grammar-less fallback: when the runtime declines responseSchema the
-      // raw is free text, and the model's own dialect is still a valid pick.
-      const native = extractNativeToolCall(raw) ?? parseCallBody(raw);
-      if (!native) return null;
-      const def = allowed.find((d) => d.id === native.id);
-      if (!def) return null;
-      const nq = native.args.query;
-      const nu = native.args.url;
-      const nl = native.args.limit;
-      const limit = typeof nl === "number" ? Math.min(8, Math.max(1, Math.round(nl))) : undefined;
-      if (def.id === "journal.filter" && !(typeof limit === "number" && limit >= 1 && limit <= 8)) {
-        return null;
-      }
-      return {
-        def,
-        query: typeof nq === "string" ? nq.slice(0, 60) : "",
-        url:
-          typeof nu === "string" && /^https?:\/\//i.test(nu) ? nu.slice(0, 512) : undefined,
-        limit,
-        why: "native tool-call dialect",
-      };
+      // Free text: the model's own dialect is still a valid pick.
+      const native = parseCallBody(raw);
+      return native ? pickFromNative(native) : null;
     }
   };
 

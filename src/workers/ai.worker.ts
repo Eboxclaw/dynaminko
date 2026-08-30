@@ -70,6 +70,18 @@ type ChatOptions = {
   images?: string[];
   responseSchema?: { name: string; schema: Record<string, unknown> };
   toolTurns?: { id: string; name: string; args: Record<string, unknown>; content: string }[];
+  tools?: {
+    type: "function";
+    function: {
+      name: string;
+      description?: string;
+      parameters?: {
+        type: "object";
+        properties: Record<string, { type: string }>;
+        required?: string[];
+      };
+    };
+  }[];
 };
 
 // ── worker state ─────────────────────────────────────────────────────
@@ -432,6 +444,7 @@ async function chatMessages(
   let out = "";
   let tokens = 0;
   const started = performance.now();
+  const nativeCalls: { name: string; arguments: string }[] = [];
 
   const sampling = spec?.sampling;
 
@@ -449,6 +462,9 @@ async function chatMessages(
     max_tokens: options.maxTokens ?? 8192,
     temperature: options.temperature ?? sampling?.temperature ?? 0.4,
     top_p: 0.9,
+    // Native tool menu: the LFM template renders this as
+    // `List of tools: [...]` appended to the system prompt.
+    ...(options.tools?.length ? { tools: options.tools } : {}),
     ...(sampling
       ? {
           min_p: sampling.minP,
@@ -469,6 +485,15 @@ async function chatMessages(
       : {}),
     abortSignal: abortController.signal,
     onData: (chunk) => {
+      // When tools are passed, llama.cpp intercepts the model's native tool
+      // call out of the content stream and delivers it as tool_calls
+      // fragments; content stays empty. Accumulate the fragments so the call
+      // can be recovered below.
+      for (const c of chunk.choices?.[0]?.delta?.tool_calls ?? []) {
+        const slot = (nativeCalls[c.index] ??= { name: "", arguments: "" });
+        if (c.function?.name) slot.name += c.function.name;
+        if (c.function?.arguments) slot.arguments += c.function.arguments;
+      }
       const piece = readDelta(chunk);
       if (!piece) return;
       out += piece;
@@ -483,6 +508,35 @@ async function chatMessages(
       if (abortRun) abortController.abort();
     },
   });
+
+  // A tool call intercepted by the stream is re-rendered into the model's
+  // own dialect (<|tool_call_start|>[name(k='v')]<|tool_call_end|>) so every
+  // consumer, decide parsers included, reads one uniform surface.
+  if (!out && nativeCalls.length) {
+    const rendered = nativeCalls
+      .filter((c) => c.name)
+      .map((c) => {
+        let argsList = "";
+        const src = c.arguments.trim();
+        if (src && src !== "{}") {
+          try {
+            const parsed = JSON.parse(src) as Record<string, unknown>;
+            argsList = Object.entries(parsed)
+              .map(([k, v]) =>
+                typeof v === "string"
+                  ? `${k}='${v.replace(/\\/g, "\\\\").replace(/'/g, "\\'")}'`
+                  : `${k}=${JSON.stringify(v)}`,
+              )
+              .join(", ");
+          } catch {
+            argsList = "";
+          }
+        }
+        return `${c.name}(${argsList})`;
+      })
+      .join(", ");
+    if (rendered) out = `<|tool_call_start|>[${rendered}]<|tool_call_end|>`;
+  }
 
   return out.trim();
 }

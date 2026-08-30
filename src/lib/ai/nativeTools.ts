@@ -100,6 +100,55 @@ function coerceArgs(src: unknown): Record<string, string | number | boolean> {
   return out;
 }
 
+// ── native tool menu (decide phase) ─────────────────────────────────────
+
+export type NativeToolSpec = {
+  type: "function";
+  function: {
+    name: string;
+    description?: string;
+    parameters?: {
+      type: "object";
+      properties: Record<string, { type: "string" | "integer" }>;
+      required?: string[];
+    };
+  };
+};
+
+/**
+ * Render a capability's `inputs` string ("query, limit" | "url" | "none")
+ * as a minimal JSON-schema parameter object for the template's native tool
+ * list. Type guessing is name-based and deliberately shallow: the menu only
+ * informs the model, the runner still validates every call.
+ */
+export function inputsToSchema(inputs: string): NativeToolSpec["function"]["parameters"] {
+  const properties: Record<string, { type: "string" | "integer" }> = {};
+  for (const raw of inputs.split(/[,;]/)) {
+    const name = raw.trim().replace(/\?$/, "");
+    if (!name || /[^A-Za-z_]/.test(name) || name === "none") continue;
+    properties[name] = { type: /limit|count|depth|n$/i.test(name) ? "integer" : "string" };
+  }
+  return { type: "object", properties };
+}
+
+/**
+ * The decide menu in the LFM template's own format: passing these as
+ * `tools` makes the template append `List of tools: [{...}, ...]` to the
+ * system prompt, so the model reads its menu in the shape it was trained on.
+ */
+export function decideTools(
+  caps: { id: string; purpose: string; inputs: string }[],
+): NativeToolSpec[] {
+  return caps.map((c) => ({
+    type: "function",
+    function: {
+      name: c.id,
+      description: c.purpose,
+      parameters: inputsToSchema(c.inputs),
+    },
+  }));
+}
+
 // ── native tool protocol composition ────────────────────────────────────
 
 export type NativeToolTurn = {
