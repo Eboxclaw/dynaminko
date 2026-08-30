@@ -4,14 +4,15 @@ import type { Axis } from "@/lib/pot-index";
 
 /**
  * Lightweight SVG skill star for the POT Index axes.
- * Each axis is an attribute; the score is the points spent on it.
+ * Always renders every axis; unmeasured ones sit at zero, dimmed.
  * Pure SVG, no WebGL, no per-frame work.
  */
 
-const SIZE = 220;
+const SIZE = 260;
 const CX = SIZE / 2;
 const CY = SIZE / 2;
 const R = 78;
+const LABEL_R = R + 22;
 const RINGS = [0.25, 0.5, 0.75, 1];
 
 function pointAt(angle: number, radius: number) {
@@ -19,19 +20,19 @@ function pointAt(angle: number, radius: number) {
 }
 
 export function PotIndexOrb({ axes }: { axes: Axis[] }) {
-  const activeAxes = useMemo(() => {
-    const measured = axes.filter((a) => a.score != null);
-    if (measured.length === 0) return [];
-    const max = Math.max(...measured.map((a) => a.score ?? 0));
-    const n = Math.max(measured.length, 3);
-    return measured.map((a, i) => {
+  const star = useMemo(() => {
+    if (axes.length === 0) return [];
+    const n = Math.max(axes.length, 3);
+    return axes.map((a, i) => {
       const angle = (i / n) * Math.PI * 2 - Math.PI / 2;
-      const level = max > 0 ? 0.18 + 0.82 * ((a.score ?? 0) / max) : 0.18;
-      return { ...a, angle, level, n };
+      const measured = a.score != null;
+      // measured: score drives radius; unmeasured: collapsed to centre
+      const level = measured ? Math.max(0.1, Math.min(1, a.score ?? 0)) : 0;
+      return { ...a, angle, level, measured, n };
     });
   }, [axes]);
 
-  if (activeAxes.length === 0) {
+  if (star.length === 0) {
     return (
       <div className="grid h-[140px] place-items-center text-[12px] text-ink-faint">
         No axes measured yet.
@@ -39,7 +40,7 @@ export function PotIndexOrb({ axes }: { axes: Axis[] }) {
     );
   }
 
-  const n = activeAxes[0]!.n;
+  const n = star[0]!.n;
   const ringPath = (k: number) =>
     Array.from({ length: n }, (_, i) => {
       const a = (i / n) * Math.PI * 2 - Math.PI / 2;
@@ -48,7 +49,7 @@ export function PotIndexOrb({ axes }: { axes: Axis[] }) {
     }).join(" ") + " Z";
 
   const shape =
-    activeAxes
+    star
       .map((a, i) => {
         const [x, y] = pointAt(a.angle, R * a.level);
         return `${i === 0 ? "M" : "L"}${x.toFixed(1)} ${y.toFixed(1)}`;
@@ -59,10 +60,10 @@ export function PotIndexOrb({ axes }: { axes: Axis[] }) {
     <div className="animate-fade">
       <svg
         viewBox={`0 0 ${SIZE} ${SIZE}`}
-        className="mx-auto block h-auto w-full max-w-[260px]"
+        className="mx-auto block h-auto w-full max-w-[280px]"
         role="img"
-        aria-label={`POT Index skill star: ${activeAxes
-          .map((a) => `${a.label} ${Math.round((a.score ?? 0) * 100)}%`)
+        aria-label={`POT Index skill star: ${star
+          .map((a) => `${a.label} ${a.measured ? `${Math.round((a.score ?? 0) * 100)}%` : "unmeasured"}`)
           .join(", ")}`}
       >
         {RINGS.map((k) => (
@@ -75,7 +76,7 @@ export function PotIndexOrb({ axes }: { axes: Axis[] }) {
           />
         ))}
 
-        {activeAxes.map((a) => {
+        {star.map((a) => {
           const [x, y] = pointAt(a.angle, R);
           return (
             <line
@@ -98,35 +99,37 @@ export function PotIndexOrb({ axes }: { axes: Axis[] }) {
           strokeLinejoin="round"
         />
 
-        {activeAxes.map((a) => {
+        {star.map((a) => {
+          if (!a.measured) return null;
           const [x, y] = pointAt(a.angle, R * a.level);
           return <circle key={`pt-${a.id}`} cx={x} cy={y} r={2.4} fill="var(--ink)" />;
         })}
 
-        {activeAxes.map((a) => {
-          const [x, y] = pointAt(a.angle, R + 20);
-          const anchor = Math.abs(x - CX) < 6 ? "middle" : x > CX ? "start" : "end";
+        {star.map((a) => {
+          const [x, y] = pointAt(a.angle, LABEL_R);
+          const anchor = Math.abs(x - CX) < 8 ? "middle" : x > CX ? "start" : "end";
+          const fill = a.measured ? "var(--ink-soft)" : "var(--ink-faint)";
           return (
-            <g key={`label-${a.id}`}>
+            <g key={`label-${a.id}`} opacity={a.measured ? 1 : 0.55}>
               <text
                 x={x}
                 y={y}
                 textAnchor={anchor}
-                fill="var(--ink-soft)"
-                style={{ fontSize: 8, letterSpacing: "0.1em", textTransform: "uppercase" }}
+                fill={fill}
+                style={{ fontSize: 8.5, letterSpacing: "0.08em", textTransform: "uppercase" }}
                 fontFamily="var(--font-mono)"
               >
                 {a.label}
               </text>
               <text
                 x={x}
-                y={y + 9}
+                y={y + 10}
                 textAnchor={anchor}
                 fill="var(--ink-faint)"
-                style={{ fontSize: 8.5 }}
+                style={{ fontSize: 9 }}
                 fontFamily="var(--font-mono)"
               >
-                {Math.round((a.score ?? 0) * 100)}%
+                {a.measured ? `${Math.round((a.score ?? 0) * 100)}%` : "—"}
               </text>
             </g>
           );
