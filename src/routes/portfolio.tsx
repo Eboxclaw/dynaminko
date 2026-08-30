@@ -173,7 +173,9 @@ function PortfolioPage() {
 
       <div className="mt-4">
         <Panel eyebrow="Venues // Positions & accounts" delay={100}>
-          <div className="grid gap-5 p-3 lg:grid-cols-2 lg:gap-4">
+          {/* Single column: the three groups stack full-width, every venue card
+              gets the same width and nothing floats in an uneven 2-col grid. */}
+          <div className="grid gap-7 p-3">
             <VenueGroup
               title="Liquidity // Positions"
               venues={lpVenues.map((v) => v.id)}
