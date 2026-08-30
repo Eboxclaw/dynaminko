@@ -23,7 +23,7 @@ UI
 Agent Worker
  │
  ├── state / skills / memory / tool registry
- │
+ ├── deterministic + semantic routing
  ├── Context Compiler
  │      └── only relevant tools, memories and entities
  │
@@ -85,115 +85,89 @@ The current fresh-handle-per-load strategy is a valid stability workaround for w
 
 Sustained inference can throttle a phone. The runtime needs to observe inference latency over time and automatically lower context, batch, threads or model size when performance collapses.
 
----
+### 9. Harness overhead is not currently a first-class metric
 
-# Phase 1 — Inference Broker
-
-Create:
-
-```text
-src/lib/ai/broker.ts
-```
-
-The broker accepts workload requirements and returns an execution plan.
-
-```ts
-export type InferenceWorkload = {
-  capability: Capability;
-  inputTokens?: number;
-  expectedOutputTokens?: number;
-  complexity?: "tiny" | "low" | "medium" | "high";
-  requiresVision?: boolean;
-  latencySensitive?: boolean;
-};
-
-export type ExecutionPlan = {
-  modelId: string;
-  backend: "webgpu" | "wasm" | "cloud";
-  context: number;
-  threads?: number;
-  batch: number;
-  cacheK: "q8_0" | "f16";
-  cacheV: "q8_0" | "f16";
-  flashAttn: boolean;
-  offloadKQV: boolean;
-  reason: string;
-  confidence: number;
-};
-```
-
-The broker should be deterministic once benchmark data exists, with safe heuristics as the cold-start fallback.
+Inference is only one part of an agent turn. Deterministic routing, semantic retrieval, tool execution, serialization and context compilation can consume a significant fraction of total mobile latency. The runtime must measure the complete path to useful action, not only model tok/s.
 
 ---
 
-# Phase 2 — Device calibration
+# Phase 0 — Mobile execution instrumentation
 
-Create:
+Before changing inference knobs, instrument the full turn pipeline. This is intentionally lightweight and must not itself become a hot-path dependency.
+
+Measure, where applicable:
 
 ```text
-src/lib/ai/benchmark.ts
-src/lib/ai/benchmark-store.ts
+startup
+asset / worker initialization
+deterministic routing
+semantic routing
+tool selection
+tool execution
+data hydration
+evidence compilation
+context compilation
+model load
+first token / prefill
+decode
+final answer
 ```
 
-Do a short calibration only after the user opts into local inference or when a model is first loaded.
+The master KPI is:
 
-Test a representative prompt with:
+> **Time-to-useful-action** — elapsed time from user request to the first useful deterministic action or grounded model result.
 
-- WebGPU, if available
-- WASM SIMD
-- CPU threads: 1, 2, 4, and only higher counts when useful
-- batch: 32, 64, 128, optionally 256
-- flash attention on/off when supported
+Keep inference micro-metrics separately:
 
-Record separately:
+- first-token latency
+- prefill tok/s
+- decode tok/s
+- completion latency
+- prompt/context tokens
+
+This instrumentation should exist before benchmark calibration so later measurements can distinguish an inference bottleneck from a harness bottleneck.
+
+---
+
+# Phase 1 — Mobile-safe runtime policy
+
+Fix the current mobile thread conflict before collecting benchmark data.
+
+Current behavior applies a desktop-oriented `cores - 1` policy to mobile. An 8-core mobile device can therefore receive 7 WASM threads, increasing contention and thermal load.
+
+Use a conservative mobile cold-start policy:
 
 ```ts
-{
-  prefillTps: number;
-  decodeTps: number;
-  firstTokenMs: number;
-  tokens: number;
-  elapsedMs: number;
-  peakMemoryEstimate?: number;
-  backend: Backend;
-  threads?: number;
-  batch: number;
-  flashAttn: boolean;
+function threadPolicy(cores: number | null, mobile: boolean): number {
+  const c = cores ?? 4;
+  if (mobile) {
+    if (c <= 4) return 2;
+    if (c <= 8) return c <= 6 ? 3 : 4;
+    return Math.min(6, Math.floor(c / 2));
+  }
+  return Math.max(1, Math.min(c - 1, 12));
 }
 ```
 
-Do not benchmark every combination. Use staged search:
+The desktop policy remains unchanged. After calibration, measured winners override this cold-start fallback.
 
-1. WebGPU vs WASM.
-2. Best backend → batch sweep.
-3. WASM only → thread sweep.
-4. Long-context workloads → flash/no-flash.
+Add focused tests for mobile and desktop curves at 4, 6, 8 and 12 reported cores.
 
-Persist results keyed by a coarse device/runtime signature, model ID and relevant runtime version. Avoid collecting identifying device information.
-
-## Prefill vs decode
-
-Treat them as different metrics. Agent interactions with short prompts are often decode/first-token sensitive, while indexing and long context are prefill-heavy.
-
-Do not optimize a mobile profile using a single aggregate tokens/sec number.
+This milestone must ship before benchmark calibration. Benchmark data collected under the old mobile thread policy should be considered invalid.
 
 ---
 
-# Phase 3 — Replace VRAM guessing with a memory budget
+# Phase 2 — Memory Budget Model
 
-Modify:
-
-```text
-src/lib/ai/runtime.ts
-```
-
-Keep `deviceMemory` and adapter limits as hints, but rename their semantic role from `vramGb` to something like:
+Replace the semantic misuse of `vramGb` with a memory-budget concept such as:
 
 ```ts
 memoryClassGb: number | null;
 ```
 
-Add a real model memory estimator using GGUF architecture metadata where available:
+`navigator.deviceMemory` and adapter limits remain hints, not claims about actual free model memory. Until better telemetry exists, use a conservative estimate rather than treating total system RAM as available VRAM.
+
+Add architecture-aware model memory estimation:
 
 ```text
 weights
@@ -202,61 +176,34 @@ weights
 + WebGPU buffers
 + runtime overhead
 + safety margin
+= estimated peak
 ```
 
-The broker should reject a configuration before loading when its estimated peak exceeds the device budget.
+KV cache must be derived from model metadata:
 
-For mobile, prefer q8_0 KV by default. Allow f16 only when calibration and memory budget show enough headroom.
+```text
+layers × KV heads × head dimension × context × KV dtype × K/V
+```
+
+Prefer q8_0 KV on mobile by default; allow f16 where measured performance and memory headroom justify it.
+
+Treat the estimate as a **budget model**, not real available memory. Loading should have three outcomes:
+
+```text
+SAFE      → load normally
+UNCERTAIN → conservative configuration / calibration
+UNSAFE    → reject configuration before allocation
+```
+
+Observed successful loads and failures can later be used to refine the safety margin.
+
+Add reference-value tests for at least one model at multiple context sizes.
 
 ---
 
-# Phase 4 — Adaptive CPU policy
+# Phase 3 — Context Compiler + Workload Model
 
-Modify `buildInferenceProfile()` so `n_threads` is not simply `cores - 1`.
-
-Cold-start fallback:
-
-```text
-mobile + WASM:
-  <=4 reported cores → 2 threads
-  6-8 cores          → 3-4 threads
-  >8 cores            → 4-6 threads
-
-desktop:
-  use benchmark winner, otherwise conservative cores-1
-```
-
-After calibration, always use the measured winner for that model/backend/workload.
-
-Never assume more threads means faster decode.
-
----
-
-# Phase 5 — Adaptive batch and attention policy
-
-Replace static:
-
-```text
-mobile → 128
-integrated → 256
-discrete → 512
-```
-
-with safe starting values followed by measurement.
-
-Suggested mobile search:
-
-```text
-32 → 64 → 128 → 256
-```
-
-Stop when latency/memory gets worse.
-
-Flash attention should remain enabled for long-context workloads when supported, but its benefit should be benchmarked rather than assumed solely from `nCtx > 4096`.
-
----
-
-# Phase 6 — Context Compiler
+This phase may run in parallel with memory work and must happen before serious benchmark tuning because context changes prefill and KV pressure.
 
 Create:
 
@@ -264,22 +211,22 @@ Create:
 src/lib/ai/contextCompiler.ts
 ```
 
-The compiler turns an agent request into the smallest sufficient prompt.
+The compiler turns an agent request into the smallest sufficient prompt:
 
 ```text
 request
   ↓
 intent / capability
   ↓
-retrieve relevant skill
+relevant skill
   ↓
-retrieve relevant tools
+relevant tools
   ↓
-retrieve relevant memory
+relevant memory
   ↓
-retrieve relevant indexed entities
+relevant indexed entities
   ↓
-compile compact context
+compact evidence/context
   ↓
 model
 ```
@@ -298,17 +245,142 @@ semantic/tool router
 350M
 ```
 
-Likewise, retrieve only the journal objects needed for the current task.
+Reuse existing retrieval primitives where possible rather than creating duplicate indexing paths.
 
-This should reduce both prompt latency and KV pressure.
+### WorkloadClass
+
+Keep workload type distinct from capability:
+
+```ts
+export type WorkloadClass = "router" | "extract" | "assist" | "reason" | "vision";
+```
+
+The compiler should be able to produce a representative context profile for benchmarks, including short, normal and long-context workloads.
 
 ---
 
-# Phase 7 — Model routing
+# Phase 4 — Benchmark harness
 
-Change the role of the 350M model from "small general chatbot" to **local controller**.
+Create:
 
-## 350M
+```text
+src/lib/ai/benchmark.ts
+src/lib/ai/benchmark-store.ts
+```
+
+Calibration runs only after the user opts into local inference or when a model is first loaded. Never benchmark on normal app startup.
+
+### Microbenchmark
+
+Measure the model/runtime itself:
+
+1. WebGPU vs WASM.
+2. Best backend → batch sweep: `32 → 64 → 128 → 256`.
+3. WASM → bounded thread sweep using the mobile-safe policy.
+4. Long-context workloads → flash attention on/off when supported.
+
+Track prefill and decode separately.
+
+### Harness benchmark
+
+Also measure representative complete agent turns:
+
+```text
+request
+ ↓
+deterministic/semantic routing
+ ↓
+tool/data execution
+ ↓
+evidence/context compilation
+ ↓
+model prefill
+ ↓
+first token
+ ↓
+decode
+ ↓
+useful result
+```
+
+This prevents optimizing inference while ignoring a slower routing/context path.
+
+Do not benchmark the full cross-product. Use staged search and stop when latency or memory regresses.
+
+Persist results in IndexedDB keyed by a coarse device/runtime signature, model ID and runtime version. Do not collect identifying device information unnecessarily.
+
+The benchmark result must distinguish:
+
+```ts
+{
+  prefillTps: number;
+  decodeTps: number;
+  firstTokenMs: number;
+  tokens: number;
+  elapsedMs: number;
+  peakMemoryEstimate?: number;
+  backend: Backend;
+  threads?: number;
+  batch: number;
+  flashAttn: boolean;
+}
+```
+
+Add harness-level results for context size and total turn latency.
+
+---
+
+# Phase 5 — Inference Broker
+
+Create:
+
+```text
+src/lib/ai/broker.ts
+```
+
+The broker answers one question:
+
+> Given this workload, device, model and benchmark history, what execution configuration should I use?
+
+It must not own skills, tools, retrieval or context construction.
+
+```ts
+export type InferenceWorkload = {
+  capability: Capability;
+  inputTokens?: number;
+  expectedOutputTokens?: number;
+  complexity?: "tiny" | "low" | "medium" | "high";
+  requiresVision?: boolean;
+  latencySensitive?: boolean;
+  workloadClass?: WorkloadClass;
+};
+
+export type ExecutionPlan = {
+  modelId: string;
+  backend: "webgpu" | "wasm" | "cloud";
+  context: number;
+  threads?: number;
+  batch: number;
+  cacheK: "q8_0" | "f16";
+  cacheV: "q8_0" | "f16";
+  flashAttn: boolean;
+  offloadKQV: boolean;
+  reason: string;
+  confidence: number;
+};
+```
+
+If benchmark data exists, prefer the measured plan. Otherwise use the safe runtime/memory heuristics as a cold-start fallback.
+
+Heuristic plans should carry lower confidence than benchmark-derived plans.
+
+---
+
+# Phase 6 — Model routing
+
+Encode the model tiers already established by the project:
+
+## 350M — local controller
 
 Use for:
 
@@ -319,7 +391,7 @@ Use for:
 - short grounded responses
 - state transitions
 
-## 1.2B
+## 1.2B — reasoning tier
 
 Use for:
 
@@ -328,20 +400,30 @@ Use for:
 - thesis consistency checks
 - harder extraction
 
-## 2.6B / cloud
+## 2.6B / cloud — escalation tier
 
 Use for:
 
 - deep reasoning
 - large context
 - complex generation
-- tasks where local confidence is low
+- low-confidence local tasks
 
-The router should escalate based on task complexity and confidence, not merely device capability.
+Escalation is based on workload complexity and confidence, not device class alone.
+
+Add model metadata such as:
+
+```ts
+preferredMobile: boolean;
+maxMobileCtx: number;
+minUsefulCtx: number;
+```
+
+The model registry remains the source of truth; do not create a second registry.
 
 ---
 
-# Phase 8 — Model residency manager
+# Phase 7 — Model residency manager
 
 Create:
 
@@ -365,13 +447,13 @@ Target mobile state:
 2.6B → COLD/cloud
 ```
 
-If memory is abundant, 1.2B can become WARM.
+Promote 1.2B to WARM only when the memory budget shows sufficient headroom.
 
-Keep the current fresh-handle-per-load safety behavior until wllama lifecycle stability is proven. The residency manager should reduce unnecessary loads rather than forcing handle reuse.
+Preserve the current fresh wllama handle per load until lifecycle stability is proven. Residency should reduce unnecessary model churn rather than force handle reuse.
 
 ---
 
-# Phase 9 — Thermal/performance governor
+# Phase 8 — Thermal/performance governor
 
 Create:
 
@@ -379,13 +461,7 @@ Create:
 src/lib/ai/governor.ts
 ```
 
-Track rolling inference performance:
-
-```text
-cold → warm → hot → throttled
-```
-
-A practical signal is sustained decode degradation rather than attempting to rely on browser APIs that are unavailable or inconsistent across mobile platforms.
+Track rolling inference performance against a baseline. Use sustained decode degradation as the primary browser-compatible thermal/performance proxy rather than relying on unavailable or inconsistent browser thermal APIs.
 
 Example:
 
@@ -395,49 +471,42 @@ recent:   31 tok/s
 ratio:    0.60
 ```
 
-If sustained degradation crosses a threshold:
+On sustained degradation:
 
 1. reduce batch
-2. reduce threads for WASM
+2. reduce WASM threads
 3. reduce context
-4. switch 1.2B → 350M
-5. switch WebGPU ↔ WASM if benchmark data supports it
-6. escalate to cloud when the task is important and latency is unacceptable
+4. downgrade 1.2B → 350M
+5. switch WebGPU ↔ WASM only when benchmark history supports it
+6. escalate to cloud when task importance and latency requirements justify it
 
-Recover gradually instead of immediately switching back after one fast request.
+Recover gradually. Do not flap back to the previous profile after one fast request.
 
 ---
 
-# Phase 10 — Worker topology
+# Phase 9 — Worker topology and streaming
+
+Preserve the existing main-thread isolation and keep indexing/data work independent from inference where practical.
 
 Target:
 
 ```text
-Main UI Worker boundary
-        │
-        ▼
+Main UI
+  │
+  ▼
 Agent Worker
-  │
-  ├── context / routing / tools
-  │
+  ├── routing
+  ├── skills / tools
+  ├── context compiler
   └── inference broker
           │
           ▼
     wllama inference worker
-          │
-          ├── WebGPU
-          └── WASM pthreads
+       ├── WebGPU
+       └── WASM
 
 Data/indexing worker remains independent.
 ```
-
-The critical rule is that indexing, wallet reads and inference should not compete for the same CPU execution budget unnecessarily.
-
-The current AI worker already protects the main thread; preserve that boundary.
-
----
-
-# Phase 11 — Streaming protocol
 
 Extend worker events beyond token/done to support:
 
@@ -452,15 +521,13 @@ DONE
 ERROR
 ```
 
-This lets the harness begin deterministic work as soon as the model emits a valid tool intent rather than waiting for a full prose response.
-
-The UI then feels responsive even when local inference is slow.
+When a valid tool intent is emitted, deterministic work may begin immediately rather than waiting for full prose generation.
 
 ---
 
-# Phase 12 — Native tools before GUI reasoning
+# Future — Native mobile agent layer
 
-For a future mobile agent layer, use this priority:
+When Dynaminko eventually drives other mobile applications, prefer deterministic capabilities before GUI reasoning:
 
 ```text
 1. deterministic local operation
@@ -471,7 +538,7 @@ For a future mobile agent layer, use this priority:
 6. human approval
 ```
 
-Vision should be the fallback because it is the most expensive and least deterministic path.
+Vision should remain a fallback because it is more expensive and less deterministic.
 
 ---
 
@@ -481,114 +548,82 @@ Vision should be the fallback because it is the most expensive and least determi
 
 Refactor:
 
-- `vramGb` → memory class/budget semantics.
-- `computeGpuLayers()` → safe memory-budget estimator.
-- `buildInferenceProfile()` → accepts optional benchmark result.
+- `vramGb` → memory budget semantics.
+- mobile-safe thread policy.
+- `computeGpuLayers()` → memory-budget aware decision.
+- `buildInferenceProfile()` → accepts measured profile when available.
 - `optimalBatch()` → cold-start fallback only.
 - `recommendedCacheType()` → memory-budget based.
 - `recommendFlashAttn()` → capability + benchmark aware.
-- `n_threads` → mobile-safe fallback + measured override.
 - expose runtime version/signature for benchmark cache.
 
 ## `src/workers/ai.worker.ts`
 
-Add:
+Add broker integration, benchmark execution hooks, execution-plan telemetry, adaptive profile selection, residency/governor hooks and richer streaming events.
 
-- broker initialization
-- benchmark execution
-- execution-plan telemetry
-- adaptive profile selection
-- residency hooks
-- governor hooks
-- richer streaming events
-
-Preserve the current fresh wllama handle per load until lifecycle stability is proven.
+Preserve the fresh wllama handle-per-load safety behavior.
 
 ## `src/lib/ai.ts`
 
-Keep:
+Keep the existing model registry and capability mappings. Add `WorkloadClass` and per-model mobile/context constraints without creating a second model registry.
 
-- `MODEL_LIST`
-- `CAPABILITY_MODELS`
-- model metadata
-- context persistence
+## New files
 
-Add:
-
-```ts
-export type WorkloadClass = "router" | "extract" | "assist" | "reason" | "vision";
+```text
+src/lib/ai/contextCompiler.ts
+src/lib/ai/benchmark.ts
+src/lib/ai/benchmark-store.ts
+src/lib/ai/broker.ts
+src/lib/ai/residency.ts
+src/lib/ai/governor.ts
 ```
-
-and per-model constraints such as:
-
-```ts
-preferredMobile: boolean;
-maxMobileCtx: number;
-minUsefulCtx: number;
-```
-
-## New `src/lib/ai/benchmark.ts`
-
-Owns microbenchmarks and result normalization.
-
-## New `src/lib/ai/broker.ts`
-
-Owns execution-plan selection.
-
-## New `src/lib/ai/contextCompiler.ts`
-
-Owns prompt/tool/memory minimization.
-
-## New `src/lib/ai/residency.ts`
-
-Owns HOT/WARM/COLD state.
-
-## New `src/lib/ai/governor.ts`
-
-Owns sustained-performance adaptation.
 
 ---
 
 # Recommended implementation order
 
-## P0 — Do now
+```text
+P0
+1. Instrument end-to-end mobile turn latency
+2. Fix mobile-safe thread defaults
+3. Implement memory budget model
+4. Build Context Compiler + WorkloadClass
 
-1. Context Compiler
-2. Inference Broker skeleton
-3. Correct KV memory calculation
-4. Mobile-safe thread defaults
-5. Benchmark WebGPU vs WASM decode/prefill
+P1
+5. Build micro + harness benchmark
+6. Build Inference Broker
+7. Encode 350M / 1.2B / 2.6B routing
+8. Add adaptive batch/KV/attention policies
 
-## P1
+P2
+9. Model residency
+10. Thermal/performance governor
+11. Rich streaming protocol
+12. Worker topology refinements
 
-6. Adaptive batch
-7. benchmark cache in IndexedDB
-8. model routing / 350M controller
-9. richer worker streaming
+P3
+13. Native mobile capabilities
+14. Cloud escalation refinement
+15. Optional anonymous fleet-level calibration
+```
 
-## P2
-
-10. model residency
-11. thermal/performance governor
-12. native mobile capability adapter
-
-## P3
-
-13. Android/iOS GUI fallback
-14. cloud escalation
-15. fleet-level anonymous benchmark aggregation if the product later needs population-level defaults
+Do not change batch/thread/WebGPU heuristics blindly before instrumentation and the mobile-safe baseline exist.
 
 ---
 
 # Success metrics
 
-The runtime should measure:
+Measure both runtime and harness performance:
 
+- time-to-useful-action
 - first-token latency
 - sustained decode tok/s
 - prefill tok/s
 - total completion latency
+- deterministic routing latency
+- semantic routing latency
 - tool-call latency
+- context compilation latency
 - prompt token count
 - context tokens actually used
 - model load time
@@ -596,11 +631,11 @@ The runtime should measure:
 - failed WebGPU initializations
 - OOM/load failures
 - fallback frequency
-- thermal degradation proxy
+- sustained performance degradation
 
 The most important mobile KPI is **time-to-useful-action**, not raw tokens/sec.
 
-For example:
+Example:
 
 ```text
 User request
@@ -618,8 +653,6 @@ final 350M response 250ms
 ≈535ms to useful action
 ```
 
-That is more meaningful than advertising a high benchmark number while spending 1.5 seconds compiling a huge prompt.
-
 ---
 
 # Final architecture principle
@@ -632,6 +665,8 @@ The winning loop is:
 UNDERSTAND TASK
       ↓
 MINIMIZE CONTEXT
+      ↓
+SELECT WORKLOAD
       ↓
 SELECT MODEL
       ↓
@@ -648,4 +683,4 @@ UPDATE DEVICE PROFILE
 NEXT REQUEST IS BETTER
 ```
 
-This gives the PWA a genuine device-aware runtime: WebGPU when it is actually faster, WASM SIMD when it wins, cloud when local execution is inappropriate, and the smallest model/context/tool surface capable of completing the task.
+The runtime should optimize the entire mobile agent turn. WebGPU is not automatically the winner, more CPU threads are not automatically better, and a faster model is not automatically a faster agent. The system wins by minimizing unnecessary work first, then selecting the cheapest measured inference path capable of completing the task.
