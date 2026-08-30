@@ -309,6 +309,7 @@ export function useAi() {
             maxTokens: options.maxTokens ?? maxTokens,
             responseSchema: options.responseSchema,
             images: options.images,
+            toolTurns: options.toolTurns,
             signal: controller.signal,
             onToken: (partial) => {
               if (!mounted.current) return;

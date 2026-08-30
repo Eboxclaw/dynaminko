@@ -1,4 +1,5 @@
 import { readDelta } from "@/lib/ai/stream";
+import { withNativeToolTurns, type NativeMessage, type NativeToolTurn } from "@/lib/ai/nativeTools";
 
 // Optional cloud models. Everything here is off by default and opt-in: the
 // local runtime stays the product. Each provider speaks the OpenAI
@@ -110,6 +111,12 @@ export type CloudChatOptions = {
   responseSchema?: { name: string; schema: Record<string, unknown> };
   /** base64 data URLs for multimodal (vision) models */
   images?: string[];
+  /**
+   * Native tool protocol, same as the local path: one assistant tool_calls
+   * message plus role:"tool" responses. Without this, cloud models never
+   * see what the hop loop's tools returned and answer from FACTS alone.
+   */
+  toolTurns?: NativeToolTurn[];
 };
 
 /**
@@ -142,6 +149,12 @@ export async function cloudChatMessages(
   } else {
     bodyMessages = messages as Array<Record<string, unknown>>;
   }
+  // Close the tool protocol when the turn ran tools on the model's behalf:
+  // OpenAI-compatible endpoints accept assistant tool_calls + role:"tool"
+  // responses, and without them the model cannot see its own tool results.
+  const composed: NativeMessage[] = options.toolTurns?.length
+    ? withNativeToolTurns(bodyMessages as NativeMessage[], options.toolTurns)
+    : (bodyMessages as NativeMessage[]);
 
   const res = await fetch(`${base}/chat/completions`, {
     method: "POST",
@@ -166,7 +179,7 @@ export async function cloudChatMessages(
             },
           }
         : {}),
-      messages: bodyMessages,
+      messages: composed,
     }),
   });
 

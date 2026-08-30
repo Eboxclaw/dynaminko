@@ -948,8 +948,13 @@ function ChatConsole({
 
       // 0.85 of the window, not 0.75: post-penalty answers measure 25 to 60
       // tokens, so the old reply reserve was dead weight the FACTS pile
-      // tripped over. Revisit if answers grow.
-      const budgetTokens = Math.floor(ai.ctx * 0.85);
+      // tripped over. Revisit if answers grow. Cloud models are not bound by
+      // the local model's context setting: give them a roomy 32k basis so
+      // FACTS and history never shed just because a 350M is installed.
+      const CLOUD_BASIS_CTX = 32768;
+      const budgetTokens = Math.floor(
+        (ai.target.kind === "cloud" ? CLOUD_BASIS_CTX : ai.ctx) * 0.85,
+      );
       // When a skill already ran this turn its observation carries the same
       // portfolio numbers FACTS would repeat; both riding along doubled the
       // prompt (4495t of a 6144 budget) and taught the model to answer by
