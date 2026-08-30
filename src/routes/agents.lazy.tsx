@@ -1,4 +1,7 @@
-import { createFileRoute } from "@tanstack/react-router";
+import {
+  createLazyFileRoute,
+  type LazyRouteOptions,
+} from "@tanstack/react-router";
 import {
   Brain,
   Eye,
@@ -129,32 +132,41 @@ function searchResultUrl(data: unknown): string | null {
   return null;
 }
 
-export const Route = createFileRoute("/agents")({
-  validateSearch: (s: Record<string, unknown>) => ({
-    tab: (RAIL.some((t) => t.id === s.tab) ? s.tab : "model") as RailTab,
-  }),
-  head: () => ({
-    meta: [
-      { title: "Assistant · Proof of Thesis" },
-      {
-        name: "description",
-        content:
-          "An inline console over your journal: slash commands run deterministic tools first, and the on-device model only speaks when reasoning is actually needed.",
-      },
-      { property: "og:title", content: "Assistant · Proof of Thesis" },
-      {
-        property: "og:description",
-        content: "Slash commands, real tools, and a local model you control.",
-      },
-      { property: "og:type", content: "website" },
-      { name: "twitter:card", content: "summary" },
-    ],
-  }),
-  component: AgentsPage,
-});
+// Router version note: this release's LazyRouteOptions type only models the
+// component props, but the runtime merges every lazy option into
+// route.options when the chunk loads (Object.assign in load-matches.js), so
+// validateSearch and head behave exactly as on the eager route. The cast
+// below documents that type gap, not a runtime difference.
+export const Route = createLazyFileRoute("/agents")(
+  {
+    validateSearch: (s: Record<string, unknown>) => ({
+      tab: (RAIL.some((t) => t.id === s.tab) ? s.tab : "model") as RailTab,
+    }),
+    head: () => ({
+      meta: [
+        { title: "Assistant · Proof of Thesis" },
+        {
+          name: "description",
+          content:
+            "An inline console over your journal: slash commands run deterministic tools first, and the on-device model only speaks when reasoning is actually needed.",
+        },
+        { property: "og:title", content: "Assistant · Proof of Thesis" },
+        {
+          property: "og:description",
+          content: "Slash commands, real tools, and a local model you control.",
+        },
+        { property: "og:type", content: "website" },
+        { name: "twitter:card", content: "summary" },
+      ],
+    }),
+    component: AgentsPage,
+  } as LazyRouteOptions,
+);
 
 function AgentsPage() {
-  const { tab } = Route.useSearch();
+  // useSearch() types as {} under LazyRoute (the validator generic cannot
+  // survive the lazy factory); the shape comes from validateSearch above.
+  const { tab } = Route.useSearch() as { tab: RailTab };
   const navigate = Route.useNavigate();
   const [railOpen, setRailOpen] = useState(false);
   const ai = useAi();

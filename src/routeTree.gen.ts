@@ -8,6 +8,8 @@
 // You should NOT make any changes in this file as it will be overwritten.
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
+import { createFileRoute } from '@tanstack/react-router'
+
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as TradeRouteImport } from './routes/trade'
 import { Route as ThesesRouteImport } from './routes/theses'
@@ -17,9 +19,15 @@ import { Route as PortfolioRouteImport } from './routes/portfolio'
 import { Route as OrbPreviewRouteImport } from './routes/orb-preview'
 import { Route as JournalRouteImport } from './routes/journal'
 import { Route as AlertsRouteImport } from './routes/alerts'
-import { Route as AgentsRouteImport } from './routes/agents'
 import { Route as IndexRouteImport } from './routes/index'
 
+const AgentsLazyRouteImport = createFileRoute('/agents')()
+
+const AgentsLazyRoute = AgentsLazyRouteImport.update({
+  id: '/agents',
+  path: '/agents',
+  getParentRoute: () => rootRouteImport,
+} as any).lazy(() => import('./routes/agents.lazy').then((d) => d.Route))
 const TradeRoute = TradeRouteImport.update({
   id: '/trade',
   path: '/trade',
@@ -60,11 +68,6 @@ const AlertsRoute = AlertsRouteImport.update({
   path: '/alerts',
   getParentRoute: () => rootRouteImport,
 } as any)
-const AgentsRoute = AgentsRouteImport.update({
-  id: '/agents',
-  path: '/agents',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
@@ -73,7 +76,6 @@ const IndexRoute = IndexRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
-  '/agents': typeof AgentsRoute
   '/alerts': typeof AlertsRoute
   '/journal': typeof JournalRoute
   '/orb-preview': typeof OrbPreviewRoute
@@ -82,10 +84,10 @@ export interface FileRoutesByFullPath {
   '/settings': typeof SettingsRoute
   '/theses': typeof ThesesRoute
   '/trade': typeof TradeRoute
+  '/agents': typeof AgentsLazyRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
-  '/agents': typeof AgentsRoute
   '/alerts': typeof AlertsRoute
   '/journal': typeof JournalRoute
   '/orb-preview': typeof OrbPreviewRoute
@@ -94,11 +96,11 @@ export interface FileRoutesByTo {
   '/settings': typeof SettingsRoute
   '/theses': typeof ThesesRoute
   '/trade': typeof TradeRoute
+  '/agents': typeof AgentsLazyRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
-  '/agents': typeof AgentsRoute
   '/alerts': typeof AlertsRoute
   '/journal': typeof JournalRoute
   '/orb-preview': typeof OrbPreviewRoute
@@ -107,12 +109,12 @@ export interface FileRoutesById {
   '/settings': typeof SettingsRoute
   '/theses': typeof ThesesRoute
   '/trade': typeof TradeRoute
+  '/agents': typeof AgentsLazyRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
-    | '/agents'
     | '/alerts'
     | '/journal'
     | '/orb-preview'
@@ -121,10 +123,10 @@ export interface FileRouteTypes {
     | '/settings'
     | '/theses'
     | '/trade'
+    | '/agents'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
-    | '/agents'
     | '/alerts'
     | '/journal'
     | '/orb-preview'
@@ -133,10 +135,10 @@ export interface FileRouteTypes {
     | '/settings'
     | '/theses'
     | '/trade'
+    | '/agents'
   id:
     | '__root__'
     | '/'
-    | '/agents'
     | '/alerts'
     | '/journal'
     | '/orb-preview'
@@ -145,11 +147,11 @@ export interface FileRouteTypes {
     | '/settings'
     | '/theses'
     | '/trade'
+    | '/agents'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
-  AgentsRoute: typeof AgentsRoute
   AlertsRoute: typeof AlertsRoute
   JournalRoute: typeof JournalRoute
   OrbPreviewRoute: typeof OrbPreviewRoute
@@ -158,10 +160,18 @@ export interface RootRouteChildren {
   SettingsRoute: typeof SettingsRoute
   ThesesRoute: typeof ThesesRoute
   TradeRoute: typeof TradeRoute
+  AgentsLazyRoute: typeof AgentsLazyRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/agents': {
+      id: '/agents'
+      path: '/agents'
+      fullPath: '/agents'
+      preLoaderRoute: typeof AgentsLazyRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/trade': {
       id: '/trade'
       path: '/trade'
@@ -218,13 +228,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AlertsRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/agents': {
-      id: '/agents'
-      path: '/agents'
-      fullPath: '/agents'
-      preLoaderRoute: typeof AgentsRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/': {
       id: '/'
       path: '/'
@@ -237,7 +240,6 @@ declare module '@tanstack/react-router' {
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
-  AgentsRoute: AgentsRoute,
   AlertsRoute: AlertsRoute,
   JournalRoute: JournalRoute,
   OrbPreviewRoute: OrbPreviewRoute,
@@ -246,6 +248,7 @@ const rootRouteChildren: RootRouteChildren = {
   SettingsRoute: SettingsRoute,
   ThesesRoute: ThesesRoute,
   TradeRoute: TradeRoute,
+  AgentsLazyRoute: AgentsLazyRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
