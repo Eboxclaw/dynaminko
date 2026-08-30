@@ -15,51 +15,20 @@ import {
 import { buildPortfolio, tradesFromSnapshot, type Trade } from "@/lib/portfolio";
 import { fetchQuotes, type Quote } from "@/lib/prices";
 import { walletKey, type WalletRef } from "@/lib/store";
-import type { ReaderResponse } from "@/workers/wallet-reader.worker";
+import { readSnapshotInWorker } from "@/lib/wallet-reader-service";
 
 import { useDoc } from "./useDoc";
 
-/** Runs the chain read inside a worker so parsing never blocks the UI.
- * `sinceBlock` scopes the transfer leg to an incremental re-sync; balances
- * are always read in full. */
+/** Runs the chain read through the persistent reader service so parsing
+ * never blocks the UI and the worker is not re-instantiated on every
+ * refresh. `sinceBlock` scopes the transfer leg to an incremental re-sync;
+ * balances are always read in full. */
 function readInWorker(
   address: string,
   chainId: number,
   sinceBlock: number | null = null,
 ): Promise<WalletSnapshot> {
-  return new Promise((resolve, reject) => {
-    const worker = new Worker(new URL("../workers/wallet-reader.worker.ts", import.meta.url), {
-      type: "module",
-    });
-    const timeout = setTimeout(() => {
-      worker.terminate();
-      reject(new Error("wallet read timed out"));
-    }, 30_000);
-
-    worker.addEventListener("message", (event: MessageEvent<ReaderResponse>) => {
-      const msg = event.data;
-      if (msg.type === "snapshot") {
-        clearTimeout(timeout);
-        worker.terminate();
-        resolve(msg.snapshot);
-      } else if (msg.type === "error") {
-        clearTimeout(timeout);
-        worker.terminate();
-        reject(new Error(msg.message));
-      }
-    });
-    worker.addEventListener("error", (e) => {
-      clearTimeout(timeout);
-      worker.terminate();
-      reject(new Error(e.message || "worker failed"));
-    });
-
-    worker.postMessage({
-      type: "scan",
-      chainId,
-      wallets: [{ id: address, address, sinceBlock }],
-    });
-  });
+  return readSnapshotInWorker(address, chainId, sinceBlock);
 }
 
 export function useActiveWallet() {

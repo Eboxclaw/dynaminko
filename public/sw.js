@@ -1,10 +1,12 @@
-// Minimal service worker: makes the app installable, serves the shell offline
-// and lets alerts show notifications when the tab is in the background.
-// Also caches wllama WASM binary and GGUF model weights for offline inference.
+// App service worker: makes the app installable, serves the shell offline,
+// caches same-origin build assets so repeat and offline visits are fast,
+// and lets alerts show notifications in the background.
+// Also caches the wllama WASM binary for offline inference.
 
-const CACHE = "pot-v1";
+const CACHE = "pot-v2";
 const SHELL = ["/", "/manifest.webmanifest", "/pot-mark.svg"];
 const WASM_CACHE = "pot-wasm-v1";
+const ASSETS_CACHE = "pot-assets-v1";
 
 // ── install: cache shell and wasm binary ─────────────────────────────
 
@@ -39,7 +41,7 @@ self.addEventListener("activate", (event) => {
       .then((keys) =>
         Promise.all(
           keys
-            .filter((k) => k.startsWith("pot-") && k !== CACHE && k !== WASM_CACHE)
+            .filter((k) => k.startsWith("pot-") && k !== CACHE && k !== WASM_CACHE && k !== ASSETS_CACHE)
             .map((k) => caches.delete(k)),
         ),
       )
@@ -48,6 +50,15 @@ self.addEventListener("activate", (event) => {
 });
 
 // ── fetch strategies ─────────────────────────────────────────────────
+
+function assetUrl(reqUrl) {
+  // Build-emitted assets live under /assets with hashed names; Google-hosted
+  // fonts use woff2. Same-origin only, so we never adopt third-party URLs.
+  return (
+    reqUrl.origin === self.location.origin &&
+    (/^\/assets\/.+/.test(reqUrl.pathname) || /\.woff2?$/.test(reqUrl.pathname))
+  );
+}
 
 self.addEventListener("fetch", (event) => {
   const req = event.request;
@@ -72,7 +83,35 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  // Network-first for navigations so fresh builds land; cache is the fallback.
+  // Build assets (JS/CSS/fonts): cache-first, runtime-filled. The app shell
+  // is hashed per build, so a cached chunk is always the build it came
+  // from; new deployments simply reference new hashed names.
+  if (assetUrl(url)) {
+    event.respondWith(
+      caches.match(req).then(
+        (hit) =>
+          hit ||
+          fetch(req).then((res) => {
+            if (res && res.ok) {
+              const copy = res.clone();
+              caches
+                .open(ASSETS_CACHE)
+                .then((c) => c.put(req, copy))
+                .catch(() => undefined);
+            }
+            return res;
+          }),
+      ),
+    );
+    return;
+  }
+
+  // Network-first for navigations so fresh builds land; cache is the
+  // offline fallback. Build assets are content-hashed, so a deployment is
+  // atomic: the new HTML references new /assets names that are fresh
+  // cache-misses (fetched + cached via the branch above), while the
+  // previous build's chunks stay intact in ASSETS_CACHE until a version
+  // bump prunes them. No partial-cache deployment is possible.
   if (req.mode === "navigate") {
     event.respondWith(
       fetch(req)

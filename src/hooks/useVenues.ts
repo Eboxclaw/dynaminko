@@ -3,8 +3,8 @@ import { useQuery } from "@tanstack/react-query";
 import { idbGet, idbSet, storeByIndex, storePut } from "@/lib/cache/idb";
 import { track } from "@/lib/stats/client";
 import { walletKey } from "@/lib/store";
-import { readVenues, reportValue, type VenueAction, type VenueReport } from "@/lib/venues";
-import type { ReaderRequest, ReaderResponse } from "@/workers/wallet-reader.worker";
+import { reportValue, readVenues, type VenueAction, type VenueReport } from "@/lib/venues";
+import { readVenuesInWorker } from "@/lib/wallet-reader-service";
 
 import { useActiveWallet } from "./usePortfolio";
 
@@ -18,36 +18,14 @@ function cachedActionsFor(key: string): Promise<VenueAction[]> {
   return storeByIndex<CachedAction>("actions", "wallet", key);
 }
 
-/** Runs venue reads in the shared reader worker; falls back to the main thread. */
+/** Runs venue reads through the persistent reader service; falls back to the
+ * main thread where Worker is unavailable. */
 function readInWorker(address: string, chainId: number): Promise<VenueData> {
   if (typeof Worker === "undefined") {
     // main-thread fallback: positions only, actions stay the worker's job
     return readVenues(address, chainId).then((reports) => ({ reports, actions: [] }));
   }
-  return new Promise((resolve, reject) => {
-    const worker = new Worker(new URL("../workers/wallet-reader.worker.ts", import.meta.url), {
-      type: "module",
-    });
-    const timeout = setTimeout(() => {
-      worker.terminate();
-      reject(new Error("venue read timed out"));
-    }, 45_000);
-    const finish = (fn: () => void) => {
-      clearTimeout(timeout);
-      worker.terminate();
-      fn();
-    };
-    worker.addEventListener("message", (event: MessageEvent<ReaderResponse>) => {
-      const msg = event.data;
-      if (msg.type === "venues")
-        finish(() => resolve({ reports: msg.reports, actions: msg.actions }));
-      else if (msg.type === "error") finish(() => reject(new Error(msg.message)));
-    });
-    worker.addEventListener("error", (e) =>
-      finish(() => reject(new Error(e.message || "worker failed"))),
-    );
-    worker.postMessage({ type: "venues", chainId, address } satisfies ReaderRequest);
-  });
+  return readVenuesInWorker(address, chainId).then((r) => r as VenueData);
 }
 
 /**

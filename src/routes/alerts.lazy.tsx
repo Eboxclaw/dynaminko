@@ -1,4 +1,7 @@
-import { createFileRoute } from "@tanstack/react-router";
+import {
+  createLazyFileRoute,
+  type LazyRouteOptions,
+} from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 
 import { HelpDot } from "@/components/pot/HelpDot";
@@ -9,21 +12,29 @@ import { backgroundCapable, permission, request, show, type PermissionState } fr
 import { addAlert, patchAlert, patchSettings, removeAlert } from "@/lib/store";
 import { cn } from "@/lib/utils";
 
-export const Route = createFileRoute("/alerts")({
-  head: () => ({
-    meta: [
-      { title: "Alerts · Proof of Thesis" },
-      {
-        name: "description",
-        content:
-          "Price levels, on-chain triggers and thesis reviews that nudge you before you react.",
-      },
-      { property: "og:title", content: "Alerts · Proof of Thesis" },
-      { property: "og:description", content: "Price levels and thesis reviews that nudge you." },
-    ],
-  }),
-  component: AlertsPage,
-});
+// Lazy route: alert management (notification permissions, background-capable
+// checks) is not the app's first stop, so it loads on demand. This release's
+// LazyRouteOptions type only models the component props, but the runtime
+// merges every lazy option into route.options when the chunk loads, so head
+// behaves as on the eager route. The cast documents that type gap, not a
+// runtime difference.
+export const Route = createLazyFileRoute("/alerts")(
+  {
+    head: () => ({
+      meta: [
+        { title: "Alerts · Proof of Thesis" },
+        {
+          name: "description",
+          content:
+            "Price levels, on-chain triggers and thesis reviews that nudge you before you react.",
+        },
+        { property: "og:title", content: "Alerts · Proof of Thesis" },
+        { property: "og:description", content: "Price levels and thesis reviews that nudge you." },
+      ],
+    }),
+    component: AlertsPage,
+  } as LazyRouteOptions,
+);
 
 function Permission() {
   const doc = useDoc();
