@@ -11,7 +11,7 @@ import { useAi } from "@/hooks/useAi";
 import { useDoc } from "@/hooks/useDoc";
 import { CTX_CHOICES, MODEL_BY_ID, STATE_LABEL, memoryEstimateGb, recommendModel } from "@/lib/ai";
 import { semanticLabel, type ModelAction } from "@/lib/ai/capability";
-import { CLOUD_PROVIDERS, cloudState, type CloudProviderId } from "@/lib/ai/cloud";
+import { CLOUD_CTX_CHOICES, CLOUD_PROVIDERS, cloudState, type CloudProviderId } from "@/lib/ai/cloud";
 import { diagnosticsRows } from "@/lib/ai/runtime";
 import { patchAssistant, patchCloudCredential, patchSettings } from "@/lib/store";
 import { getWebKeys, setWebKeys, type WebProviderKeys } from "@/lib/tools/web";
@@ -538,6 +538,28 @@ function CloudModels({ ai }: { ai: ReturnType<typeof useAi> }) {
                   </a>
                 )}
               </div>
+              {active && (
+                <div className="mt-2">
+                  <p className="eyebrow text-ink-faint">
+                    context window · prompt budget basis, provider card is the ceiling
+                  </p>
+                  <div className="mt-1 flex flex-wrap gap-1.5">
+                    {CLOUD_CTX_CHOICES.map((c) => (
+                      <button
+                        key={c}
+                        type="button"
+                        onClick={() => ai.setCloudCtx(c)}
+                        className={cn(
+                          "doodle-pill num px-2.5 py-0.5 text-[11px]",
+                          ai.cloudCtx === c ? "bg-ink text-paper" : "hover:border-ink",
+                        )}
+                      >
+                        {c >= 1048576 ? `${Math.round(c / 1048576)}M` : `${Math.round(c / 1024)}K`}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
             </li>
           );
         })}

@@ -470,6 +470,7 @@ async function chatMessages(
           min_p: sampling.minP,
           penalty_repeat: sampling.repeatPenalty,
           penalty_last_n: sampling.penaltyLastN,
+          ...(sampling.topK ? { top_k: sampling.topK } : {}),
         }
       : {}),
     ...(options.responseSchema

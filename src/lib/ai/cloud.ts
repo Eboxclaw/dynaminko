@@ -10,6 +10,14 @@ import { withNativeToolTurns, type NativeMessage, type NativeToolTurn } from "@/
 
 export type CloudProviderId = "openai" | "openrouter" | "engy" | "claude" | "kimi" | "zai";
 
+/** persistence key for the manually tuned cloud context window */
+export const CLOUD_CTX_KEY = "cloud";
+
+/** Manual tuning ladder for cloud context windows (ModelPanel chips). The
+ * provider card is the ceiling: GLM-5-Turbo 200K, 1M variants exist, while
+ * mid-size endpoints sit at 32K-128K. */
+export const CLOUD_CTX_CHOICES = [8192, 16384, 32768, 204800, 1048576] as const;
+
 export type CloudProviderSpec = {
   id: CloudProviderId;
   label: string;
@@ -20,6 +28,8 @@ export type CloudProviderSpec = {
   /** the provider blocks browser requests unless a proxy is used */
   corsRisky: boolean;
   keysUrl: string;
+  /** provider-recommended temperature; undefined falls back to 0.4 */
+  temperature?: number;
 };
 
 export const CLOUD_PROVIDERS: CloudProviderSpec[] = [
@@ -71,14 +81,22 @@ export const CLOUD_PROVIDERS: CloudProviderSpec[] = [
   {
     id: "zai",
     label: "Z.ai",
-    // Z.ai's chat endpoint is OpenAI-compatible (Bearer auth, /chat/completions),
-    // not the Anthropic Messages API. The v4 base already includes /chat/completions.
-    baseUrl: "https://api.z.ai/api/paas/v4",
-    // The official in-app test model (account must carry a resource package).
+    // Coding-plan keys (the official test key among them) carry their
+    // resource package on the coding endpoint only: the standard paas/v4
+    // returns 429 code 1113 "Insufficient balance" for them, while this
+    // base returns 200. Verified live 2026-09-01. Standard-platform keys
+    // still work here and can be pointed back via the per-provider
+    // baseUrl override in the panel.
+    baseUrl: "https://api.z.ai/api/coding/paas/v4",
+    // The official in-app test model. 200K context, up to 128K output,
+    // thinking enabled by default (arrives as reasoning_content deltas).
     model: "glm-5-turbo",
-    blurb: "Z.ai's OpenAI-compatible chat endpoint. Official test model: GLM-5-Turbo.",
+    blurb: "Z.ai GLM Coding endpoint. Official test model: GLM-5-Turbo.",
     corsRisky: false,
     keysUrl: "https://z.ai/keys",
+    // Documented example setting (streaming sample); 1.0 is too hot for a
+    // grounded portfolio assistant.
+    temperature: 0.6,
   },
 ];
 
@@ -107,6 +125,19 @@ export type CloudChatOptions = {
   temperature?: number;
   maxTokens?: number;
   onToken?: (partial: string) => void;
+  /**
+   * Reasoning stream for models that expose it (GLM-5 family sends
+   * reasoning_content deltas ahead of content). The partial grows with
+   * thinking-only tokens, so the UI can show what the model is doing
+   * before the answer starts.
+   */
+  onThinking?: (partial: string) => void;
+  /**
+   * GLM-5 family thinking switch. Decides run with "disabled" (speed
+   * first: a structured pick must not pay for a reasoning preamble);
+   * answers inherit the provider default (enabled).
+   */
+  thinking?: "enabled" | "disabled";
   signal?: AbortSignal;
   /** structured output; endpoints that reject it throw and the caller degrades */
   responseSchema?: { name: string; schema: Record<string, unknown> };
@@ -167,8 +198,9 @@ export async function cloudChatMessages(
     body: JSON.stringify({
       model,
       stream: true,
-      temperature: options.temperature ?? 0.4,
+      temperature: options.temperature ?? spec.temperature ?? 0.4,
       max_tokens: options.maxTokens ?? 512,
+      ...(options.thinking ? { thinking: { type: options.thinking } } : {}),
       ...(options.responseSchema
         ? {
             response_format: {
@@ -193,6 +225,7 @@ export async function cloudChatMessages(
   const decoder = new TextDecoder();
   let buffer = "";
   let out = "";
+  let thinking = "";
 
   for (;;) {
     const { done, value } = await reader.read();
@@ -206,10 +239,18 @@ export async function cloudChatMessages(
       const payload = trimmed.slice(5).trim();
       if (!payload || payload === "[DONE]") continue;
       try {
-        const piece = readDelta(JSON.parse(payload));
+        const parsed = JSON.parse(payload);
+        const piece = readDelta(parsed);
         if (piece) {
           out += piece;
           options.onToken?.(out);
+        }
+        // GLM-5 family streams its reasoning separately; surface it so the
+        // turn shows what the model is doing before prose starts.
+        const thought = parsed.choices?.[0]?.delta?.reasoning_content;
+        if (typeof thought === "string" && thought) {
+          thinking += thought;
+          options.onThinking?.(thinking);
         }
       } catch {
         /* keep streaming — a partial frame is not fatal */

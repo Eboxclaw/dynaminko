@@ -45,7 +45,7 @@ import {
   unloadEncoder,
   type EncoderState,
 } from "@/lib/ai/encoder";
-import { cloudChatMessages, CLOUD_BY_ID, type CloudConfig } from "@/lib/ai/cloud";
+import { cloudChatMessages, CLOUD_BY_ID, CLOUD_CTX_KEY, type CloudConfig } from "@/lib/ai/cloud";
 import {
   deriveCapability,
   modelAction,
@@ -93,16 +93,21 @@ export function useAi() {
   // The context choice persists per model: a /context command survives a
   // reload, and switching models restores that model's own choice instead of
   // silently resetting to the default (which made ctx-dependent tests lie).
-  const [ctx, setCtxState] = useState(
+  const [localCtx, setLocalCtxState] = useState(
     () => persistedCtx(settings.aiModelId) ?? Math.min(DEFAULT_CTX, MODEL_BY_ID[settings.aiModelId]?.maxCtx ?? DEFAULT_CTX),
   );
   const setCtx = useCallback(
-    (n: number) => setCtxState(persistCtx(settings.aiModelId, n)),
+    (n: number) => setLocalCtxState(persistCtx(settings.aiModelId, n)),
     [settings.aiModelId],
   );
   const [loadedCtx, setLoadedCtx] = useState(DEFAULT_CTX);
-  const [temperature, setTemperature] = useState(0.4);
-  const [maxTokens, setMaxTokens] = useState(8192);
+  // Cloud context is tuned manually (the provider card decides the real
+  // ceiling); persisted under a synthetic id so it survives reloads.
+  const [cloudCtx, setCloudCtxState] = useState(() => persistedCtx(CLOUD_CTX_KEY) ?? 32768);
+  const setCloudCtx = useCallback((n: number) => setCloudCtxState(persistCtx(CLOUD_CTX_KEY, n)), []);
+  /** Reasoning stream from providers that expose it (GLM reasoning_content). */
+  const [thinkingText, setThinkingText] = useState<string | null>(null);
+  const [temperature, setTemperature] = useState(0.4);  const [maxTokens, setMaxTokens] = useState(8192);
   const [downloaded, setDownloaded] = useState<Set<string>>(new Set());
   /** Models with an in-flight or interrupted download: the cache index says
    * "missing" but progress says "started", which is exactly "partial". */
@@ -132,6 +137,10 @@ export function useAi() {
     [assistant.provider, cloudId, assistant.cloud],
   );
 
+  /** The window every consumer budgets against: the cloud ladder when a
+   * cloud provider is active, the local model's ctx otherwise. */
+  const ctx = cloudCfg ? cloudCtx : localCtx;
+
   useEffect(() => {
     mounted.current = true;
     setProfile(deviceProfile());
@@ -143,7 +152,7 @@ export function useAi() {
       setLoadedCtx(loadedContext());
       setBackend(activeBackend());
     }
-    setCtxState(
+    setLocalCtxState(
       persistedCtx(settings.aiModelId) ??
         Math.min(DEFAULT_CTX, MODEL_BY_ID[settings.aiModelId]?.maxCtx ?? DEFAULT_CTX),
     );
@@ -202,7 +211,7 @@ export function useAi() {
       opInFlight.current = true;
       try {
         const result = await downloadModel(modelId, applyStatus, {
-          nCtx: ctx,
+          nCtx: localCtx,
         });
         if (result.status !== "ready") return;
         if (mounted.current) {
@@ -234,8 +243,8 @@ export function useAi() {
   /** Generation never installs implicitly. The caller must load a downloaded model first. */
   const ensure = useCallback(async () => {
     if (cloudCfg) return true;
-    return isReady(settings.aiModelId) && loadedContext() === ctx;
-  }, [cloudCfg, ctx, settings.aiModelId]);
+    return isReady(settings.aiModelId) && loadedContext() === localCtx;
+  }, [cloudCfg, localCtx, settings.aiModelId]);
 
   /**
    * The explicit activation boundary: select, verify, load, wait for ready,
@@ -251,7 +260,7 @@ export function useAi() {
       // Register progress callback so load progress shows in the UI
       setActiveStatusCallback(applyStatus, modelId);
       try {
-        const result = await rotateToDownloadedModel(modelId, applyStatus, { nCtx: ctx });
+        const result = await rotateToDownloadedModel(modelId, applyStatus, { nCtx: localCtx });
         if (
           result.status === "install_required" ||
           result.status === "unsupported" ||
@@ -302,6 +311,12 @@ export function useAi() {
           const controller = new AbortController();
           cloudAbort.current = controller;
           const started = performance.now();
+          if (mounted.current) setThinkingText(null);
+          // The thinking toggle maps onto provider reasoning modes: off is a
+          // real "disabled" (decides and speed-first answers), on is enabled,
+          // and absent keeps the provider default (GLM-5: enabled).
+          const thinkingMode =
+            options.thinking == null ? undefined : options.thinking ? "enabled" : "disabled";
           // Every cloud provider is OpenAI-compatible (Z.ai included), so the
           // shared client covers all of them. No per-provider branching.
           const text = await cloudChatMessages(cloudCfg, messages, {
@@ -310,6 +325,7 @@ export function useAi() {
             responseSchema: options.responseSchema,
             images: options.images,
             toolTurns: options.toolTurns,
+            ...(thinkingMode ? { thinking: thinkingMode } : {}),
             signal: controller.signal,
             onToken: (partial) => {
               if (!mounted.current) return;
@@ -317,6 +333,9 @@ export function useAi() {
               const secs = (performance.now() - started) / 1000;
               const tokens = Math.ceil(partial.length / 4);
               if (secs > 0.2) setSpeed({ tps: tokens / secs, tokens });
+            },
+            onThinking: (partial) => {
+              if (mounted.current) setThinkingText(partial);
             },
           });
           return text;
@@ -520,6 +539,10 @@ export function useAi() {
     ctx,
     setCtx,
     loadedCtx,
+    cloudCtx,
+    setCloudCtx,
+    /** reasoning stream from providers that expose it, null outside a turn */
+    thinkingText,
     temperature,
     setTemperature,
     maxTokens,

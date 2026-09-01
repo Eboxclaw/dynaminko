@@ -59,6 +59,7 @@ export type ModelSpec = {
     minP: number;
     repeatPenalty: number;
     penaltyLastN: number;
+    topK?: number;
   };
   backend: { preferred: "webgpu"; fallback: "wasm" };
 };
@@ -92,7 +93,7 @@ const MODEL_LIST: Omit<ModelSpec, "backend">[] = [
     // helpers stay (decideTools/inputsToSchema + worker tools passthrough
     // + tool_calls recovery) as tested groundwork for a future build.
     // decideMenu: "native",
-    sampling: { temperature: 0.3, minP: 0.15, repeatPenalty: 1.05, penaltyLastN: 64 },
+    sampling: { temperature: 0.1, minP: 0.15, repeatPenalty: 1.1, penaltyLastN: 64, topK: 50 },
   },
   {
     id: "lfm2-1_2-instruct",
@@ -112,7 +113,7 @@ const MODEL_LIST: Omit<ModelSpec, "backend">[] = [
     maxCtx: 32128,
     nLayers: 24,
     kv: { attnLayers: 6, kvHeads: 8, headDim: 64 },
-    sampling: { temperature: 0.3, minP: 0.15, repeatPenalty: 1.05, penaltyLastN: 64 },
+    sampling: { temperature: 0.1, minP: 0.15, repeatPenalty: 1.05, penaltyLastN: 64, topK: 50 },
   },
   {
     id: "lfm2-350",
@@ -134,7 +135,7 @@ const MODEL_LIST: Omit<ModelSpec, "backend">[] = [
     maxCtx: 32768,
     nLayers: 28,
     kv: { attnLayers: 6, kvHeads: 8, headDim: 64 },
-    sampling: { temperature: 0.3, minP: 0.15, repeatPenalty: 1.05, penaltyLastN: 64 },
+    sampling: { temperature: 0.1, minP: 0.15, repeatPenalty: 1.05, penaltyLastN: 64, topK: 50 },
   },
   {
     id: "lfm2-450-vl",
@@ -154,7 +155,7 @@ const MODEL_LIST: Omit<ModelSpec, "backend">[] = [
     generative: true,
     maxCtx: 32128,
     nLayers: 28,
-    sampling: { temperature: 0.3, minP: 0.15, repeatPenalty: 1.05, penaltyLastN: 64 },
+    sampling: { temperature: 0.1, minP: 0.15, repeatPenalty: 1.05, penaltyLastN: 64, topK: 50 },
   },
   {
     id: "lfm2-1_2-thinking",
@@ -174,7 +175,7 @@ const MODEL_LIST: Omit<ModelSpec, "backend">[] = [
     maxCtx: 32768,
     nLayers: 16,
     kv: { attnLayers: 6, kvHeads: 8, headDim: 64 },
-    sampling: { temperature: 0.05, minP: 0.15, repeatPenalty: 1.05, penaltyLastN: 64 },
+    sampling: { temperature: 0.05, minP: 0.15, repeatPenalty: 1.05, penaltyLastN: 64, topK: 50 },
   },
   {
     id: "minilm-6-v2",

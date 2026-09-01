@@ -506,6 +506,8 @@ function ChatConsole({
         // empty). Without the grammar the model thinks, then calls in its
         // own dialect; the spec's sampling keeps the think coherent.
         temperature: nativeMenu ? Math.min(0.3, ai.spec?.sampling?.temperature ?? 0.2) : 0,
+        // A cloud decide must not pay a reasoning preamble: speed first.
+        thinking: false,
         ...(tools ? { tools } : {}),
         ...(nativeMenu
           ? {}
@@ -990,13 +992,9 @@ function ChatConsole({
 
       // 0.85 of the window, not 0.75: post-penalty answers measure 25 to 60
       // tokens, so the old reply reserve was dead weight the FACTS pile
-      // tripped over. Revisit if answers grow. Cloud models are not bound by
-      // the local model's context setting: give them a roomy 32k basis so
-      // FACTS and history never shed just because a 350M is installed.
-      const CLOUD_BASIS_CTX = 32768;
-      const budgetTokens = Math.floor(
-        (ai.target.kind === "cloud" ? CLOUD_BASIS_CTX : ai.ctx) * 0.85,
-      );
+      // tripped over. Revisit if answers grow. ai.ctx already resolves to
+      // the cloud ladder when a cloud provider is active.
+      const budgetTokens = Math.floor(ai.ctx * 0.85);
       // When a skill already ran this turn its observation carries the same
       // portfolio numbers FACTS would repeat; both riding along doubled the
       // prompt (4495t of a 6144 budget) and taught the model to answer by
@@ -1062,8 +1060,8 @@ function ChatConsole({
       turn.move("generating");
       turn.stage("answer", ai.target.label);
       // Sampling follows the model spec instead of a hardcode: the Thinking
-      // model's 0.05 finally applies, the 2.6B gets its 0.3, and grounded
-      // turns without a spec keep the old 0.2.
+      // model's 0.05 finally applies, the LFM cards' 0.1 applies to the rest,
+      // and grounded turns without a spec keep the old 0.2.
       const answerTemp = ground ? (ai.spec?.sampling?.temperature ?? 0.2) : undefined;
       let raw: string;
       const answerStart = Date.now();
@@ -1126,6 +1124,12 @@ function ChatConsole({
       // surface or be replayed as history.
       let text = stripToolCallMarkup(answer || raw || "").trim();
       let cleanThink = think ? stripToolCallMarkup(think) : null;
+      // Cloud reasoning (GLM reasoning_content deltas) arrives off-band
+      // through the hook, not inside the completion text: merge it so the
+      // thinking accordion tells the same story it does for local models.
+      if (!cleanThink && ai.target.kind === "cloud" && ai.thinkingText) {
+        cleanThink = ai.thinkingText;
+      }
 
       // A tool-trained model sometimes answers with its native tool-call
       // tokens instead of prose: the 2.6B's entire completion was once a
