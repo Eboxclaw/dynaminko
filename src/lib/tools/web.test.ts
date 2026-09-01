@@ -9,6 +9,8 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { clearSecretCache } from "@/lib/secrets";
+
 vi.mock("@/lib/ai/encoder", () => ({ rank: vi.fn(async () => null) }));
 
 // Import after the mock so web.ts's lazy encoder import binds the fake.
@@ -232,6 +234,7 @@ describe("webSearch chain", () => {
   });
 
   it("tries every tier in order and lands on Wikipedia last", async () => {
+    clearSecretCache(); // this chain is keyless by expectation
     const fetchMock = vi.mocked(fetch);
     fetchMock
       .mockResolvedValueOnce(badUpstream as Response) // 1. proxy ddg: anomaly wall
@@ -282,6 +285,7 @@ describe("webSearch chain", () => {
   });
 
   it("reports honestly when every transport fails, naming each status", async () => {
+    clearSecretCache();
     vi.mocked(fetch).mockRejectedValue(new Error("offline"));
     const out = await webSearch("q");
     expect(out.results).toEqual([]);
@@ -460,10 +464,11 @@ describe("webRead chain", () => {
   });
 
   it("falls back to the reader with the stored key when the proxy is down", async () => {
-    const backing = new Map<string, string>([["inko.web-keys", JSON.stringify({ jina: "jk" })]]);
+    const backing = new Map<string, string>();
     vi.stubGlobal("window", {
-      localStorage: { getItem: (k: string) => backing.get(k) ?? null, setItem: () => {} },
+      localStorage: { getItem: (k: string) => backing.get(k) ?? null, setItem: (k: string, v: string) => void backing.set(k, v) },
     });
+    setWebKeys({ jina: "jk" }); // keys now live in the device secret store
     const fetchMock = vi.mocked(fetch);
     fetchMock
       .mockRejectedValueOnce(new Error("no server"))

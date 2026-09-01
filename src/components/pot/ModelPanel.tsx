@@ -2,7 +2,7 @@
 // Every model row carries its own download / load / unload / delete controls,
 // so no single button ever relabels itself into a different meaning.
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { toast } from "sonner";
 
@@ -12,6 +12,7 @@ import { useDoc } from "@/hooks/useDoc";
 import { CTX_CHOICES, MODEL_BY_ID, STATE_LABEL, memoryEstimateGb, recommendModel } from "@/lib/ai";
 import { semanticLabel, type ModelAction } from "@/lib/ai/capability";
 import { CLOUD_CTX_CHOICES, CLOUD_PROVIDERS, cloudState, type CloudProviderId } from "@/lib/ai/cloud";
+import { onSecretsReady, peekSecret } from "@/lib/secrets";
 import { diagnosticsRows } from "@/lib/ai/runtime";
 import { patchAssistant, patchCloudCredential, patchSettings } from "@/lib/store";
 import { getWebKeys, setWebKeys, type WebProviderKeys } from "@/lib/tools/web";
@@ -453,6 +454,9 @@ function CloudModels({ ai }: { ai: ReturnType<typeof useAi> }) {
   const doc = useDoc();
   const assistant = doc.settings.assistant;
   const creds = assistant.cloud ?? {};
+  // Secret slots hydrate async at boot: re-read when the store is ready.
+  const [, bump] = useState(0);
+  useEffect(() => onSecretsReady(() => bump((v) => v + 1)), []);
 
   return (
     <div>
@@ -485,7 +489,7 @@ function CloudModels({ ai }: { ai: ReturnType<typeof useAi> }) {
               <div className="mt-2 grid gap-2 sm:grid-cols-2">
                 <input
                   type="password"
-                  value={cred?.apiKey ?? ""}
+                  value={peekSecret(`cloud.${p.id}`) ?? ""}
                   placeholder="API key"
                   autoComplete="off"
                   onChange={(e) => patchCloudCredential(p.id, { apiKey: e.target.value })}
@@ -577,6 +581,8 @@ function CloudModels({ ai }: { ai: ReturnType<typeof useAi> }) {
  * calls (401), so without a key here that transport is skipped in practice. */
 function WebSearchKeys() {
   const [keys, setKeys] = useState<WebProviderKeys>(() => getWebKeys());
+  // Secret slots hydrate async at boot: re-read when the store is ready.
+  useEffect(() => onSecretsReady(() => setKeys(getWebKeys())), []);
   const patch = (next: WebProviderKeys) => {
     setKeys(next);
     setWebKeys(next);
@@ -586,7 +592,8 @@ function WebSearchKeys() {
       <p className="border-b border-stroke px-4 py-2.5 text-[12px] text-ink-soft">
         Optional. The agent searches the web keylessly by default; a Jina key enables its search
         transport (keyless calls are refused) and a Tavily key adds the most reliable one. Keys are
-        stored in this browser only.
+        sealed on this device (AES-GCM, device-bound key in IndexedDB) and never leave it except
+        to the provider they belong to.
       </p>
       <div className="grid gap-2 px-4 py-3 sm:grid-cols-2">
         <label className="grid gap-1">

@@ -53,7 +53,8 @@ import {
   type InstallState,
   type ModelAction,
 } from "@/lib/ai/capability";
-import { patchAssistant } from "@/lib/store";
+import { patchAssistant, SECRET_MARK } from "@/lib/store";
+import { onSecretsReady, peekSecret } from "@/lib/secrets";
 import { useSettings } from "./useDoc";
 import { useDoc } from "./useDoc";
 import { toast } from "sonner";
@@ -129,13 +130,23 @@ export function useAi() {
 
   const assistant = doc.settings.assistant;
   const cloudId = assistant.cloudId;
-  const cloudCfg: CloudConfig | null = useMemo(
-    () =>
-      assistant.provider === "cloud" && cloudId && assistant.cloud?.[cloudId]?.apiKey
-        ? { id: cloudId as CloudConfig["id"], ...assistant.cloud[cloudId] }
-        : null,
-    [assistant.provider, cloudId, assistant.cloud],
-  );
+  // Secret slots hydrate async at boot; without this, a cloud session that
+  // reloads would silently fall back to local until the next full load.
+  // The boolean feeds the cloudCfg memo deps: a plain re-render would not
+  // recompute it (useMemo keeps the stale null).
+  const [secretsReady, setSecretsReady] = useState(false);
+  useEffect(() => onSecretsReady(() => setSecretsReady(true)), []);
+  const cloudCfg: CloudConfig | null = useMemo(() => {
+    if (assistant.provider !== "cloud" || !cloudId) return null;
+    const cred = assistant.cloud?.[cloudId];
+    if (!cred) return null;
+    // The apiKey lives sealed in the device secret store; the doc only marks
+    // its presence. Legacy plaintext (pre-migration docs) still works.
+    const apiKey =
+      cred.apiKey === SECRET_MARK || !cred.apiKey ? peekSecret(`cloud.${cloudId}`) : cred.apiKey;
+    if (!apiKey) return null;
+    return { id: cloudId as CloudConfig["id"], apiKey, baseUrl: cred.baseUrl, model: cred.model };
+  }, [assistant.provider, cloudId, assistant.cloud, secretsReady]);
 
   /** The window every consumer budgets against: the cloud ladder when a
    * cloud provider is active, the local model's ctx otherwise. */

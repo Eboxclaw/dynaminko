@@ -3,6 +3,7 @@
 // No accounts, no server, no network.
 
 import { keccak_256 } from "@noble/hashes/sha3.js";
+import { deleteSecret, putSecret } from "@/lib/secrets";
 
 export type Sentiment = "conviction" | "reactive" | "hedge" | "fomo" | "rebalance";
 export type Emotion = "calm" | "anxious" | "excited" | "uncertain";
@@ -132,7 +133,12 @@ export type LogLine = {
   ms: number | null;
 };
 
-/** One optional cloud endpoint, OpenAI-compatible. Keys stay on this device. */
+/**
+ * One optional cloud endpoint, OpenAI-compatible. The apiKey is a DEVICE
+ * SECRET: it lives sealed in the secret store (src/lib/secrets.ts), never in
+ * the document, which persists to plaintext storage. The doc field only
+ * carries a presence marker ("sealed") plus the non-secret config.
+ */
 export type CloudCredential = {
   apiKey: string;
   baseUrl?: string;
@@ -854,12 +860,49 @@ export function patchAssistant(patch: Partial<AssistantConfig>) {
 
 /** Store or clear one cloud credential. Local only, never leaves the device. */
 export function patchCloudCredential(id: string, patch: Partial<CloudCredential> | null) {
+  // The apiKey never enters the document: seal it into the device secret
+  // store and leave only a presence marker behind. Legacy plaintext keys
+  // found in the doc are migrated to the store at boot (migrateCloudKeys).
+  let secretWrite: Promise<void> | null = null;
+  if (patch && typeof patch.apiKey === "string") {
+    secretWrite = putSecret(`cloud.${id}`, patch.apiKey);
+  }
   update((d) => {
     const cloud = { ...(d.settings.assistant.cloud ?? {}) };
-    if (patch === null) delete cloud[id];
-    else cloud[id] = { ...(cloud[id] ?? { apiKey: "" }), ...patch };
+    if (patch === null) {
+      void deleteSecret(`cloud.${id}`);
+      delete cloud[id];
+    } else {
+      const { apiKey, ...rest } = patch;
+      const prev = cloud[id] ?? { apiKey: "" };
+      const hasKey = prev.apiKey === SECRET_MARK || Boolean(apiKey) || Boolean(secretWrite);
+      cloud[id] = { ...prev, ...rest, apiKey: hasKey ? SECRET_MARK : "" };
+    }
     d.settings.assistant = { ...d.settings.assistant, cloud };
   });
+}
+
+/** Presence marker in the doc: the real key is in the secret store. */
+export const SECRET_MARK = "sealed";
+
+/**
+ * Boot migration: plaintext apiKeys found in a restored doc move into the
+ * secret store and are blanked to the marker. Runs after initSecrets().
+ */
+export function migrateCloudKeys() {
+  const d = getDoc();
+  const cloud = d.settings.assistant.cloud ?? {};
+  for (const [id, cred] of Object.entries(cloud)) {
+    if (!cred?.apiKey || cred.apiKey === SECRET_MARK) continue;
+    void putSecret(`cloud.${id}`, cred.apiKey);
+    update((doc) => {
+      const c = { ...(doc.settings.assistant.cloud ?? {}) };
+      const cur = c[id];
+      if (cur?.apiKey && cur.apiKey !== SECRET_MARK)
+        c[id] = { ...cur, apiKey: SECRET_MARK };
+      doc.settings.assistant = { ...doc.settings.assistant, cloud: c };
+    });
+  }
 }
 
 export function toggleAssistantItem(field: "skills" | "tools", id: string) {

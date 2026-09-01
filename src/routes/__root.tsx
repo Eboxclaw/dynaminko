@@ -11,6 +11,8 @@ import { useEffect, type ReactNode } from "react";
 import { Toaster } from "sonner";
 import { Analytics } from "@vercel/analytics/react";
 import { useStorage } from "../hooks/useStorage";
+import { initSecrets } from "../lib/secrets";
+import { migrateCloudKeys } from "../lib/store";
 
 import appCss from "../styles.css?url";
 import { reportLovableError } from "../lib/lovable-error-reporting";
@@ -209,6 +211,9 @@ function RootComponent() {
     // Step the pre-style fallback aside only when the real stylesheet is
     // alive; if CSS is genuinely gone the fallback keeps the page readable.
     if (realStylesheetAlive()) document.getElementById("pot-boot-base")?.remove();
+    // Hydrate the device secret store, then migrate any legacy plaintext
+    // cloud keys out of the document into sealed slots.
+    void initSecrets().then(migrateCloudKeys);
   }, []);
   return (
     <QueryClientProvider client={queryClient}>

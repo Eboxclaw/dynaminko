@@ -47,29 +47,28 @@ export type WebSearchOut = {
 const MAX_ROWS = 5;
 const SNIPPET_CHARS = 220;
 
-// ── optional provider keys (this browser only, never bundled) ─────────
+// ── optional provider keys (sealed on this device, never bundled) ─────
 
 export type WebProviderKeys = { jina?: string; tavily?: string };
 
-const KEYS_STORAGE = "inko.web-keys";
+import { peekSecret, putSecret } from "@/lib/secrets";
 
-/** web.ts also runs inside the server worker, where window is undefined. */
+/** Keys live in the device secret store (AES-GCM sealed, IDB primary with a
+ * sealed mirror), hydrated into the boot cache at startup. Sync on purpose:
+ * the search chain must not wait on IDB before every hop. */
 export function getWebKeys(): WebProviderKeys {
-  if (typeof window === "undefined") return {};
-  try {
-    return JSON.parse(window.localStorage.getItem(KEYS_STORAGE) ?? "{}") as WebProviderKeys;
-  } catch {
-    return {};
-  }
+  const out: WebProviderKeys = {};
+  const jina = peekSecret("web.jina");
+  const tavily = peekSecret("web.tavily");
+  if (jina) out.jina = jina;
+  if (tavily) out.tavily = tavily;
+  return out;
 }
 
 export function setWebKeys(keys: WebProviderKeys): void {
   if (typeof window === "undefined") return;
-  try {
-    window.localStorage.setItem(KEYS_STORAGE, JSON.stringify(keys));
-  } catch {
-    /* storage full or blocked: the chain simply stays keyless */
-  }
+  void putSecret("web.jina", keys.jina ?? "");
+  void putSecret("web.tavily", keys.tavily ?? "");
 }
 
 // ── shared HTML/text helpers ──────────────────────────────────────────
