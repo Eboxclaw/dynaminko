@@ -129,7 +129,9 @@ const MODEL_LIST: Omit<ModelSpec, "backend">[] = [
     vision: false,
     reasoning: false,
     generative: true,
-    maxCtx: 8192,
+    // Card limit 32768: the ladder is opened to the card, the memory budget
+    // gate (budgetGuard) rejects what the device cannot carry.
+    maxCtx: 32768,
     nLayers: 28,
     kv: { attnLayers: 6, kvHeads: 8, headDim: 64 },
     sampling: { temperature: 0.3, minP: 0.15, repeatPenalty: 1.05, penaltyLastN: 64 },

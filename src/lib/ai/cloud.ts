@@ -74,8 +74,9 @@ export const CLOUD_PROVIDERS: CloudProviderSpec[] = [
     // Z.ai's chat endpoint is OpenAI-compatible (Bearer auth, /chat/completions),
     // not the Anthropic Messages API. The v4 base already includes /chat/completions.
     baseUrl: "https://api.z.ai/api/paas/v4",
-    model: "glm-5.3",
-    blurb: "Z.ai's OpenAI-compatible chat endpoint, powered by GLM-5.3.",
+    // The official in-app test model (account must carry a resource package).
+    model: "glm-5-turbo",
+    blurb: "Z.ai's OpenAI-compatible chat endpoint. Official test model: GLM-5-Turbo.",
     corsRisky: false,
     keysUrl: "https://z.ai/keys",
   },
