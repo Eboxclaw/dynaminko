@@ -60,6 +60,15 @@ import type { NativeToolTurn } from "@/lib/ai";
 import { AGENTS, automationOn } from "@/lib/agents/registry";
 import { COMMANDS, parseCommand, suggestions, type Suggestion } from "@/lib/chat/commands";
 import { estimateTokens, factLines, portfolioFactLines } from "@/lib/chat/context";
+import {
+  beginTurn,
+  completedTurn,
+  markAnswerDone,
+  markFirstUsefulAction,
+  measure,
+  tagModel,
+  tagTurn,
+} from "@/lib/ai/trace";
 import { newMessage, type Approval, type ChatCard, type ChatMessage } from "@/lib/chat/session";
 import {
   bootstrapSessions,
@@ -673,13 +682,18 @@ function ChatConsole({
     ground = false,
     opts: { skipRecords?: boolean; skipHop?: boolean } = {},
   ): Promise<string | null> => {
+    // P0.1: tag the active turn trace with the model; the clock started in
+    // submit(). Pure bookkeeping.
+    tagModel(ai.target.label, ai.backend);
     // Chat never downloads weights, but a model already on this device is
     // woken up here so the first message does not need a manual Load.
+    const wakeStart = Date.now();
     turn.stage("model", ai.target.label);
     if (ai.target.kind === "local" && !ai.loadedModelId) {
       setSwitchBusy(true);
       const woke = await ai.wake();
       setSwitchBusy(false);
+      measure("modelLoad", Date.now() - wakeStart);
       if (!woke.ok) {
         turn.settle("model", "skipped", "no local model on this device");
         push({
@@ -711,6 +725,7 @@ function ChatConsole({
       // (INKO the token vs the Ink chain) mislead more than they ground.
       let records: string[] = [];
       if (ground && !conversational && !opts.skipRecords) {
+        const semStart = Date.now();
         const found = await retrieveContext(user, 6);
         if (found.count) {
           // Wallet-state questions must not receive transfer receipts as
@@ -738,6 +753,7 @@ function ChatConsole({
             });
           }
         }
+        measure("semantic", Date.now() - semStart, `retrieval ${found.count} records`);
       }
       // Just-in-time capability detail: the one-line book always rides along,
       // full blocks only for what this turn actually touches.
@@ -748,7 +764,12 @@ function ChatConsole({
             reason: "conversational",
             stats: null,
           }
-        : await selectCapabilities(user, 5);
+        : await (async () => {
+            const t0s = Date.now();
+            const sel = await selectCapabilities(user, 5);
+            measure("semantic", Date.now() - t0s, "capability select");
+            return sel;
+          })();
 
       // v1 agent hop: one model-chosen read-only tool before the answer. The
       // deterministic loop stays primary; this only adds evidence to the turn.
@@ -761,8 +782,10 @@ function ChatConsole({
       // web.search if the toggle is on.
       let intentExternal: boolean | null = null;
       if (ground && !conversational) {
+        const ti0 = Date.now();
         const intent = await classifyIntent(user).catch(() => null);
         intentExternal = intent?.kind === "external" || null;
+        measure("semantic", Date.now() - ti0, "intent classify");
       }
       const needsWeb = intentExternal === true && web;
 
@@ -835,6 +858,7 @@ function ChatConsole({
             turn.settle("tool", "skipped", "hop deadline reached");
             break;
           }
+          const decStart = Date.now();
           const pick = skipDecide
             ? {
                 def: hopAllowed[0],
@@ -845,6 +869,9 @@ function ChatConsole({
                 evidence: hopEvidence(observationsRef.current),
                 remaining: LIMITS.maxToolHops - hop + 1,
               });
+          // The decide call is model inference even though it outputs a tool
+          // pick: it belongs in its own phase, not in tool execution.
+          if (!skipDecide) measure("decide", Date.now() - decStart, `hop ${hop}`);
           if (!pick) {
             turn.settle("tool", "skipped", "no tool chosen");
             break;
@@ -915,9 +942,12 @@ function ChatConsole({
               break;
             }
             executedKeys.push(key);
+            const toolStart = Date.now();
             const out = hopTool
               ? await runTool(hopTool, input)
               : await runCommand(pick.def.id, input);
+            measure("tool", Date.now() - toolStart, pick.def.id);
+            markFirstUsefulAction();
             const summary =
               pick.def.kind === "command"
                 ? ((out as CommandResult).summary ?? (out as CommandResult).status)
@@ -1016,6 +1046,7 @@ function ChatConsole({
         budgetTokens,
       };
       let build = buildTurn(buildInput);
+      const ctxStart = Date.now();
       // The section table stays out of the transcript; the trace keeps one
       // compact audit line and the footer carries the size.
       const recordBuild = () => {
@@ -1027,6 +1058,7 @@ function ChatConsole({
         }));
       };
       recordBuild();
+      measure("context", Date.now() - ctxStart, `build ${build.estTokens}t`);
       turn.move("generating");
       turn.stage("answer", ai.target.label);
       // Sampling follows the model spec instead of a hardcode: the Thinking
@@ -1034,6 +1066,7 @@ function ChatConsole({
       // turns without a spec keep the old 0.2.
       const answerTemp = ground ? (ai.spec?.sampling?.temperature ?? 0.2) : undefined;
       let raw: string;
+      const answerStart = Date.now();
       try {
         raw = await ai.askMessages(build.messages, {
           thinking,
@@ -1072,6 +1105,7 @@ function ChatConsole({
           });
         }
       }
+      measure("answer", Date.now() - answerStart, raw.length ? "generated" : "empty");
 
       // Diagnostics for the no-output class of failures: keep the untouched
       // completion on the window so a failing run can be inspected (model,
@@ -1291,6 +1325,7 @@ function ChatConsole({
         return null;
       }
       push({ role: "assistant", text: finalText, thinking: cleanThink });
+      markAnswerDone();
       turn.settle(
         "answer",
         "ok",
@@ -1421,7 +1456,11 @@ function ChatConsole({
       text: result.summary ?? result.command,
       card: {
         source: result.command,
+        // The human summary leads so the collapsed card (first fact only)
+        // shows the actual answer, not telemetry. facts[0] is also what
+        // session previews and model observations quote.
         facts: [
+          ...(result.summary ? [result.summary] : []),
           `status ${result.status}${result.reason ? ` · ${result.reason}` : ""}`,
           `${d?.toolsUsed ?? 0} tool calls · ${d?.durationMs ?? 0} ms${d?.retried ? " · retried" : ""} · no model used`,
           ...(result.nextAction?.reason ? [`next: ${result.nextAction.reason}`] : []),
@@ -1456,7 +1495,12 @@ function ChatConsole({
       });
     }
     turn.stage("command", def.id);
+    const cmdStart = Date.now();
     const res = await runCommand(def.id, args);
+    measure("command", Date.now() - cmdStart, def.id);
+    // A deterministic command result IS the useful action of this turn:
+    // the KPI clock stops here, ahead of any model prose that follows.
+    markFirstUsefulAction();
     // One capture serves the card and the observation's offload key; the
     // observation's own data path (commandObservation) is untouched.
     const capture = captureResult((res.data as Record<string, unknown>) ?? {});
@@ -1465,6 +1509,9 @@ function ChatConsole({
     observationsRef.current.push(obs);
     turn.settle("command", res.status === "ok" ? "ok" : "error", res.summary ?? res.status);
     showCommandResult(res, capture);
+    // Command turns are terminal (both submit paths return after them), so
+    // the deterministic result is also the turn's completion.
+    markAnswerDone();
   };
 
   const approve = async (id: string, ok: boolean) => {
@@ -1513,6 +1560,8 @@ function ChatConsole({
     setInput("");
     observationsRef.current = [];
     turn.begin();
+    beginTurn();
+    tagTurn(text);
     push({ role: "user", text });
 
     // One-time semantic engine offer: only when nothing is cached and no
@@ -1633,6 +1682,15 @@ function ChatConsole({
         const lastT = lastPromptRef.current;
         const memCtx = memoryStats();
         const session = sessions.find((s) => s.id === activeId);
+        // completedTurn, not the active trace: this command's own beginTurn
+        // has already reset the in-flight turn by the time we read it.
+        const perf = completedTurn();
+        const perfLine = perf
+          ? `time-to-useful ${perf.timeToUsefulActionMs}ms · total ${perf.totalMs}ms · ` +
+            Object.entries(perf.phases)
+              .map(([k, v]) => `${k} ${v.ms}ms`)
+              .join(", ")
+          : "no measured turn yet (ask a question)";
         // The last effective-settings line, logged by the answer turn.
         const usageLine = getDoc().logs?.find(
           (l) => l.agent === "agent" && l.event === "usage",
@@ -1640,6 +1698,7 @@ function ChatConsole({
         push({
           role: "note",
           text: [
+            perfLine,
             usageLine ?? "no model answer yet this session",
             `last prompt ${lastT != null && lastT > 0 ? `${lastT}t` : "—"} · ctx budget ${Math.floor(ai.ctx * 0.75)}`,
             `memory ${memCtx.chars}/${memCtx.limit} chars · ${memCtx.entries} notes`,
