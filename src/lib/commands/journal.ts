@@ -126,7 +126,17 @@ export function applyAnswer(args: Record<string, unknown>, ctx: CommandContext):
   const motive = str(args.motive) as Sentiment | null;
   const alignment = str(args.alignment) as Alignment | null;
   const thesisId = str(args.thesisId);
-  const limit = typeof args.limit === "number" ? args.limit : 50;
+  // String limits coerce ("/run key=value" and model JSON both arrive as
+  // strings sometimes). No limit at all keeps the bulk default of 50; a
+  // limit that is present but unparsable must NOT silently become 50, it
+  // degrades to 1, the smallest blast radius.
+  const hasLimit = args.limit != null && args.limit !== "";
+  const limitRaw = Number(args.limit);
+  const limit = !hasLimit
+    ? 50
+    : Number.isFinite(limitRaw) && limitRaw > 0
+      ? Math.floor(limitRaw)
+      : 1;
 
   const index = buildIndex();
   ctx.count();

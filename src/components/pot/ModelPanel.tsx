@@ -11,7 +11,13 @@ import { useAi } from "@/hooks/useAi";
 import { useDoc } from "@/hooks/useDoc";
 import { CTX_CHOICES, MODEL_BY_ID, STATE_LABEL, memoryEstimateGb, recommendModel } from "@/lib/ai";
 import { semanticLabel, type ModelAction } from "@/lib/ai/capability";
-import { CLOUD_CTX_CHOICES, CLOUD_PROVIDERS, cloudState, type CloudProviderId } from "@/lib/ai/cloud";
+import {
+  CLOUD_CTX_CHOICES,
+  CLOUD_OUT_CHOICES,
+  CLOUD_PROVIDERS,
+  cloudState,
+  type CloudProviderId,
+} from "@/lib/ai/cloud";
 import { onSecretsReady, peekSecret } from "@/lib/secrets";
 import { diagnosticsRows } from "@/lib/ai/runtime";
 import { patchAssistant, patchCloudCredential, patchSettings } from "@/lib/store";
@@ -559,6 +565,24 @@ function CloudModels({ ai }: { ai: ReturnType<typeof useAi> }) {
                         )}
                       >
                         {c >= 1048576 ? `${Math.round(c / 1048576)}M` : `${Math.round(c / 1024)}K`}
+                      </button>
+                    ))}
+                  </div>
+                  <p className="eyebrow mt-2 text-ink-faint">
+                    output tokens · thinking rides in this budget; auto uses the card default
+                  </p>
+                  <div className="mt-1 flex flex-wrap gap-1.5">
+                    {CLOUD_OUT_CHOICES.map((c) => (
+                      <button
+                        key={c}
+                        type="button"
+                        onClick={() => ai.setCloudOut(c)}
+                        className={cn(
+                          "doodle-pill num px-2.5 py-0.5 text-[11px]",
+                          (ai.cloudOut || 0) === c ? "bg-ink text-paper" : "hover:border-ink",
+                        )}
+                      >
+                        {c === 0 ? "auto" : c >= 1048576 ? "1M" : `${Math.round(c / 1024)}K`}
                       </button>
                     ))}
                   </div>

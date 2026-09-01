@@ -45,7 +45,13 @@ import {
   unloadEncoder,
   type EncoderState,
 } from "@/lib/ai/encoder";
-import { cloudChatMessages, CLOUD_BY_ID, CLOUD_CTX_KEY, type CloudConfig } from "@/lib/ai/cloud";
+import {
+  cloudChatMessages,
+  CLOUD_BY_ID,
+  CLOUD_CTX_KEY,
+  CLOUD_OUT_KEY,
+  type CloudConfig,
+} from "@/lib/ai/cloud";
 import {
   deriveCapability,
   modelAction,
@@ -106,6 +112,12 @@ export function useAi() {
   // ceiling); persisted under a synthetic id so it survives reloads.
   const [cloudCtx, setCloudCtxState] = useState(() => persistedCtx(CLOUD_CTX_KEY) ?? 32768);
   const setCloudCtx = useCallback((n: number) => setCloudCtxState(persistCtx(CLOUD_CTX_KEY, n)), []);
+  /** Manual cloud output-token override; 0 means "auto" (card default). */
+  const [cloudOut, setCloudOutState] = useState(() => persistedCtx(CLOUD_OUT_KEY) ?? 0);
+  const setCloudOut = useCallback(
+    (n: number) => setCloudOutState(persistCtx(CLOUD_OUT_KEY, n)),
+    [],
+  );
   /** Reasoning stream from providers that expose it (GLM reasoning_content). */
   const [thinkingText, setThinkingText] = useState<string | null>(null);
   const [temperature, setTemperature] = useState(0.4);  const [maxTokens, setMaxTokens] = useState(8192);
@@ -327,12 +339,24 @@ export function useAi() {
           // real "disabled" (decides and speed-first answers), on is enabled,
           // and absent keeps the provider default (GLM-5: enabled).
           const thinkingMode =
-            options.thinking == null ? undefined : options.thinking ? "enabled" : "disabled";
+            options.thinking == null
+              ? CLOUD_BY_ID[cloudCfg.id]?.thinking
+              : options.thinking
+                ? "enabled"
+                : "disabled";
+          // Answers never inherit the LOCAL slider: the provider card decides
+          // the output budget (thinking included) unless the user tuned chips.
+          const cloudMax =
+            cloudOut || CLOUD_BY_ID[cloudCfg.id]?.defaultOutputTokens || maxTokens;
+          const clampedOut = Math.min(
+            cloudMax,
+            CLOUD_BY_ID[cloudCfg.id]?.maxOutputTokens ?? cloudMax,
+          );
           // Every cloud provider is OpenAI-compatible (Z.ai included), so the
           // shared client covers all of them. No per-provider branching.
           const text = await cloudChatMessages(cloudCfg, messages, {
             temperature: options.temperature ?? temperature,
-            maxTokens: options.maxTokens ?? maxTokens,
+            maxTokens: options.maxTokens ?? clampedOut,
             responseSchema: options.responseSchema,
             images: options.images,
             toolTurns: options.toolTurns,
@@ -552,6 +576,8 @@ export function useAi() {
     loadedCtx,
     cloudCtx,
     setCloudCtx,
+    cloudOut,
+    setCloudOut,
     /** reasoning stream from providers that expose it, null outside a turn */
     thinkingText,
     temperature,

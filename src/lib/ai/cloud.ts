@@ -18,6 +18,13 @@ export const CLOUD_CTX_KEY = "cloud";
  * mid-size endpoints sit at 32K-128K. */
 export const CLOUD_CTX_CHOICES = [8192, 16384, 32768, 204800, 1048576] as const;
 
+/** persistence key for the manual cloud output-token override (number or
+ * "auto"); "auto" defers to the provider's defaultOutputTokens. */
+export const CLOUD_OUT_KEY = "cloud-out";
+
+/** Output-token ladder (ModelPanel chips). Auto keeps the card default. */
+export const CLOUD_OUT_CHOICES = [0, 8192, 32768, 131072] as const; // 0 = auto
+
 export type CloudProviderSpec = {
   id: CloudProviderId;
   label: string;
@@ -30,6 +37,12 @@ export type CloudProviderSpec = {
   keysUrl: string;
   /** provider-recommended temperature; undefined falls back to 0.4 */
   temperature?: number;
+  /** model-card output ceiling; the manual slider can never exceed it */
+  maxOutputTokens?: number;
+  /** output tokens answers request when the user has not tuned anything */
+  defaultOutputTokens?: number;
+  /** the model's own reasoning mode when the user has not chosen one */
+  thinking?: "enabled" | "disabled";
 };
 
 export const CLOUD_PROVIDERS: CloudProviderSpec[] = [
@@ -97,6 +110,12 @@ export const CLOUD_PROVIDERS: CloudProviderSpec[] = [
     // Documented example setting (streaming sample); 1.0 is too hot for a
     // grounded portfolio assistant.
     temperature: 0.6,
+    // Card: 200K context, up to 128K output, thinking on by default. A
+    // roomy answer budget costs nothing unless the model (thinking
+    // included) actually generates the tokens.
+    maxOutputTokens: 131072,
+    defaultOutputTokens: 32768,
+    thinking: "enabled",
   },
 ];
 

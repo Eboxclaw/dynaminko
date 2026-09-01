@@ -1039,7 +1039,7 @@ function ChatConsole({
         selectedCapabilities: selection.selected,
         records,
         observations: toolTurns.length ? [] : observationsRef.current,
-        history: messages,
+        history: Number.isFinite(historyTurnCap) ? messages.slice(-historyTurnCap) : messages,
         user,
         budgetTokens,
       };
@@ -1446,7 +1446,13 @@ function ChatConsole({
     for (const part of rest.match(/[^\s"]+="[^"]*"|\S+/g) ?? []) {
       const eq = part.indexOf("=");
       if (eq < 0) continue;
-      out[part.slice(0, eq)] = part.slice(eq + 1).replace(/^"|"$/g, "");
+      const raw = part.slice(eq + 1).replace(/^"|"$/g, "");
+      // Numeric-looking values coerce: /run journal.apply_answer limit=1
+      // must reach the command as the number 1, not the string "1" (which
+      // commands treat as absent and fall back to their defaults — that
+      // mismatch once turned a limit=1 into 50 writes).
+      const n = Number(raw);
+      out[part.slice(0, eq)] = raw !== "" && Number.isFinite(n) && /^-?\d+(\.\d+)?$/.test(raw) ? n : raw;
     }
     if (Object.keys(out).length === 0) out.query = rest;
     return out;
@@ -1666,7 +1672,7 @@ function ChatConsole({
         const lastT = lastPromptRef.current;
         const sections = lastBuildRef.current;
         if (lastT == null || !sections) {
-          const used = contextFor(messages, Math.floor(ai.ctx * 0.4));
+          const used = contextFor(messages, Math.floor(ai.ctx * 0.4), historyTurnCap);
           push({
             role: "note",
             text: `ctx ${ai.ctx} · ${used.turns} turns replayed · ~${used.used} of ${Math.floor(ai.ctx * 0.4)} history tokens.\nNo model turn yet in this tab; ask something to record a prompt.`,
@@ -1880,7 +1886,11 @@ function ChatConsole({
   };
 
   const active = sessions.find((s) => s.id === activeId);
-  const ctxUsed = contextFor(messages, Math.floor(ai.ctx * 0.4));
+  // Model-aware history scope: a 350M with a 32K window and slow decode must
+  // not ingest an unbounded transcript even when tokens would allow it.
+  // Cloud keeps the full session (the ladder is the scope).
+  const historyTurnCap = historyTurnCapFor(ai);
+  const ctxUsed = contextFor(messages, Math.floor(ai.ctx * 0.4), historyTurnCap);
 
   return (
     <div className="grid content-start gap-3">
@@ -2211,6 +2221,19 @@ function ChatConsole({
  * id (source) plus the first fact, everything else behind one toggle. The id
  * stays visible either way, so the card remains targetable by the agent.
  */
+/**
+ * Model-aware history scope: recent-turns-only for small local models,
+ * the full session for cloud (its context ladder is the scope).
+ */
+function historyTurnCapFor(ai: ReturnType<typeof useAi>): number {
+  if (ai.target.kind === "cloud") return Number.POSITIVE_INFINITY;
+  const w = ai.spec?.weightsGb;
+  if (w == null) return 12;
+  if (w < 0.4) return 8; // 350M class: recent context only
+  if (w < 1) return 12; // 1.2B class
+  return 16; // 2.6B class
+}
+
 function ToolCard({
   card,
   text,
