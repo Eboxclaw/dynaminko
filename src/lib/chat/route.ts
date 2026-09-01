@@ -37,9 +37,10 @@ export type Routed =
   | { kind: "search"; query: string; why: string; candidates?: CapabilityCandidate[] }
   | { kind: "none"; candidates?: CapabilityCandidate[] };
 
-const PRE_EXECUTE: { commandId: string; aliases: string[] }[] = [
+const PRE_EXECUTE: { commandId: string; aliases: string[]; adviceGated?: boolean }[] = [
   {
     commandId: "portfolio.snapshot",
+    adviceGated: true,
     aliases: [
       "show my exposure",
       "what do i hold",
@@ -81,6 +82,16 @@ function includesAlias(q: string, aliases: string[]) {
   return aliases.find((alias) => q.includes(alias.toLowerCase()));
 }
 
+/**
+ * Advice intent riding on a status phrase: "how is my portfolio looking and
+ * what could I improve?" contains the status alias but asks for an opinion,
+ * which the snapshot data alone cannot give. When one of these markers is
+ * present the deterministic capture is skipped and the model hop answers,
+ * with FACTS riding along as usual.
+ */
+const ADVICE_MARKER =
+  /\b(improve|should i|should you|what should|could i|advice|recommend|thoughts|what do you think|any idea|ideas on|how can i|how do i|optimi[sz]e|rebalance)\b/;
+
 function tickerArg(text: string): string | undefined {
   return /\b([A-Z]{2,6})\b/.exec(text)?.[1];
 }
@@ -98,7 +109,11 @@ export function routeMessage(text: string): Routed {
   const hits: Hit[] = [];
   for (const route of PRE_EXECUTE) {
     const hit = includesAlias(q, route.aliases);
-    if (hit) hits.push({ kind: "command", id: route.commandId, hit });
+    if (!hit) continue;
+    // A status phrase embedded in an advice question is not a status request;
+    // letting it fall through is safe because FACTS ride along in the hop.
+    if (route.adviceGated && ADVICE_MARKER.test(q)) continue;
+    hits.push({ kind: "command", id: route.commandId, hit });
   }
   for (const skill of SKILLS) {
     if (!skill.aliases?.length) continue;

@@ -84,4 +84,29 @@ describe("routeMessage", () => {
     expect(r.kind).toBe("command");
     if (r.kind === "command") expect(r.commandId).toBe("portfolio.snapshot");
   });
+
+  it("lets advice questions built on a status phrase fall through to the model", () => {
+    // The status alias matches as a substring, but the advice markers mean
+    // the user wants an opinion, which the snapshot alone cannot give.
+    const advice = [
+      "how is my portfolio looking and what could I improve?",
+      "how's my portfolio? should I change anything?",
+      "what do i hold and what should I trim",
+      "show my exposure and recommend improvements",
+    ];
+    for (const text of advice) {
+      const r = routeMessage(text);
+      expect(r.kind, `expected none (model hop) for "${text}"`).toBe("none");
+    }
+  });
+
+  it("still captures pure status questions, even with marker substrings inside other words", () => {
+    // \b markers only gate on whole words: "improved" inside a basket name
+    // must not block a genuine status question.
+    for (const text of ["how is my portfolio doing", "show my exposure to improved baskets"]) {
+      const r = routeMessage(text);
+      expect(r.kind, `expected command for "${text}"`).toBe("command");
+      if (r.kind === "command") expect(r.commandId).toBe("portfolio.snapshot");
+    }
+  });
 });
