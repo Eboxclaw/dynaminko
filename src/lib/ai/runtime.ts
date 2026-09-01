@@ -153,6 +153,25 @@ function threadsAvailable(caps: Map<string, boolean>): boolean {
 
 // ── Inference profile computation ─────────────────────────────────────
 
+/**
+ * Mobile-safe thread policy (AI_RUNTIME_V2 P0.2). Desktop keeps cores-1
+ * capped at 12. Mobile over-subscribes far less: Safari's cross-origin
+ * isolation failure already forces 1 thread, and when threads DO run,
+ * giving a phone more than a couple of workers starves the compositor and
+ * the UI thread, which reads as "clunky" even when tok/s looks fine.
+ * Unknown cores assume 4. After calibration, measured winners override
+ * this cold-start fallback.
+ */
+export function threadPolicy(cores: number | null, mobile: boolean): number {
+  const c = cores ?? 4;
+  if (mobile) {
+    if (c <= 4) return 2;
+    if (c <= 8) return c <= 6 ? 3 : 4;
+    return Math.min(6, Math.floor(c / 2));
+  }
+  return Math.max(1, Math.min(c - 1, 12));
+}
+
 export type GpuTier = "discrete" | "integrated" | "mobile" | "unknown";
 
 /** Guess GPU tier from vendor + memory. */
@@ -267,10 +286,10 @@ export function buildInferenceProfile(
   );
 
   // Threads: only valuable when cross-origin isolated (SharedArrayBuffer).
-  // cores - 1 leaves the UI a thread; floor of 1 for single-core devices.
-  // Cap raised 8 to 12: big desktops were leaving real threads idle on the
-  // CPU-fallback path, which is exactly where inference is slowest.
-  const n_threads = caps.crossOriginIsolated ? Math.max(1, Math.min((caps.cores ?? 4) - 1, 12)) : 1;
+  // The curve is threadPolicy: desktop keeps cores-1 (cap 12), mobile gets
+  // the conservative phone-safe curve instead of the desktop one that left
+  // phones unresponsive.
+  const n_threads = caps.crossOriginIsolated ? threadPolicy(caps.cores, caps.mobile) : 1;
 
   const n_batch = optimalBatch(caps.gpuTier, caps.vramGb);
   const cacheK = recommendedCacheType(caps.gpuTier, caps.deviceMemoryGb);
