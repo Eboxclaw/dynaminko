@@ -11,7 +11,10 @@ import {
   ENCODER_ID,
   MODELS,
   MODEL_BY_ID,
+  budgetOutcome,
   deviceProfile,
+  kvCacheGb,
+  memoryBudgetGb,
   memoryEstimateGb,
   recommendModel,
 } from "../ai";
@@ -59,6 +62,38 @@ describe("model registry", () => {
     expect(small).toBeGreaterThan(0);
     expect(big).toBeGreaterThan(small);
     expect(memoryEstimateGb("no-such-model", 8192)).toBe(0);
+  });
+
+  it("KV reference values match the published LFM2.5 architecture", () => {
+    // 6 attention layers x 8 KV heads x 64 head dim, q8_0 K+V:
+    // 6*8192*8*64*1.0625*2 bytes = 53,477,376 B
+    expect(kvCacheGb(MODEL_BY_ID["lfm2-350"], 8192, "q8_0")).toBeCloseTo(0.0498, 3);
+    // f16 doubles it
+    expect(kvCacheGb(MODEL_BY_ID["lfm2-350"], 8192, "f16")).toBeCloseTo(0.0936, 3);
+    // 2.6B carries KV on 8 attention layers: 8*65536*1024*1.0625 bytes
+    expect(kvCacheGb(MODEL_BY_ID["lfm2-2_6"], 65536, "q8_0")).toBeCloseTo(0.531, 2);
+    // The gated VL model has unknown geometry: no promise is made.
+    expect(kvCacheGb(MODEL_BY_ID["lfm2-450-vl"], 8192)).toBeNull();
+    expect(memoryBudgetGb(MODEL_BY_ID["lfm2-450-vl"], 8192)).toBeNull();
+  });
+
+  it("budget peak reference: 350M at 8192 lands just above half a gigabyte", () => {
+    // weights 0.219 + KV 0.0498 + buffers 0.0263 + overhead 0.15, +15% margin
+    expect(memoryBudgetGb(MODEL_BY_ID["lfm2-350"], 8192)).toBeCloseTo(0.512, 2);
+  });
+
+  it("budget outcomes reject only true overflow predictions", () => {
+    // 2.6B at 65536: peak ~2.83 GB. All three outcomes in one table:
+    // 8 GB class -> comfortable SAFE; 4 GB class -> inside the 70% near-band
+    // (UNCERTAIN proceeds); 2.6 GB class -> predicted overflow (UNSAFE).
+    const big = MODEL_BY_ID["lfm2-2_6"];
+    expect(budgetOutcome(big, 65536, 8).verdict).toBe("SAFE");
+    expect(budgetOutcome(big, 65536, 4).verdict).toBe("UNCERTAIN");
+    expect(budgetOutcome(big, 65536, 2.6).verdict).toBe("UNSAFE");
+    // Missing telemetry never blocks (UNCERTAIN proceeds), it just warns.
+    expect(budgetOutcome(big, 65536, null).verdict).toBe("UNCERTAIN");
+    // Unknown architecture degrades to UNCERTAIN, never a guess.
+    expect(budgetOutcome(MODEL_BY_ID["lfm2-450-vl"], 8192, 8).verdict).toBe("UNCERTAIN");
   });
 
   it("recommendModel falls back to the default when probing is unavailable", () => {

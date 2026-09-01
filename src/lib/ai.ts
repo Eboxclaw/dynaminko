@@ -9,7 +9,7 @@
 // Static config (MODELS, MODEL_BY_ID, etc.) stays on the main thread.
 
 import type { Wllama } from "@wllama/wllama/esm/index.js";
-import type { Backend } from "@/lib/ai/runtime";
+import { runtimeSnapshot, type Backend } from "@/lib/ai/runtime";
 import type { AiWorkerRequest, AiWorkerResponse } from "@/workers/ai.worker";
 
 // ── static config (stays on main thread) ─────────────────────────────
@@ -38,6 +38,15 @@ export type ModelSpec = {
   generative: boolean;
   maxCtx: number;
   nLayers: number;
+  /**
+   * KV-carrying attention geometry, from the published configs. LFM2.5
+   * hybrids keep their context-scaled KV cache only on the full-attention
+   * blocks (conv blocks cache a short fixed window that does not scale with
+   * ctx), so the budget model must know how many layers actually grow with
+   * context. Absent: the budget falls back to a weights-proportional KV
+   * guess and the load outcome degrades to UNCERTAIN.
+   */
+  kv?: { attnLayers: number; kvHeads: number; headDim: number };
   /**
    * Decide-phase tool menu format (opengrok adapter pattern): "book" renders
    * the plain-text capability list in the user message (default), "native"
@@ -75,6 +84,7 @@ const MODEL_LIST: Omit<ModelSpec, "backend">[] = [
     generative: true,
     maxCtx: 128192,
     nLayers: 32,
+    kv: { attnLayers: 8, kvHeads: 8, headDim: 64 },
     // decideMenu "native" measured-and-shelved (08-30): with `tools` passed,
     // the C++ tools path zeroes generation for dot-named tools on this
     // wllama build (decide empty ~100s, no content and no intercepted
@@ -101,6 +111,7 @@ const MODEL_LIST: Omit<ModelSpec, "backend">[] = [
     generative: true,
     maxCtx: 32128,
     nLayers: 24,
+    kv: { attnLayers: 6, kvHeads: 8, headDim: 64 },
     sampling: { temperature: 0.3, minP: 0.15, repeatPenalty: 1.05, penaltyLastN: 64 },
   },
   {
@@ -120,6 +131,7 @@ const MODEL_LIST: Omit<ModelSpec, "backend">[] = [
     generative: true,
     maxCtx: 8192,
     nLayers: 28,
+    kv: { attnLayers: 6, kvHeads: 8, headDim: 64 },
     sampling: { temperature: 0.3, minP: 0.15, repeatPenalty: 1.05, penaltyLastN: 64 },
   },
   {
@@ -159,6 +171,7 @@ const MODEL_LIST: Omit<ModelSpec, "backend">[] = [
     generative: true,
     maxCtx: 32768,
     nLayers: 16,
+    kv: { attnLayers: 6, kvHeads: 8, headDim: 64 },
     sampling: { temperature: 0.05, minP: 0.15, repeatPenalty: 1.05, penaltyLastN: 64 },
   },
   {
@@ -293,9 +306,103 @@ export function recommendModel(profile = deviceProfile()): { id: string; reason:
   };
 }
 
+// ── memory budget model (AI_RUNTIME_V2 P0.3) ─────────────────────────
+//
+// A budget ESTIMATE, never a claim about real free memory: weights + context-
+// scaled KV + inference buffers + runtime overhead + safety margin = peak.
+// Bytes come from the model's published architecture (kv.attnLayers etc.),
+// not from proportionality guesses, and the device side only ever offers a
+// conservative memory CLASS (runtime.ts), never total RAM.
+
+const KV_DTYPE_BYTES: Record<string, number> = {
+  f16: 2,
+  q8_0: 1.0625, // 8.5 bits per element with block scales
+  q4_0: 0.5625,
+};
+
+/** Context-scaled KV cache for one model, or null when its architecture
+ * (KV-carrying layer count) is unknown. Defaults to q8_0 KV, the mobile
+ * preference; f16 only where headroom is measured, not assumed. */
+export function kvCacheGb(
+  spec: Pick<ModelSpec, "kv">,
+  nCtx: number,
+  kvDtype: string = "q8_0",
+): number | null {
+  if (!spec.kv) return null;
+  const bytesPerElem = KV_DTYPE_BYTES[kvDtype] ?? KV_DTYPE_BYTES.q8_0;
+  const perToken = spec.kv.attnLayers * spec.kv.kvHeads * spec.kv.headDim * bytesPerElem * 2; // K + V
+  return (perToken * nCtx) / 1024 ** 3;
+}
+
+// Scratch: activation/temp buffers and WebGPU buffer slack scale with model
+// size; loader/runtime overhead is a floor. The margin covers allocator
+// fragmentation and the unknowns (measured loads refine it in P1).
+const BUFFER_FACTOR = 0.12;
+const OVERHEAD_GB = 0.15;
+const SAFETY_MARGIN = 0.15;
+
+/** Estimated peak memory for one load configuration, or null when the
+ * model's KV geometry is unknown (conservative degradation). */
+export function memoryBudgetGb(
+  spec: Pick<ModelSpec, "kv" | "weightsGb">,
+  nCtx: number,
+  kvDtype: string = "q8_0",
+): number | null {
+  const kv = kvCacheGb(spec, nCtx, kvDtype);
+  if (kv == null) return null;
+  const peak = spec.weightsGb + kv + spec.weightsGb * BUFFER_FACTOR + OVERHEAD_GB;
+  return peak * (1 + SAFETY_MARGIN);
+}
+
+export type BudgetOutcome = {
+  verdict: "SAFE" | "UNCERTAIN" | "UNSAFE";
+  /** estimated peak, null when the model architecture is unknown */
+  peakGb: number | null;
+  basis: string;
+};
+
+/**
+ * The three loading outcomes. UNSAFE rejects the configuration BEFORE the
+ * allocation that would crash the tab; UNCERTAIN proceeds (conservative
+ * configuration and calibration are P1); SAFE loads normally.
+ */
+export function budgetOutcome(
+  spec: Pick<ModelSpec, "kv" | "weightsGb" | "id" | "label">,
+  nCtx: number,
+  memoryClassGb: number | null,
+  kvDtype: string = "q8_0",
+): BudgetOutcome {
+  const peak = memoryBudgetGb(spec, nCtx, kvDtype);
+  if (peak == null)
+    return { verdict: "UNCERTAIN", peakGb: null, basis: "model KV architecture unknown" };
+  if (memoryClassGb == null)
+    return { verdict: "UNCERTAIN", peakGb: peak, basis: "device memory class unreported" };
+  if (peak > memoryClassGb)
+    return {
+      verdict: "UNSAFE",
+      peakGb: peak,
+      basis: `peak ${peak.toFixed(2)} GB over the ${memoryClassGb} GB class`,
+    };
+  if (peak > memoryClassGb * 0.7)
+    return {
+      verdict: "UNCERTAIN",
+      peakGb: peak,
+      basis: `peak ${peak.toFixed(2)} GB near the ${memoryClassGb} GB class`,
+    };
+  return {
+    verdict: "SAFE",
+    peakGb: peak,
+    basis: `peak ${peak.toFixed(2)} GB of ${memoryClassGb} GB`,
+  };
+}
+
+/** Display estimate for the ModelPanel: architecture-aware when the KV
+ * geometry is known, weights-proportional fallback otherwise. */
 export function memoryEstimateGb(modelId: string, nCtx: number): number {
   const spec = MODEL_BY_ID[modelId];
   if (!spec) return 0;
+  const budget = memoryBudgetGb(spec, nCtx);
+  if (budget != null) return Math.round(budget * 10) / 10;
   const kv = (nCtx / 8192) * spec.weightsGb * 0.25;
   return Math.round((spec.weightsGb + kv) * 10) / 10;
 }
@@ -569,6 +676,9 @@ export async function downloadModel(
   onStatus: (s: AiStatus) => void,
   options: { nCtx?: number } = {},
 ): Promise<LifecycleResult> {
+  const spec = MODEL_BY_ID[modelId] ?? MODEL_BY_ID[DEFAULT_MODEL_ID];
+  const guard = budgetGuard(spec, options.nCtx);
+  if (guard) return guard;
   onStatus({ phase: "downloading", progress: 0, modelId });
 
   // Register the status callback so "loading" progress messages route to it
@@ -603,6 +713,23 @@ export function setActiveStatusCallback(
   activeStatusModelId = modelId;
 }
 
+/**
+ * The pre-allocation gate (P0.3): an UNSAFE budget prediction rejects the
+ * load configuration BEFORE the worker allocates and crashes the tab.
+ * UNCERTAIN proceeds: conservative configuration and calibration are P1.
+ * Null when the prediction does not block.
+ */
+function budgetGuard(spec: ModelSpec, nCtx?: number): LifecycleResult | null {
+  const ctx = nCtx ?? persistedCtx(spec.id) ?? DEFAULT_CTX;
+  const { verdict, basis } = budgetOutcome(spec, ctx, runtimeSnapshot().memoryClassGb);
+  if (verdict !== "UNSAFE") return null;
+  return {
+    status: "unsupported",
+    modelId: spec.id,
+    message: `${spec.label} at ctx ${ctx} is predicted not to fit on this device (${basis}). Lower the context or pick a smaller model.`,
+  };
+}
+
 export async function loadDownloadedModel(
   modelId: string,
   onStatus: (s: AiStatus) => void,
@@ -612,6 +739,8 @@ export async function loadDownloadedModel(
   if (spec.desktopOnly && deviceProfile().mobile) {
     return { status: "unsupported", modelId: spec.id, message: "This model is unavailable here." };
   }
+  const guard = budgetGuard(spec, options.nCtx);
+  if (guard) return guard;
   onStatus({ phase: "loading", modelId });
   try {
     await postAndWait<void>({ type: "load", modelId, allowDownload: false, nCtx: options.nCtx });

@@ -27,7 +27,7 @@ export type RuntimeCapabilities = {
   backend: Backend;
   detail: string;
   // ── GPU profile fields ──────────────────────────────────────────
-  vramGb: number | null;
+  memoryClassGb: number | null;
   gpuVendor: string | null;
   gpuTier: "discrete" | "integrated" | "mobile" | "unknown";
   optimalBatch: number;
@@ -50,7 +50,7 @@ const UNKNOWN: RuntimeCapabilities = {
   adapter: null,
   backend: "unavailable",
   detail: "not probed yet",
-  vramGb: null,
+  memoryClassGb: null,
   gpuVendor: null,
   gpuTier: "unknown",
   optimalBatch: 128,
@@ -114,30 +114,23 @@ async function probeWebGpu(): Promise<{
     const description = [info?.vendor, info?.architecture].filter(Boolean).join(" ");
     const vendor = info?.vendor ?? null;
 
-    // Estimate VRAM from deviceMemory or adapter hints
+    // Memory CLASS (P0.3): a conservative usable-model-memory budget, never
+    // total RAM. deviceMemory reports class tiers (and Chrome caps it at 8),
+    // so only half of it counts as loadable; absent (Safari), fall back to
+    // the adapter's own storage-binding bound, a real GPU-side ceiling.
     const nav = navigator as Navigator & { deviceMemory?: number };
     const deviceMemoryGb = typeof nav.deviceMemory === "number" ? nav.deviceMemory : null;
     const limits = adapter.limits;
-    let vram: number | null = null;
+    let memoryClassGb: number | null = null;
 
-    // Try to infer from maxStorageBufferBindingSize (a proxy for VRAM tier)
-    if (limits?.maxStorageBufferBindingSize) {
+    if (deviceMemoryGb != null) {
+      memoryClassGb = Math.max(0.5, deviceMemoryGb / 2);
+    } else if (limits?.maxStorageBufferBindingSize) {
       const maxBufGb = limits.maxStorageBufferBindingSize / 1073741824;
-      if (maxBufGb >= 2) vram = maxBufGb;
+      if (maxBufGb >= 2) memoryClassGb = maxBufGb;
     }
 
-    // Fallback: use deviceMemory as a rough proxy (system RAM ~ VRAM on unified memory)
-    if (vram === null && deviceMemoryGb !== null) {
-      vram = deviceMemoryGb;
-    }
-
-    // Apple Silicon unified memory: deviceMemory is accurate
-    const isApple = vendor?.toLowerCase().includes("apple");
-    if (isApple && deviceMemoryGb !== null) {
-      vram = deviceMemoryGb;
-    }
-
-    return { ok: true, broken: false, adapter: description || "adapter", vram, vendor };
+    return { ok: true, broken: false, adapter: description || "adapter", vram: memoryClassGb, vendor };
   } catch {
     return { ok: false, broken: true, adapter: null, vram: null, vendor: null };
   }
@@ -175,7 +168,7 @@ export function threadPolicy(cores: number | null, mobile: boolean): number {
 export type GpuTier = "discrete" | "integrated" | "mobile" | "unknown";
 
 /** Guess GPU tier from vendor + memory. */
-function gpuTier(vendor: string | null, vramGb: number | null, mobile: boolean): GpuTier {
+function gpuTier(vendor: string | null, memoryClassGb: number | null, mobile: boolean): GpuTier {
   if (mobile) {
     // Mobile GPUs (Qualcomm, Mali, Apple A-series) share memory with the CPU
     return "mobile";
@@ -183,14 +176,14 @@ function gpuTier(vendor: string | null, vramGb: number | null, mobile: boolean):
   const v = vendor?.toLowerCase() ?? "";
   if (v.includes("apple")) {
     // Apple Silicon with unified memory — acts like discrete for large memory
-    return (vramGb ?? 0) >= 8 ? "discrete" : "integrated";
+    return (memoryClassGb ?? 0) >= 8 ? "discrete" : "integrated";
   }
   if (v.includes("nvidia") || v.includes("amd") || v.includes("intel")) {
     // Intel Arc discrete, NVIDIA, AMD — discrete assuming >4 GB
-    return (vramGb ?? 0) >= 4 ? "discrete" : "integrated";
+    return (memoryClassGb ?? 0) >= 4 ? "discrete" : "integrated";
   }
-  if (vramGb !== null && vramGb >= 4) return "discrete";
-  if (vramGb !== null && vramGb >= 2) return "integrated";
+  if (memoryClassGb !== null && memoryClassGb >= 4) return "discrete";
+  if (memoryClassGb !== null && memoryClassGb >= 2) return "integrated";
   return "unknown";
 }
 
@@ -198,7 +191,7 @@ function gpuTier(vendor: string | null, vramGb: number | null, mobile: boolean):
  * Optimal n_batch: GPU benefits from larger batches (512), CPU from smaller (128).
  * Mobile GPU should use 256 — faster than 128 but avoids OOM at 512.
  */
-function optimalBatch(tier: GpuTier, vramGb: number | null): number {
+function optimalBatch(tier: GpuTier, memoryClassGb: number | null): number {
   if (tier === "discrete") return 512;
   if (tier === "integrated") return 256;
   if (tier === "mobile") return 128;
@@ -226,14 +219,14 @@ function recommendFlashAttn(nCtx: number): boolean {
  * Returns the number of transformer layers to offload to GPU.
  */
 export function computeGpuLayers(
-  vramGb: number | null,
+  memoryClassGb: number | null,
   modelWeightsGb: number,
   modelLayers: number,
   gpuOk: boolean,
   gpuBroken: boolean,
 ): number {
   if (!gpuOk || gpuBroken) return 0;
-  if (vramGb === null) {
+  if (memoryClassGb === null) {
     // No VRAM info — conservative: offload everything (assume desktop)
     return modelLayers;
   }
@@ -242,7 +235,7 @@ export function computeGpuLayers(
   const effectiveLayers = modelLayers + 2;
   const perLayerGb = modelWeightsGb / effectiveLayers;
   // Keep 1GB headroom for KV cache + runtime overhead
-  const availableVram = Math.max(0, vramGb - 1.0);
+  const availableVram = Math.max(0, memoryClassGb - 1.0);
   const candidate = Math.floor(availableVram / perLayerGb);
 
   // If candidate < 4 layers, WebGPU overhead isn't worth it — stick to CPU
@@ -278,7 +271,7 @@ export function buildInferenceProfile(
 ): InferenceProfile {
   const gpuOk = caps.webgpu && !caps.webgpuBroken;
   const gpuLayers = computeGpuLayers(
-    caps.vramGb,
+    caps.memoryClassGb,
     modelWeightsGb,
     modelLayers,
     gpuOk,
@@ -291,7 +284,7 @@ export function buildInferenceProfile(
   // phones unresponsive.
   const n_threads = caps.crossOriginIsolated ? threadPolicy(caps.cores, caps.mobile) : 1;
 
-  const n_batch = optimalBatch(caps.gpuTier, caps.vramGb);
+  const n_batch = optimalBatch(caps.gpuTier, caps.memoryClassGb);
   const cacheK = recommendedCacheType(caps.gpuTier, caps.deviceMemoryGb);
   const cacheV = recommendedCacheType(caps.gpuTier, caps.deviceMemoryGb);
   const flash = recommendFlashAttn(nCtx);
@@ -367,7 +360,7 @@ export async function detectRuntime(force = false): Promise<RuntimeCapabilities>
               ? "WASM SIMD · WebGPU present but failed to initialise"
               : "WASM SIMD"
             : "no local inference backend on this device",
-      vramGb: vram,
+      memoryClassGb: vram,
       gpuVendor: vendor,
       gpuTier: tier,
       optimalBatch: optimalBatch(tier, vram),
@@ -396,7 +389,7 @@ export function diagnosticsRows(r: RuntimeCapabilities) {
   return [
     { label: "WebGPU", ok: r.webgpu, detail: r.adapter ?? (r.webgpuBroken ? "init failed" : "") },
     { label: "GPU tier", ok: r.gpuTier !== "unknown", detail: r.gpuTier },
-    { label: "VRAM est.", ok: r.vramGb != null, detail: r.vramGb ? `${r.vramGb} GB` : "unknown" },
+    { label: "Memory class", ok: r.memoryClassGb != null, detail: r.memoryClassGb ? `${r.memoryClassGb} GB` : "unknown" },
     { label: "WASM SIMD", ok: r.wasmSimd, detail: "" },
     {
       label: "Relaxed SIMD",
