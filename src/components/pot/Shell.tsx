@@ -173,7 +173,7 @@ export function Shell({
                 )}
               >
                 <item.icon className="h-[18px] w-[18px]" strokeWidth={active ? 2 : 1.6} />
-                <span className="eyebrow w-full truncate text-center text-[8.5px] tracking-[0.08em]">
+                <span className="eyebrow w-full truncate text-center text-[8.5px] tracking-[0.08em] [color:inherit]">
                   {item.short}
                 </span>
                 {item.to === "/journal" && inbox > 0 && (
@@ -210,11 +210,13 @@ export function Panel({
       style={{ animationDelay: `${delay}ms` }}
     >
       {(eyebrow || title || action) && (
-        <header className="flex items-center gap-3 border-b border-stroke px-4 py-2.5">
+        <header className="flex items-center gap-3 border-b border-stroke px-4 py-3">
           <div className="min-w-0 flex-1">
             {eyebrow && <p className="eyebrow truncate">{eyebrow}</p>}
 
-            {title && <h2 className="mt-1 text-[14px] font-semibold">{title}</h2>}
+            {title && (
+              <h2 className="mt-1 text-[14px] font-semibold leading-snug tracking-tight">{title}</h2>
+            )}
           </div>
           {action}
         </header>
