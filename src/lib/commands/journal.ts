@@ -36,6 +36,7 @@ function missingFor(card: {
 export function resolveInbox(args: Record<string, unknown>, ctx: CommandContext): CommandResult {
   const id = "journal.resolve_inbox";
   const ticker = str(args.ticker)?.toUpperCase() ?? null;
+  const action = str(args.action)?.toLowerCase() ?? null;
   const tradeId = str(args.tradeId);
   const limit = typeof args.limit === "number" ? args.limit : 200;
 
@@ -49,6 +50,9 @@ export function resolveInbox(args: Record<string, unknown>, ctx: CommandContext)
   );
   ctx.count();
   if (ticker) pending = pending.filter((c) => c.ticker === ticker);
+  // Granular resolution: "resolve the swaps" or "resolve the claims" picks
+  // the moment class instead of paging through everything.
+  if (action) pending = pending.filter((c) => (c.action ?? "transfer") === action);
   if (tradeId) pending = pending.filter((c) => c.id === tradeId);
   pending = pending.slice(0, limit);
 
@@ -77,7 +81,7 @@ export function resolveInbox(args: Record<string, unknown>, ctx: CommandContext)
       amount: s?.amount ?? null,
       valueUsd: c.value != null ? Math.round(c.value) : null,
       venue: s?.venue ?? null,
-      action: s?.action ?? null,
+      action: c.action ?? (s?.side === "in" ? "receive" : "send"),
       counterparty: s?.counterparty ?? null,
       pnlUsd: c.pnl != null ? Number(c.pnl.toFixed(2)) : null,
       record: c.record,

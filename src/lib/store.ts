@@ -37,8 +37,17 @@ export type Thesis = {
 /** Where a signal came from. Plain wallet transfers carry no venue. */
 export type SignalVenue = "evm" | "nado" | "hyperliquid";
 
-/** What kind of moment it is. Plain transfers carry no action. */
-export type SignalAction = "transfer" | "trade" | "deposit" | "withdraw";
+/** What kind of moment it is. Plain wallet transfers are send/receive;
+ * swap pairs one out leg with an in leg of another token in the same tx. */
+export type SignalAction =
+  | "transfer"
+  | "trade"
+  | "deposit"
+  | "withdraw"
+  | "swap"
+  | "send"
+  | "receive"
+  | "claim";
 
 /** Venue-reported detail a card can argue with. All optional, all nullable. */
 export type SignalMeta = {
@@ -52,6 +61,8 @@ export type SignalMeta = {
   digest?: string;
   /** venue order reference (Hyperliquid order id) */
   oid?: string;
+  /** the other side of a swap, e.g. "for WETH" / "from INKO" */
+  pair?: string | null;
 };
 
 /** An agent-extracted on-chain moment waiting for the user to complete it. */
@@ -508,6 +519,23 @@ export function addEntry(input: Partial<Entry>): Entry {
 }
 
 /** The agent writes here. Existing ids are never overwritten or duplicated. */
+
+/**
+ * Merge lightweight patches (e.g. claim labeling from the explorer pass)
+ * into existing signals by id. Unknown ids are ignored; only the listed
+ * fields move.
+ */
+export function patchSignals(updates: { id: string; action: Signal["action"] }[]) {
+  if (updates.length === 0) return;
+  update((d) => {
+    const byId = new Map(updates.map((u) => [u.id, u.action]));
+    d.signals = d.signals.map((s) => {
+      const action = byId.get(s.id);
+      return action ? { ...s, action } : s;
+    });
+  });
+}
+
 export function ingestSignals(incoming: Signal[]) {
   if (incoming.length === 0) return;
   ensureLoaded();

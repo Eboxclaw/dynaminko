@@ -1,7 +1,8 @@
 import { useEffect } from "react";
 
-import { extractSignals } from "@/lib/agent/extract";
-import { ingestSignals, log, walletKey } from "@/lib/store";
+import { extractSignals, labelClaimSignals } from "@/lib/agent/extract";
+import { ingestSignals, log, patchSignals, walletKey } from "@/lib/store";
+import { getChain } from "@/chains";
 import { actionsToSignals } from "@/lib/venues/actions";
 
 import { useDoc } from "./useDoc";
@@ -37,6 +38,19 @@ export function useAgent() {
         level: "call",
         detail: `${fresh.length} from ${trades.length} transfers`,
       });
+      // Best-effort second pass: receives whose tx method says claim become
+      // claims. Capped per run; failures just leave them as receives.
+      const chain = getChain(chainId);
+      if (chain.explorerApi) {
+        void labelClaimSignals(fresh, chain.explorerApi).then((patches) => {
+          if (patches.length === 0) return;
+          patchSignals(patches);
+          log("extractor", "claims labeled", {
+            level: "call",
+            detail: `${patches.length} receives are claims`,
+          });
+        });
+      }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stamp]);

@@ -10,6 +10,7 @@ import { useInjectedWallet } from "@/hooks/useInjectedWallet";
 import {
   describeCampaign,
   encodeClaimRewards,
+  fetchMetromCampaign,
   fetchMetromCampaigns,
   fetchMetromClaims,
   fetchMetromClaimed,
@@ -101,24 +102,23 @@ function CampaignCard({
         {period(d.from, d.to)}
         {total > 0 && (
           <>
-            {" · "}
-            {usd(usdTotal) || `${total.toLocaleString("en-US", { maximumFractionDigits: 2 })} tokens`}{" "}
-            in rewards
+            {" · pool paid "}
+            {usd(usdTotal) || `${total.toLocaleString("en-US", { maximumFractionDigits: 2 })} tokens`}
           </>
         )}
       </p>
       <ul className="mt-1 flex flex-wrap gap-1.5">
         {c.rewards.assets.map((a) => (
           <li key={a.address} className="doodle-pill num px-2 py-0.5 text-[11px]">
-            {a.symbol} {(Number(a.amount) / 10 ** (a.decimals ?? 18)).toLocaleString("en-US", { maximumFractionDigits: 2 })}
+            pool: {a.symbol} {(Number(a.amount) / 10 ** (a.decimals ?? 18)).toLocaleString("en-US", { maximumFractionDigits: 2 })}
           </li>
         ))}
       </ul>
       {(earned || pending) && (
-        <p className="eyebrow mt-1.5">
+        <p className="mt-1.5 text-[12px] font-medium">
           you: {earned ? `claimed ${earned.text}${earned.usd != null ? ` (${usd(earned.usd)})` : ""}` : ""}
           {earned && pending ? " · " : ""}
-          {pending ? `pending ${pending.amount.formatted} ${pending.token.symbol}${pending.usd != null ? ` (${usd(pending.usd)})` : ""}` : ""}
+          {pending ? `pending claim ${pending.amount.formatted} ${pending.token.symbol}${pending.usd != null ? ` (${usd(pending.usd)})` : ""}` : ""}
         </p>
       )}
       {live && (
@@ -144,7 +144,29 @@ function EarnPage() {
   const [claimed, setClaimed] = useState<Record<string, { text: string; usd: number | null }>>({});
   const [claiming, setClaiming] = useState<string | null>(null);
   const [claimError, setClaimError] = useState<string | null>(null);
+  /** campaign names for claim rows (claims can outlive their listing) */
+  const [campaignNames, setCampaignNames] = useState<Record<string, string>>({});
   const injected = useInjectedWallet();
+
+  useEffect(() => {
+    const missing = [...new Set((claims ?? []).map((cl) => cl.campaignId))].filter(
+      (id) => !(id in campaignNames),
+    );
+    if (missing.length === 0) return;
+    let alive = true;
+    void (async () => {
+      for (const id of missing) {
+        const c = await fetchMetromCampaign(id, METROM_INK_CHAIN_ID);
+        // Expired campaigns can fall out of the details endpoint: the short
+        // id still tells the user which one paid them.
+        const name = c ? describeCampaign(c).asset : `${id.slice(0, 6)}…${id.slice(-4)}`;
+        if (alive) setCampaignNames((prev) => ({ ...prev, [id]: name }));
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [claims, campaignNames]);
 
   useEffect(() => {
     let alive = true;
@@ -300,6 +322,9 @@ function EarnPage() {
               <span className="num text-[13px]">{cl.token.symbol}</span>
               <span className="num text-[13px]">{cl.amount.formatted}</span>
               {cl.usd != null && <span className="eyebrow">{usd(cl.usd)}</span>}
+              {campaignNames[cl.campaignId] && (
+                <span className="eyebrow">from {campaignNames[cl.campaignId]}</span>
+              )}
               <button
                 type="button"
                 disabled={claiming != null || !injected.available}

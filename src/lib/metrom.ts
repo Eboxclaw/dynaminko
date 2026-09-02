@@ -92,6 +92,17 @@ function paginate(path: string, page: number, pageSize: number): string {
   return `${path}${sep}page=${page}&pageSize=${pageSize}`;
 }
 
+/** One campaign by id (claims can reference campaigns that already scrolled
+ * out of the listing, so their names resolve individually). */
+export async function fetchMetromCampaign(
+  campaignId: string,
+  chainId: number,
+): Promise<MetromCampaign | null> {
+  return getJson<MetromCampaign>(`v2/campaigns/rewards/evm/${chainId}/${campaignId}`).catch(
+    () => null,
+  );
+}
+
 /** Rewards campaigns, optionally scoped to one chain and status set. */
 export async function fetchMetromCampaigns(
   opts: { chainId?: number; statuses?: MetromCampaignStatus[]; page?: number; pageSize?: number } = {},
