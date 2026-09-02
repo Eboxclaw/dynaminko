@@ -93,16 +93,23 @@ function Dashboard() {
         </button>
       }
     >
-      <div className="grid gap-4 lg:grid-cols-[1.15fr_1fr]">
+      <div className="grid items-start gap-4 lg:grid-cols-[1.15fr_1fr]">
         <Panel
           eyebrow="Net worth // Wallet + venues"
           className={cn(isFetching && "scan overflow-hidden")}
         >
           <div className="p-4">
             <div className="flex items-start gap-3">
-              <p className="num text-[30px] font-semibold leading-none tracking-tight sm:text-[38px]">
-                {baskets.priced ? usd(netWorth.net, hidden) : "—"}
-              </p>
+              {baskets.priced ? (
+                <p className="num text-[30px] font-semibold leading-none tracking-tight sm:text-[38px]">
+                  {usd(netWorth.net, hidden)}
+                </p>
+              ) : (
+                <span
+                  aria-label="Reading net worth"
+                  className="skeleton h-[30px] w-[190px] sm:h-[38px] sm:w-[240px]"
+                />
+              )}
               <button
                 type="button"
                 onClick={() => patchSettings({ hideBalances: !hidden })}
@@ -120,20 +127,22 @@ function Dashboard() {
             <p className="eyebrow mt-1">
               {top && `${SECTOR_BY_ID[top.sector]?.label} leads at ${Math.round(top.share * 100)}%`}
             </p>
-            <div className="mt-2">
-              <BasketOrb
-                slices={baskets.slices.map((s) => ({
-                  label: SECTOR_BY_ID[s.sector]?.label ?? s.sector,
-                  share: s.share,
-                }))}
-              />
-            </div>
+            {baskets.slices.length > 0 && (
+              <div className="mt-2">
+                <BasketOrb
+                  slices={baskets.slices.map((s) => ({
+                    label: SECTOR_BY_ID[s.sector]?.label ?? s.sector,
+                    share: s.share,
+                  }))}
+                />
+              </div>
+            )}
           </div>
         </Panel>
 
         <Panel eyebrow="Exposure // Baskets" delay={60}>
           {baskets.slices.length === 0 ? (
-            <p className="p-4 text-[13px] text-ink-faint">Nothing priced on this wallet yet.</p>
+            <p className="empty">Nothing priced on this wallet yet.</p>
           ) : (
             <ul>
               {baskets.slices.map((s) => {
@@ -164,7 +173,7 @@ function Dashboard() {
         </Panel>
       </div>
 
-      <div className="mt-4 grid gap-4 lg:grid-cols-[1.15fr_1fr]">
+      <div className="mt-4 grid items-start gap-4 lg:grid-cols-[1.15fr_1fr]">
         <Panel
           eyebrow="Agent // Extracted"
           title={inbox.length > 0 ? `${inbox.length} moments need a reason` : "Inbox clear"}
@@ -202,9 +211,7 @@ function Dashboard() {
               </li>
             ))}
             {inbox.length === 0 && (
-              <li className="px-4 py-6 text-center text-[13px] text-ink-faint">
-                Every extracted trade has been answered.
-              </li>
+              <li className="empty">Every extracted trade has been answered.</li>
             )}
           </ul>
         </Panel>
@@ -237,9 +244,7 @@ function Dashboard() {
                 </span>
               </li>
             ))}
-            {baskets.holdings.length === 0 && (
-              <li className="px-4 py-6 text-center text-[13px] text-ink-faint">No balances.</li>
-            )}
+            {baskets.holdings.length === 0 && <li className="empty">No balances.</li>}
           </ul>
         </Panel>
       </div>

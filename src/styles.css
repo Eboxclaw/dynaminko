@@ -111,11 +111,50 @@ body {
 
 @utility eyebrow {
   font-family: var(--font-mono);
-  font-size: 10px;
-  line-height: 1;
-  letter-spacing: 0.16em;
+  font-size: 9.5px;
+  line-height: 1.2;
+  letter-spacing: 0.14em;
   text-transform: uppercase;
   color: var(--ink-faint);
+}
+
+@media (min-width: 640px) {
+  .eyebrow {
+    font-size: 10px;
+    letter-spacing: 0.16em;
+  }
+}
+
+/* muted, centred empty state copy — one rhythm across every tab */
+@utility empty {
+  padding: 28px 16px;
+  text-align: center;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--ink-faint);
+}
+
+/* skeleton bar while a value is still being read */
+@utility skeleton {
+  display: inline-block;
+  border-radius: 2px;
+  background: linear-gradient(
+    90deg,
+    var(--sunken),
+    color-mix(in oklab, var(--sunken) 55%, var(--paper)),
+    var(--sunken)
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.6s ease-in-out infinite;
+}
+
+@keyframes shimmer {
+  from {
+    background-position: 200% 0;
+  }
+  to {
+    background-position: -200% 0;
+  }
 }
 
 @utility hairline {
@@ -125,6 +164,22 @@ body {
 @utility focus-ring {
   outline: none;
   box-shadow: 0 0 0 1px var(--ink);
+}
+
+/* one visible keyboard ring for every interactive element */
+:where(a, button, input, select, textarea, [tabindex]):focus-visible {
+  outline: none;
+  box-shadow:
+    0 0 0 2px var(--paper),
+    0 0 0 3px var(--ink);
+  border-radius: 2px;
+}
+
+/* native controls follow the ink theme instead of browser blue */
+input[type="checkbox"],
+input[type="radio"],
+input[type="range"] {
+  accent-color: var(--ink);
 }
 
 /* handwriting is retired — keep the class mapped to mono eyebrow */

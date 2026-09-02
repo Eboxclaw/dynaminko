@@ -22,13 +22,13 @@ import { Mark, Wordmark } from "./Mark";
 import { WalletChip } from "./WalletChip";
 
 const NAV = [
-  { to: "/", label: "Dashboard", icon: LayoutGrid },
-  { to: "/portfolio", label: "Baskets", icon: Wallet },
-  { to: "/journal", label: "Theses", icon: NotebookPen },
-  { to: "/pot", label: "POT Index", icon: Gauge },
-  { to: "/earn", label: "Earn", icon: Coins },
-  { to: "/alerts", label: "Alerts", icon: BellRing },
-  { to: "/agents", label: "Agents", icon: Bot },
+  { to: "/", label: "Dashboard", short: "Home", icon: LayoutGrid },
+  { to: "/portfolio", label: "Baskets", short: "Baskets", icon: Wallet },
+  { to: "/journal", label: "Theses", short: "Theses", icon: NotebookPen },
+  { to: "/pot", label: "POT Index", short: "Index", icon: Gauge },
+  { to: "/earn", label: "Earn", short: "Earn", icon: Coins },
+  { to: "/alerts", label: "Alerts", short: "Alerts", icon: BellRing },
+  { to: "/agents", label: "Agents", short: "Agent", icon: Bot },
 ] as const;
 
 function ThemeToggle() {
@@ -83,7 +83,7 @@ export function Shell({
   return (
     <div className="min-h-dvh bg-paper text-ink">
       {/* desktop rail — icons, expands on hover */}
-      <aside className="group fixed inset-y-0 left-0 z-30 hidden w-[68px] flex-col border-r border-stroke bg-surface py-4 transition-[width] duration-200 hover:w-[212px] lg:flex">
+      <aside className="group fixed inset-y-0 left-0 z-30 hidden w-[68px] flex-col border-r border-stroke bg-surface py-4 transition-[width,box-shadow] duration-200 hover:w-[212px] hover:shadow-[8px_0_24px_-16px_rgba(0,0,0,0.35)] lg:flex">
         <Link to="/" className="mb-6 flex h-8 items-center overflow-hidden px-[21px]">
           <Mark className="h-[26px] w-[26px] shrink-0" />
           <span className="ml-3 whitespace-nowrap text-[14px] font-semibold tracking-tight opacity-0 transition-opacity duration-150 group-hover:opacity-100">
@@ -133,12 +133,16 @@ export function Shell({
       </aside>
 
       <header className="sticky top-0 z-20 border-b border-stroke bg-paper/90 backdrop-blur-xl lg:pl-[68px]">
-        <div className="mx-auto flex max-w-5xl items-center gap-3 px-4 py-3 md:px-8">
-          <Link to="/" className="lg:hidden">
+        <div className="mx-auto flex min-h-[56px] max-w-5xl items-center gap-2.5 px-4 py-2.5 sm:gap-3 md:px-8 md:py-3">
+          <Link to="/" className="shrink-0 lg:hidden">
             <Mark className="h-6 w-6" />
           </Link>
           <div className="min-w-0 flex-1">
-            {title && <h1 className="truncate text-[15px] font-semibold leading-tight">{title}</h1>}
+            {title && (
+              <h1 className="truncate text-[15px] font-semibold leading-tight tracking-tight sm:text-[17px]">
+                {title}
+              </h1>
+            )}
             {subtitle && <p className="eyebrow mt-1 truncate">{subtitle}</p>}
           </div>
           {action}
@@ -149,27 +153,30 @@ export function Shell({
 
       {/* The rail offset lives on the outer element so the cards stay centred
           inside the remaining width instead of drifting right of centre. */}
-      <main className="pb-28 pt-5 lg:pb-14 lg:pl-[68px]">
+      <main className="pb-28 pt-4 sm:pt-5 lg:pb-14 lg:pl-[68px]">
         <div className="mx-auto w-full max-w-5xl px-4 md:px-8">{children}</div>
       </main>
 
       <nav className="fixed inset-x-0 bottom-0 z-30 border-t border-stroke bg-paper/95 pb-[env(safe-area-inset-bottom)] backdrop-blur-xl lg:hidden">
-        <div className="mx-auto flex max-w-md items-stretch justify-between px-2 py-1.5">
+        <div className="mx-auto flex max-w-md items-stretch justify-between gap-0.5 px-1.5 py-1">
           {NAV.map((item) => {
             const active = item.to === "/" ? path === "/" : path.startsWith(item.to);
             return (
               <Link
                 key={item.to}
                 to={item.to}
+                aria-label={item.label}
                 className={cn(
-                  "relative flex flex-1 flex-col items-center gap-1 py-1.5 transition",
+                  "relative flex min-w-0 flex-1 flex-col items-center gap-[3px] rounded-[2px] py-1.5 transition",
                   active ? "text-ink" : "text-ink-faint",
                 )}
               >
-                <item.icon className="h-[19px] w-[19px]" strokeWidth={active ? 2 : 1.6} />
-                <span className="eyebrow">{item.label}</span>
+                <item.icon className="h-[18px] w-[18px]" strokeWidth={active ? 2 : 1.6} />
+                <span className="eyebrow w-full truncate text-center text-[8.5px] tracking-[0.08em] [color:inherit]">
+                  {item.short}
+                </span>
                 {item.to === "/journal" && inbox > 0 && (
-                  <span className="absolute right-3 top-1 h-1.5 w-1.5 rounded-full bg-ink" />
+                  <span className="absolute right-2 top-0.5 h-1.5 w-1.5 rounded-full bg-ink" />
                 )}
               </Link>
             );
@@ -201,11 +208,15 @@ export function Panel({
       style={{ animationDelay: `${delay}ms` }}
     >
       {(eyebrow || title || action) && (
-        <header className="flex items-center gap-3 border-b border-stroke px-4 py-2.5">
+        <header className="flex items-center gap-3 border-b border-stroke px-4 py-3">
           <div className="min-w-0 flex-1">
             {eyebrow && <p className="eyebrow truncate">{eyebrow}</p>}
 
-            {title && <h2 className="mt-1 text-[14px] font-semibold">{title}</h2>}
+            {title && (
+              <h2 className="mt-1 text-[14px] font-semibold leading-snug tracking-tight">
+                {title}
+              </h2>
+            )}
           </div>
           {action}
         </header>
