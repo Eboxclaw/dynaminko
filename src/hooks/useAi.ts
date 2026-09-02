@@ -36,6 +36,7 @@ import {
 import {
   encoderBackend,
   encoderCached,
+  encoderDownloadTarget,
   encoderError,
   encoderProgress,
   encoderState,
@@ -76,8 +77,10 @@ function useEncoder() {
   );
   const [state, pct] = snap.split(":");
   const [cached, setCached] = useState(false);
+  const [target, setTarget] = useState<{ id: string; cached: boolean } | null>(null);
   useEffect(() => {
     void encoderCached().then(setCached);
+    void encoderDownloadTarget().then(setTarget);
   }, [snap]);
   return {
     state: state as EncoderState,
@@ -88,6 +91,8 @@ function useEncoder() {
     download: downloadSemanticProvider,
     load: activateSemantic,
     unload: unloadEncoder,
+    /** what Download would fetch, and whether that provider is on device */
+    downloadTarget: target,
   };
 }
 

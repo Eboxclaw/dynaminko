@@ -2,11 +2,15 @@
 // vectors so routing, retrieval and tool discovery can be semantic without
 // waking a generative model.
 //
-// This is a thin facade over the single all-MiniLM-L6-v2 in
-// `embedding.ts`. It is WARMED on first message and never goes cold — routing
+// A facade over the two providers in `embedding.ts`: the LFM2.5-Embedding
+// GGUF (default) and MiniLM (fallback for devices that cannot carry it). The
+// resident one is preferred; nothing resident means the cached default, then
+// the fallback. It is WARMED on first message and never goes cold — routing
 // always has vectors when it needs them.
 
 import {
+  DEFAULT_EMBEDDING_ID,
+  FALLBACK_EMBEDDING_ID,
   cosine as cosineOf,
   downloadProvider,
   embed as embedWith,
@@ -37,44 +41,89 @@ export type EncoderState =
   | "unavailable"
   | "error";
 
-const EMBED_ID: EmbeddingProviderId = "minilm-6-v2";
+/** The provider this facade acts on, without any await: resident default,
+ * resident fallback, then the default. Cache probing is async and only the
+ * cached/activate paths below pay for it. */
+function targetId(): EmbeddingProviderId {
+  if (providerReady(DEFAULT_EMBEDDING_ID)) return DEFAULT_EMBEDDING_ID;
+  if (providerReady(FALLBACK_EMBEDDING_ID)) return FALLBACK_EMBEDDING_ID;
+  return DEFAULT_EMBEDDING_ID;
+}
+
+/** Which provider a download should fetch: the LFM embedder everywhere a
+ * phone-class memory budget can still carry it next to a generative model. */
+async function downloadId(): Promise<EmbeddingProviderId> {
+  try {
+    const { deviceProfile } = await import("@/lib/ai");
+    const p = deviceProfile();
+    if (p.mobile && (p.ramGb ?? 2) < 4) return FALLBACK_EMBEDDING_ID;
+  } catch {
+    /* registry unavailable: default */
+  }
+  return DEFAULT_EMBEDDING_ID;
+}
 
 export const onEncoderChange = onEmbeddingChange;
 
 export function encoderState(): EncoderState {
-  return providerState(EMBED_ID);
+  return providerState(targetId());
 }
 export function encoderError(): string | null {
-  return providerError(EMBED_ID);
+  return providerError(targetId());
 }
 export function encoderProgress(): number {
-  return providerProgress(EMBED_ID);
+  return providerProgress(targetId());
 }
 export function encoderBackend(): "webgpu" | "wasm" | null {
-  return providerBackend(EMBED_ID);
+  return providerBackend(targetId());
 }
 export function encoderReady(): boolean {
-  return providerReady(EMBED_ID);
+  return providerReady(targetId());
 }
 
+/** Any encoder weights on device (default or fallback). */
 export async function encoderCached(): Promise<boolean> {
-  return providerCached(EMBED_ID);
+  return (
+    (await providerCached(DEFAULT_EMBEDDING_ID)) ||
+    (await providerCached(FALLBACK_EMBEDDING_ID))
+  );
 }
 
 export async function downloadSemanticProvider(onProgress?: (fraction: number) => void) {
-  return downloadProvider(EMBED_ID, onProgress);
+  return downloadProvider(await downloadId(), onProgress);
 }
 
+/** What the Download button would actually fetch, and whether it is already
+ * on device. The panel needs this so a cached fallback never hides the
+ * default embedder's download. */
+export async function encoderDownloadTarget(): Promise<{
+  id: EmbeddingProviderId;
+  cached: boolean;
+}> {
+  const id = await downloadId();
+  return { id, cached: await providerCached(id) };
+}
+
+/** Load whichever encoder is cached: the LFM embedder when present, the
+ * MiniLM fallback otherwise. Never downloads. */
 export async function activateSemantic(onProgress?: (fraction: number) => void) {
-  return loadDownloadedProvider(EMBED_ID, onProgress);
+  if (await providerCached(DEFAULT_EMBEDDING_ID)) {
+    const lfm = await loadDownloadedProvider(DEFAULT_EMBEDDING_ID, onProgress);
+    if (lfm) return lfm;
+  }
+  if (await providerCached(FALLBACK_EMBEDDING_ID)) {
+    return loadDownloadedProvider(FALLBACK_EMBEDDING_ID, onProgress);
+  }
+  return null;
 }
 
 export async function ensureEncoderIfCached() {
-  return ensureProviderIfCached(EMBED_ID);
+  return ensureProviderIfCached(targetId());
 }
 
 export function unloadEncoder() {
-  unloadProvider(EMBED_ID);
+  unloadProvider(DEFAULT_EMBEDDING_ID);
+  unloadProvider(FALLBACK_EMBEDDING_ID);
 }
 
 export const cosine = cosineOf;

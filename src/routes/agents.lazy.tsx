@@ -51,8 +51,12 @@ import {
   retrieveContext,
   type Reference,
 } from "@/lib/ai/retrieval";
-import { downloadProvider, loadDownloadedProvider, providerCached } from "@/lib/ai/embedding";
-import { encoderReady } from "@/lib/ai/encoder";
+import {
+  activateSemantic,
+  downloadSemanticProvider,
+  encoderCached,
+  encoderReady,
+} from "@/lib/ai/encoder";
 import { unverifiedNumbers } from "@/lib/agent/grounding";
 import { extractNativeToolCall, parseCallBody, decideTools } from "@/lib/ai/nativeTools";
 import type { NativeToolTurn } from "@/lib/ai";
@@ -308,10 +312,10 @@ function ChatConsole({
     idle(() => {
       if (cancelled) return;
       void (async () => {
-        const cached = await providerCached("minilm-6-v2");
+        const cached = await encoderCached();
         if (cached && deviceProfile().mobile) return;
         if (cached) {
-          await loadDownloadedProvider("minilm-6-v2");
+          await activateSemantic();
           if (!cancelled) idle(() => void prewarmRetrieval());
         }
       })();
@@ -324,7 +328,7 @@ function ChatConsole({
   const installSemantic = async () => {
     setSemanticChip("downloading");
     try {
-      await downloadProvider("minilm-6-v2", setChipProgress);
+      await downloadSemanticProvider(setChipProgress);
       try {
         localStorage.setItem("pot.semanticChip", "done");
       } catch {
@@ -1760,7 +1764,7 @@ function ChatConsole({
     // One-time semantic engine offer: only when nothing is cached and no
     // encoder is resident. Dismissed or done stays that way.
     if (semanticChip === "hidden" && !encoderReady()) {
-      void providerCached("minilm-6-v2").then(async (cached) => {
+      void encoderCached().then(async (cached) => {
         if (cached) return;
         try {
           if (localStorage.getItem("pot.semanticChip")) return;

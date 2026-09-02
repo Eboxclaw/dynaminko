@@ -60,6 +60,8 @@ export type ModelSpec = {
     repeatPenalty: number;
     penaltyLastN: number;
     topK?: number;
+    /** model-card top_p; default 0.9 when the card does not state one */
+    topP?: number;
   };
   backend: { preferred: "webgpu"; fallback: "wasm" };
 };
@@ -93,27 +95,31 @@ const MODEL_LIST: Omit<ModelSpec, "backend">[] = [
     // helpers stay (decideTools/inputsToSchema + worker tools passthrough
     // + tool_calls recovery) as tested groundwork for a future build.
     // decideMenu: "native",
-    sampling: { temperature: 0.1, minP: 0.15, repeatPenalty: 1.1, penaltyLastN: 64, topK: 50 },
+    sampling: { temperature: 0.2, minP: 0.15, repeatPenalty: 1.1, penaltyLastN: 64, topK: 50 },
   },
   {
-    id: "lfm2-1_2-instruct",
-    label: "LFM 2.5 1.2B instruct",
-    repo: "LiquidAI/LFM2.5-1.2B-Instruct-GGUF",
-    quant: "QAD-Q4_0",
+    id: "qwen38-2b-distill",
+    label: "Qwen3.8 2B Distill",
+    repo: "empero-ai/Qwen3.8-2B-Distill-GGUF",
+    quant: "Q4_K_M",
     runtime: "gguf",
-    serve: "llama serve -hf LiquidAI/LFM2.5-1.2B-Instruct-GGUF:QAD-Q4_0",
-    blurb: "Better reasoning about why a trade happened.",
-    role: "Lightweight general assistant",
+    serve: "llama serve -hf empero-ai/Qwen3.8-2B-Distill-GGUF:Q4_K_M",
+    blurb: "Qwen3.8 distilled into a 2B hybrid. Opens every answer with a think block.",
+    role: "Mid-weight reasoning executor between the 350M pair and the 2.6B",
     capabilities: ["assist", "reason", "extract"],
-    weightsGb: 0.696,
+    weightsGb: 1.31,
     minRamGb: 4,
     vision: false,
     reasoning: true,
     generative: true,
     maxCtx: 32128,
-    nLayers: 24,
-    kv: { attnLayers: 6, kvHeads: 8, headDim: 64 },
-    sampling: { temperature: 0.1, minP: 0.15, repeatPenalty: 1.05, penaltyLastN: 64, topK: 50 },
+    // Qwen3.5 hybrid (gated DeltaNet + attention): layer count approximate
+    // until the GGUF metadata is read on first load; the KV geometry is left
+    // absent on purpose so the memory budget degrades to UNCERTAIN instead of
+    // guessing a full-attention cache that does not exist (DeltaNet layers
+    // carry no context-scaled KV).
+    nLayers: 28,
+    sampling: { temperature: 0.6, minP: 0.05, repeatPenalty: 1.05, penaltyLastN: 64, topK: 20, topP: 0.95 },
   },
   {
     id: "lfm2-350",
@@ -135,7 +141,32 @@ const MODEL_LIST: Omit<ModelSpec, "backend">[] = [
     maxCtx: 32768,
     nLayers: 28,
     kv: { attnLayers: 6, kvHeads: 8, headDim: 64 },
-    sampling: { temperature: 0.1, minP: 0.15, repeatPenalty: 1.05, penaltyLastN: 64, topK: 50 },
+    sampling: { temperature: 0.2, minP: 0.15, repeatPenalty: 1.05, penaltyLastN: 64, topK: 50 },
+  },
+  {
+    id: "lfm2-350-thinking",
+    label: "LFM 2.5 350M Thinking",
+    repo: "KoarAI/LFM2.5-350M-Thinking-0004-GGUF",
+    quant: "F16",
+    runtime: "gguf",
+    serve: "llama serve -hf KoarAI/LFM2.5-350M-Thinking-0004-GGUF:F16",
+    blurb: "Thinking fine-tune of the 350M backbone. Emits <think> traces; ChatML template with native tool-call tokens.",
+    role: "Reasoning executor on the junior backbone, for in-app testing",
+    capabilities: ["assist", "reason", "extract"],
+    desktopOnly: true,
+    weightsGb: 0.71,
+    minRamGb: 3,
+    vision: false,
+    reasoning: true,
+    generative: true,
+    // The F16 file is the only quant published. Same LFM2.5-350M attention
+    // geometry as the base executor.
+    maxCtx: 32768,
+    nLayers: 28,
+    kv: { attnLayers: 6, kvHeads: 8, headDim: 64 },
+    // Card quick-start says --temp 0.6; the in-app standard is 0.2, adjusted
+    // after live runs if thinking traces loop or stall.
+    sampling: { temperature: 0.2, minP: 0.15, repeatPenalty: 1.05, penaltyLastN: 64, topK: 50 },
   },
   {
     id: "lfm2-450-vl",
@@ -155,27 +186,27 @@ const MODEL_LIST: Omit<ModelSpec, "backend">[] = [
     generative: true,
     maxCtx: 32128,
     nLayers: 28,
-    sampling: { temperature: 0.1, minP: 0.15, repeatPenalty: 1.05, penaltyLastN: 64, topK: 50 },
+    sampling: { temperature: 0.2, minP: 0.15, repeatPenalty: 1.05, penaltyLastN: 64, topK: 50 },
   },
   {
-    id: "lfm2-1_2-thinking",
-    label: "LFM 2.5 1.2B Thinking",
-    repo: "LiquidAI/LFM2.5-1.2B-Thinking-GGUF",
+    id: "lfm2-5-embed-350m",
+    label: "LFM 2.5 Embedding 350M",
+    repo: "LiquidAI/LFM2.5-Embedding-350M-GGUF",
     quant: "Q4_K_M",
     runtime: "gguf",
-    serve: "llama serve -hf LiquidAI/LFM2.5-1.2B-Thinking-GGUF:Q4_K_M",
-    blurb: "Chain-of-thought for deeper reasoning on trades.",
-    role: "Thoughtful analysis and reasoning",
-    capabilities: ["assist", "reason", "extract"],
-    weightsGb: 0.731,
-    minRamGb: 4,
+    serve: "llama serve -hf LiquidAI/LFM2.5-Embedding-350M-GGUF:Q4_K_M --embeddings",
+    blurb: "Semantic router encoder. Dense bi-encoder, 1024-dim, asymmetric query:/document: prefixes. Never writes prose.",
+    role: "Routing, retrieval, tool and skill discovery",
+    capabilities: ["encode"],
+    weightsGb: 0.229,
+    minRamGb: 1.5,
     vision: false,
-    reasoning: true,
-    generative: true,
-    maxCtx: 32768,
-    nLayers: 16,
-    kv: { attnLayers: 6, kvHeads: 8, headDim: 64 },
-    sampling: { temperature: 0.05, minP: 0.15, repeatPenalty: 1.05, penaltyLastN: 64, topK: 50 },
+    reasoning: false,
+    generative: false,
+    // Router texts are short; the worker loads it with a small n_ctx, the
+    // card-8k ceiling is kept for honesty.
+    maxCtx: 8192,
+    nLayers: 28,
   },
   {
     id: "minilm-6-v2",
@@ -184,8 +215,8 @@ const MODEL_LIST: Omit<ModelSpec, "backend">[] = [
     quant: "fp32",
     runtime: "transformers",
     serve: 'AutoModel.from_pretrained("onnx-community/all-MiniLM-L6-v2-ONNX")',
-    blurb: "Semantic routing, retrieval and tagging. Never writes prose.",
-    role: "Routing, retrieval, tool and skill discovery, light classification",
+    blurb: "Fallback router encoder for constrained devices. 384-dim.",
+    role: "Routing fallback when the LFM embedder does not fit the device",
     capabilities: ["encode"],
     weightsGb: 0.09,
     minRamGb: 0,
@@ -202,14 +233,15 @@ export const MODEL_BY_ID: Record<string, ModelSpec> = Object.fromEntries(
   MODELS.map((m) => [m.id, m]),
 );
 export const DEFAULT_MODEL_ID = "lfm2-350";
-export const ENCODER_ID = "minilm-6-v2";
+export const ENCODER_ID = "lfm2-5-embed-350m";
+export const FALLBACK_ENCODER_ID = "minilm-6-v2";
 
 export const CAPABILITY_MODELS: Record<Capability, string[]> = {
-  encode: ["minilm-6-v2"],
-  extract: ["lfm2-350", "lfm2-1_2-instruct", "lfm2-2_6"],
+  encode: [ENCODER_ID, FALLBACK_ENCODER_ID],
+  extract: ["lfm2-350", "lfm2-350-thinking", "qwen38-2b-distill", "lfm2-2_6"],
   vision: ["lfm2-450-vl"],
-  assist: ["lfm2-350", "lfm2-1_2-thinking", "lfm2-1_2-instruct", "lfm2-2_6"],
-  reason: ["lfm2-1_2-thinking", "lfm2-1_2-instruct", "lfm2-2_6"],
+  assist: ["lfm2-350", "lfm2-350-thinking", "qwen38-2b-distill", "lfm2-2_6"],
+  reason: ["lfm2-350-thinking", "qwen38-2b-distill", "lfm2-2_6"],
 };
 
 export function modelFor(cap: Capability, downloaded?: Set<string>): ModelSpec | undefined {
@@ -284,8 +316,8 @@ export function deviceProfile(): DeviceProfile {
 
 const RECOMMEND_ORDER = [
   "lfm2-350",
-  "lfm2-1_2-thinking",
-  "lfm2-1_2-instruct",
+  "lfm2-350-thinking",
+  "qwen38-2b-distill",
   "lfm2-450-vl",
   "lfm2-2_6",
 ];
@@ -436,6 +468,7 @@ let sReady = false;
 let sLoadedModelId: string | null = null;
 let sLoadedContext = DEFAULT_CTX;
 let sActiveBackend: Backend = "unavailable";
+let sEmbedBackend = "unavailable";
 
 /**
  * Request/response correlation. Every request carries a `reqId`; the worker
@@ -550,6 +583,19 @@ function getWorker(): Worker | null {
           settle(msg.reqId, (v) => v, new Set(msg.ids));
           return;
         }
+        case "embed-ready": {
+          sEmbedBackend = msg.backend;
+          settle(msg.reqId, (v) => v, { status: "ready", modelId: msg.modelId });
+          return;
+        }
+        case "embedded": {
+          settle(msg.reqId, (v) => v, { vectors: msg.vectors });
+          return;
+        }
+        case "embed-unloaded": {
+          settle(msg.reqId, (v) => v, undefined);
+          return;
+        }
         case "deleted": {
           const was = sLoadedModelId;
           if (was === msg.modelId) {
@@ -614,7 +660,15 @@ function postAndWait<T>(msg: AiWorkerRequest): Promise<T> {
 
     // Non-chat RPC keeps the flat 120s guard; chat requests get the same
     // 10-minute absolute backstop as the streaming bridge so the layers can
-    // never disagree about when a slow (but alive) run must end.
+    // never disagree about when a slow (but alive) run must end. Embedding
+    // calls are short prefills: a 30s ceiling turns a wedged encoder into a
+    // fast failure the router can fall back from, not a minute-long stall.
+    const timeoutMs =
+      msg.type === "chat-messages"
+        ? 600_000
+        : msg.type === "embed"
+          ? 30_000
+          : 120_000;
     const timer = setTimeout(() => {
       if (msg.type === "load") {
         w.postMessage({
@@ -624,7 +678,7 @@ function postAndWait<T>(msg: AiWorkerRequest): Promise<T> {
         } satisfies AiWorkerRequest);
       }
       doReject(new Error("AI worker request timed out"));
-    }, msg.type === "chat-messages" ? 600_000 : 120_000);
+    }, timeoutMs);
 
     // Register before posting so a response that arrives synchronously
     // still finds its waiter.
@@ -714,6 +768,59 @@ export function setActiveStatusCallback(
 ) {
   activeStatusCallback = cb;
   activeStatusModelId = modelId;
+}
+
+// ── encoder lane (warm wllama handle for the embedding model) ─────────
+
+/** Download (or re-download) the embedding GGUF onto the encoder handle. */
+export async function embedDownloadModel(
+  modelId: string,
+  onStatus: (s: AiStatus) => void,
+): Promise<LifecycleResult> {
+  onStatus({ phase: "downloading", progress: 0, modelId });
+  activeStatusCallback = onStatus;
+  activeStatusModelId = modelId;
+  try {
+    await postAndWait<void>({ type: "embed-load", modelId, allowDownload: true });
+    onStatus({ phase: "ready", modelId });
+    return { status: "ready", modelId };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "encoder download failed";
+    onStatus({ phase: "error", message, modelId });
+    return { status: "error", modelId, message };
+  } finally {
+    if (activeStatusModelId === modelId) {
+      activeStatusCallback = null;
+      activeStatusModelId = null;
+    }
+  }
+}
+
+/** Load the embedding GGUF if it is already cached on device. */
+export async function embedActivateModel(modelId: string): Promise<LifecycleResult> {
+  try {
+    await postAndWait<void>({ type: "embed-load", modelId, allowDownload: false });
+    return { status: "ready", modelId };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "encoder load failed";
+    return { status: "error", modelId, message };
+  }
+}
+
+/** Vectors for texts through the resident encoder handle. */
+export async function embedTexts(texts: string[]): Promise<number[][]> {
+  const res = await postAndWait<{ vectors: number[][] }>({ type: "embed", texts });
+  return res.vectors;
+}
+
+/** Backend the warm encoder handle actually engaged ("webgpu" | "wasm" | …). */
+export function embedBackend(): string {
+  return sEmbedBackend;
+}
+
+export async function embedUnload(): Promise<void> {
+  await postAndWait<void>({ type: "embed-unload" });
+  sEmbedBackend = "unavailable";
 }
 
 /**

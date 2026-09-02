@@ -1,36 +1,61 @@
 // Embedding abstraction.
 //
-// One provider: all-MiniLM-L6-v2 (ONNX). The small, universal router encoder:
-// 384-dim, mean-pooled, runs on both WASM and WebGPU, ~90 MB. It is the
-// always-warm encoder every ranking surface ranks through. The heavier LFM
-// encoders stay out of the browser: routing is an accelerator, not a gate.
+// Two providers, one per runtime:
+//   * lfm2-5-embed-350m (default): LiquidAI LFM2.5-Embedding-350M GGUF,
+//     1024-dim dense bi-encoder, CLS-pooled by llama.cpp, loaded on the AI
+//     worker's dedicated warm wllama handle. Asymmetric: queries embed with
+//     a "query: " prefix, documents with "document: " (model card contract).
+//   * minilm-6-v2 (fallback): all-MiniLM-L6-v2 ONNX via Transformers.js,
+//     384-dim, mean-pooled, ~90 MB, for devices that cannot carry the LFM
+//     weights next to a generative model.
 //
-// One shared runtime: Transformers.js serialises ONNX sessions, so every caller
-// goes through this module instead of creating its own pipeline.
+// One shared runtime per kind: Transformers.js serialises ONNX sessions, the
+// wllama encoder serialises through its worker RPC, so every caller goes
+// through this module instead of creating its own pipeline.
 
-export type EmbeddingProviderId = "minilm-6-v2";
+export type EmbeddingProviderId = "lfm2-5-embed-350m" | "minilm-6-v2";
 
 export type EmbeddingProviderSpec = {
   id: EmbeddingProviderId;
   label: string;
   repo: string;
-  dtype: "q8" | "fp32";
+  /** how the weights reach the browser */
+  kind: "wllama" | "transformers";
+  /** wllama kind: the GGUF quant (the ai.ts ModelSpec carries the same) */
+  quant?: string;
+  /** transformers kind: the ONNX dtype */
+  dtype?: "q8" | "fp32";
   dimensions: number;
   sizeMb: number;
-  tier: "default" | "upgrade";
+  tier: "default" | "fallback";
+  /** asymmetric bi-encoders need role prefixes before embedding */
+  asymmetric?: { query: string; target: string };
   blurb: string;
 };
 
 export const EMBEDDING_PROVIDERS: EmbeddingProviderSpec[] = [
   {
+    id: "lfm2-5-embed-350m",
+    label: "LFM 2.5 Embedding 350M",
+    repo: "LiquidAI/LFM2.5-Embedding-350M-GGUF",
+    kind: "wllama",
+    quant: "Q4_K_M",
+    dimensions: 1024,
+    sizeMb: 229,
+    tier: "default",
+    asymmetric: { query: "query: ", target: "document: " },
+    blurb: "Semantic router encoder. 1024-dim, multilingual, beats Qwen3-Embedding-0.6B.",
+  },
+  {
     id: "minilm-6-v2",
     label: "All MiniLM L6 v2",
     repo: "onnx-community/all-MiniLM-L6-v2-ONNX",
+    kind: "transformers",
     dtype: "fp32",
     dimensions: 384,
     sizeMb: 90,
-    tier: "default",
-    blurb: "Light 6-layer BERT encoder. Routing, retrieval and classification.",
+    tier: "fallback",
+    blurb: "Light 6-layer BERT encoder fallback for constrained devices.",
   },
 ];
 
@@ -38,7 +63,8 @@ export const PROVIDER_BY_ID = Object.fromEntries(
   EMBEDDING_PROVIDERS.map((p) => [p.id, p]),
 ) as Record<EmbeddingProviderId, EmbeddingProviderSpec>;
 
-export const DEFAULT_EMBEDDING_ID: EmbeddingProviderId = "minilm-6-v2";
+export const DEFAULT_EMBEDDING_ID: EmbeddingProviderId = "lfm2-5-embed-350m";
+export const FALLBACK_EMBEDDING_ID: EmbeddingProviderId = "minilm-6-v2";
 
 export type ProviderState =
   | "missing"
@@ -104,9 +130,19 @@ export function providerReady(id: EmbeddingProviderId): boolean {
 /** Already in the browser cache? Never downloads. */
 export async function providerCached(id: EmbeddingProviderId): Promise<boolean> {
   if (slot(id).pipe) return true;
+  const spec = PROVIDER_BY_ID[id];
+  if (spec.kind === "wllama") {
+    // GGUF weights live in OPFS through the AI worker's shared cache manager.
+    try {
+      const { cachedModels } = await import("@/lib/ai");
+      return (await cachedModels()).has(id);
+    } catch {
+      return false;
+    }
+  }
   if (typeof caches === "undefined") return false;
   try {
-    const repo = PROVIDER_BY_ID[id].repo;
+    const repo = spec.repo;
     for (const key of await caches.keys()) {
       if (!/transformers/i.test(key)) continue;
       const cache = await caches.open(key);
@@ -142,6 +178,42 @@ async function loadProviderInternal(
   s.loading = (async () => {
     try {
       const spec = PROVIDER_BY_ID[id];
+      if (spec.kind === "wllama") {
+        // The GGUF encoder loads on the AI worker's warm handle; the "pipe"
+        // is a thin RPC wrapper shaped like the Transformers.js extractor.
+        const ai = await import("@/lib/ai");
+        const result = opts.allowDownload
+          ? await ai.embedDownloadModel(id, (st) => {
+              if (st.phase === "downloading") {
+                s.progress = Math.max(0, Math.min(1, st.progress));
+                onProgress?.(s.progress);
+                emit();
+              }
+            })
+          : await ai.embedActivateModel(id);
+        if (result.status !== "ready") {
+          throw new Error("message" in result ? result.message : "the encoder failed to load");
+        }
+        const created: Extractor = async (texts) => {
+          // wllama's createEmbedding returns exactly ONE embedding per call
+          // (an array input does not batch), so a batch is a per-text loop.
+          // The LRU cache above means each text pays this once; the queue
+          // below serializes the calls like the transformers path.
+          const input = Array.isArray(texts) ? texts : [texts];
+          const vectors: number[][] = [];
+          for (const t of input) {
+            const [v] = await ai.embedTexts([t]);
+            if (v) vectors.push(v);
+          }
+          return { tolist: () => vectors };
+        };
+        s.pipe = created;
+        s.backend = (await ai.embedBackend()) === "webgpu" ? "webgpu" : "wasm";
+        s.state = "loaded";
+        s.progress = 1;
+        emit();
+        return created;
+      }
       const { encoderDevice } = await import("@/lib/ai/runtime");
       const device = await encoderDevice();
       const { pipeline } = await import("@huggingface/transformers");
@@ -222,10 +294,15 @@ export function cosine(a: number[], b: number[]): number {
   return s;
 }
 
-/** The provider actually usable right now. */
+/** The provider actually usable right now: the resident LFM embedder first,
+ * a resident MiniLM fallback second, and for non-opportunistic callers the
+ * best cached candidate (MiniLM when the LFM weights are not on device). */
 export async function activeProvider(opportunistic: boolean): Promise<EmbeddingProviderId | null> {
   if (providerReady(DEFAULT_EMBEDDING_ID)) return DEFAULT_EMBEDDING_ID;
-  return opportunistic ? null : DEFAULT_EMBEDDING_ID;
+  if (providerReady(FALLBACK_EMBEDDING_ID)) return FALLBACK_EMBEDDING_ID;
+  if (opportunistic) return null;
+  if (await providerCached(DEFAULT_EMBEDDING_ID)) return DEFAULT_EMBEDDING_ID;
+  return FALLBACK_EMBEDDING_ID;
 }
 
 export async function embed(
@@ -310,10 +387,22 @@ export function clearVectorCache() {
   lastStats = null;
 }
 
-/** Vectors for texts, embedding only the ones never seen for this provider. */
+/** Role a text plays for an asymmetric bi-encoder: queries and documents
+ * embed in different prefix spaces. Symmetric providers ignore the role. */
+export type EmbedRole = "query" | "target";
+
+function prepare(spec: EmbeddingProviderSpec, text: string, role: EmbedRole): string {
+  const p = spec.asymmetric;
+  if (!p) return text;
+  return role === "query" ? p.query + text : p.target + text;
+}
+
+/** Vectors for texts, embedding only the ones never seen for this provider.
+ * The prefix (for asymmetric providers) is part of the cache key, so a text
+ * cached as a target never answers for the same text as a query. */
 async function embedCached(
   texts: string[],
-  opts: { opportunistic?: boolean; provider?: EmbeddingProviderId } = {},
+  opts: { opportunistic?: boolean; provider?: EmbeddingProviderId; role?: EmbedRole } = {},
 ): Promise<{
   vectors: number[][];
   provider: EmbeddingProviderId;
@@ -322,16 +411,19 @@ async function embedCached(
 } | null> {
   const id = opts.provider ?? (await activeProvider(Boolean(opts.opportunistic)));
   if (!id) return null;
+  const spec = PROVIDER_BY_ID[id];
+  const role = opts.role ?? "target";
   const vectors: number[][] = new Array(texts.length);
   const fresh: { index: number; text: string }[] = [];
   let hits = 0;
   for (let i = 0; i < texts.length; i++) {
-    const cachedVector = cacheGet(id, texts[i]);
+    const keyed = prepare(spec, texts[i], role);
+    const cachedVector = cacheGet(id, keyed);
     if (cachedVector) {
       vectors[i] = cachedVector;
       hits++;
     } else {
-      fresh.push({ index: i, text: texts[i] });
+      fresh.push({ index: i, text: keyed });
     }
   }
   if (fresh.length > 0) {
@@ -341,8 +433,12 @@ async function embedCached(
     );
     if (!res) return null;
     fresh.forEach((f, i) => {
-      vectors[f.index] = res.vectors[i];
-      cachePut(id, f.text, res.vectors[i]);
+      const v = res.vectors[i];
+      // A short result leaves the slot empty: the text stays a miss instead
+      // of caching undefined.
+      if (!v) return;
+      vectors[f.index] = v;
+      cachePut(id, f.text, v);
     });
   }
   return { vectors, provider: id, hits, misses: fresh.length };
@@ -350,21 +446,25 @@ async function embedCached(
 
 /**
  * Warm the cache for texts the next question will probably rank against. Only
- * runs when a provider is already resident; never downloads anything.
+ * runs when a provider is already resident; never downloads anything. warmed
+ * texts are targets: catalogues, skills, journal lines.
  */
 export async function prewarm(
   texts: string[],
   opts: { opportunistic?: boolean } = {},
 ): Promise<number> {
   if (texts.length === 0) return 0;
-  const res = await embedCached(texts, { opportunistic: true, ...opts }).catch(() => null);
+  const res = await embedCached(texts, { opportunistic: true, role: "target", ...opts }).catch(
+    () => null,
+  );
   return res?.misses ?? 0;
 }
 
 /**
  * Single-provider rank: embed the query and every target once, then cosine
  * score and sort. Escalation is a non-concept with one encoder. Cached vectors
- * skip the embedding call entirely.
+ * skip the embedding call entirely. The query embeds in the query space and
+ * targets in the document space when the provider is asymmetric.
  */
 export async function rankTiered(
   query: string,
@@ -386,28 +486,44 @@ export async function rankTiered(
   let hits = 0;
   let misses = 0;
 
-  const res = await embedCached([query, ...targets.map((t) => t.text)], { ...opts });
-  if (!res) {
+  const [qv, tv] = await Promise.all([
+    embedCached([query], { ...opts, role: "query" }),
+    embedCached(
+      targets.map((t) => t.text),
+      { ...opts, role: "target" },
+    ),
+  ]);
+  if (!qv || !tv) {
     lastStats = null;
     return null;
   }
-  hits += res.hits;
-  misses += res.misses;
-  const [q, ...rest] = res.vectors;
+  hits += qv.hits + tv.hits;
+  misses += qv.misses + tv.misses;
+  const q = qv.vectors[0];
+
+  // A partial provider result must degrade to "no rank", never crash the
+  // caller's turn with a cosine on undefined.
+  const scored = targets
+    .map((t, i) => ({ id: t.id, v: tv.vectors[i] }))
+    .filter((p): p is { id: string; v: number[] } => Array.isArray(p.v));
+  if (!Array.isArray(q) || scored.length === 0) {
+    lastStats = null;
+    return null;
+  }
 
   lastStats = {
     hits,
     misses,
     ms: Math.round((performance.now() - started) * 10) / 10,
-    provider: res.provider,
+    provider: tv.provider,
   };
 
   return {
-    provider: res.provider,
+    provider: tv.provider,
     escalated: false,
     stats: lastStats,
-    ranked: targets
-      .map((t, i) => ({ id: t.id, score: cosine(q, rest[i]) }))
+    ranked: scored
+      .map((p) => ({ id: p.id, score: cosine(q, p.v) }))
       .sort((a, b) => b.score - a.score),
   };
 }

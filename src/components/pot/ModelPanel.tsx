@@ -10,6 +10,11 @@ import { HelpDot } from "@/components/pot/HelpDot";
 import { useAi } from "@/hooks/useAi";
 import { useDoc } from "@/hooks/useDoc";
 import { CTX_CHOICES, MODEL_BY_ID, STATE_LABEL, memoryEstimateGb, recommendModel } from "@/lib/ai";
+import {
+  DEFAULT_EMBEDDING_ID,
+  FALLBACK_EMBEDDING_ID,
+  PROVIDER_BY_ID,
+} from "@/lib/ai/embedding";
 import { semanticLabel, type ModelAction } from "@/lib/ai/capability";
 import {
   CLOUD_CTX_CHOICES,
@@ -351,8 +356,7 @@ function LocalModels({ ai }: { ai: ReturnType<typeof useAi> }) {
             {enc.error && <span className="mt-1 block text-[12px] text-loss">{enc.error}</span>}
           </span>
           <HelpDot label="About the encoder">
-            ~90 MB. Semantic routing, retrieval and classification. Download once, always warm on
-            this device.
+            {`${PROVIDER_BY_ID[DEFAULT_EMBEDDING_ID].sizeMb} MB · ${PROVIDER_BY_ID[DEFAULT_EMBEDDING_ID].dimensions}-dim. ${PROVIDER_BY_ID[DEFAULT_EMBEDDING_ID].blurb} Constrained phones fall back to the ${PROVIDER_BY_ID[FALLBACK_EMBEDDING_ID].sizeMb} MB MiniLM. Download once, always warm on this device.`}
           </HelpDot>
           {enc.state === "loaded" ? (
             <button
@@ -362,6 +366,24 @@ function LocalModels({ ai }: { ai: ReturnType<typeof useAi> }) {
             >
               Unload
             </button>
+          ) : enc.downloadTarget ? (
+            enc.downloadTarget.cached ? (
+              <button
+                type="button"
+                onClick={() => void enc.load()}
+                className="doodle-pill bg-ink px-2.5 py-1 text-[11px] text-paper"
+              >
+                Load
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => void enc.download()}
+                className="doodle-pill bg-ink px-2.5 py-1 text-[11px] text-paper"
+              >
+                Download
+              </button>
+            )
           ) : (
             <button
               type="button"

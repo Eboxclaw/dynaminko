@@ -34,11 +34,46 @@ describe("model registry", () => {
     expect(DEFAULT_CTX).toBeLessThanOrEqual(m.maxCtx);
   });
 
-  it("the encoder is the only non-generative model and is a transformers runtime", () => {
+  it("the roster is the approved LFM2.5 + Qwen set: the 1.2B pair is gone", () => {
+    const ids = MODELS.map((m) => m.id);
+    expect(ids).not.toContain("lfm2-1_2-instruct");
+    expect(ids).not.toContain("lfm2-1_2-thinking");
+    expect(ids).toContain("lfm2-350");
+    expect(ids).toContain("lfm2-350-thinking");
+    expect(ids).toContain("lfm2-450-vl");
+    expect(ids).toContain("lfm2-2_6");
+    expect(ids).toContain("qwen38-2b-distill");
+  });
+
+  it("the encoder is a non-generative GGUF with the MiniLM fallback beside it", () => {
     const enc = MODEL_BY_ID[ENCODER_ID];
-    expect(enc.runtime).toBe("transformers");
+    expect(enc.runtime).toBe("gguf");
     expect(enc.generative).toBe(false);
-    expect(MODELS.filter((m) => !m.generative).map((m) => m.id)).toEqual([ENCODER_ID]);
+    expect(enc.capabilities).toEqual(["encode"]);
+    const nonGenerative = MODELS.filter((m) => !m.generative).map((m) => m.id).sort();
+    expect(nonGenerative).toEqual(["lfm2-5-embed-350m", "minilm-6-v2"]);
+    // The fallback stays a transformers-runtime encoder.
+    expect(MODEL_BY_ID["minilm-6-v2"].runtime).toBe("transformers");
+  });
+
+  it("local sampling follows the 0.2 standard with card-explained exceptions", () => {
+    expect(MODEL_BY_ID["lfm2-350"].sampling?.temperature).toBe(0.2);
+    expect(MODEL_BY_ID["lfm2-2_6"].sampling?.temperature).toBe(0.2);
+    expect(MODEL_BY_ID["lfm2-450-vl"].sampling?.temperature).toBe(0.2);
+    // Card-explicit exceptions: the Thinking tune starts at the standard, the
+    // Qwen distill keeps its card's 0.6.
+    expect(MODEL_BY_ID["lfm2-350-thinking"].sampling?.temperature).toBe(0.2);
+    expect(MODEL_BY_ID["qwen38-2b-distill"].sampling?.temperature).toBe(0.6);
+    expect(MODEL_BY_ID["qwen38-2b-distill"].sampling?.topP).toBe(0.95);
+  });
+
+  it("the Qwen hybrid leaves its KV geometry unknown on purpose", () => {
+    // Gated DeltaNet layers carry no context-scaled KV; a guess here would
+    // misprice the budget, so the model degrades to UNCERTAIN instead.
+    expect(MODEL_BY_ID["qwen38-2b-distill"].kv).toBeUndefined();
+    expect(budgetOutcome(MODEL_BY_ID["qwen38-2b-distill"], 8192, 8).verdict).toBe("UNCERTAIN");
+    // The Thinking 350M shares the base backbone geometry.
+    expect(kvCacheGb(MODEL_BY_ID["lfm2-350-thinking"], 8192, "q8_0")).toBeCloseTo(0.0498, 3);
   });
 
   it("every ctx choice is a valid number and the default is one of them", () => {

@@ -45,7 +45,12 @@ export type AiWorkerRequest =
   | { type: "stop" }
   | { type: "unload" }
   | { type: "cached-models" }
-  | { type: "delete-model"; modelId: string };
+  | { type: "delete-model"; modelId: string }
+  // Encoder lane. A dedicated, always-warm wllama handle separate from the
+  // rotating generative instance: routing must never wait for a model swap.
+  | { type: "embed-load"; modelId: string; allowDownload: boolean }
+  | { type: "embed"; texts: string[] }
+  | { type: "embed-unload" };
 
 /** reqId is stamped by the main thread on requests and echoed back on the
  * responses that settle a request's promise. The "loading" progress stream is
@@ -61,7 +66,10 @@ export type AiWorkerResponse =
   | { type: "done"; text: string }
   | ({ type: "cached-models"; ids: string[] } & WithReqId)
   | ({ type: "deleted"; modelId: string } & WithReqId)
-  | { type: "unloaded" };
+  | { type: "unloaded" }
+  | ({ type: "embed-ready"; modelId: string; backend: string } & WithReqId)
+  | ({ type: "embedded"; vectors: number[][] } & WithReqId)
+  | ({ type: "embed-unloaded" } & WithReqId);
 
 type ChatOptions = {
   temperature?: number;
@@ -100,6 +108,114 @@ let loadInFlight: { reqId: number | undefined; modelId: string } | null = null;
 
 function isOwnedLoad(reqId: number | undefined, modelId: string): boolean {
   return loadInFlight != null && loadInFlight.reqId === reqId && loadInFlight.modelId === modelId;
+}
+
+// ── encoder lane state ────────────────────────────────────────────────
+//
+// The embedding model lives on its OWN wllama handle, loaded once and kept
+// warm while generative models rotate on `instance`. Two live handles cost
+// the encoder's weights (~230 MB Q4_K_M); the alternative (sharing the
+// generative handle) would unload the chat model on every routing call.
+
+let embedInstance: Wllama | null = null;
+let embedModel: string | null = null;
+let embedBackend = "unavailable";
+let embedLoadInFlight = false;
+
+async function exitEmbedInstance(): Promise<void> {
+  if (!embedInstance) return;
+  const old = embedInstance;
+  embedInstance = null;
+  embedModel = null;
+  embedBackend = "unavailable";
+  try {
+    await old.exit();
+  } catch {
+    /* already dead */
+  }
+}
+
+/**
+ * Load an embedding GGUF (runtime "gguf", generative false) onto the warm
+ * encoder handle. Router texts are short, so n_ctx stays small: the KV cache
+ * of a one-vector bi-encoder does not need card context. Pooling follows the
+ * LFM2.5-Embedding card (CLS); llama.cpp also reads pooling from GGUF
+ * metadata when the file declares it.
+ */
+async function loadEmbedModelInternal(
+  modelId: string,
+  allowDownload: boolean,
+  reqId?: number,
+): Promise<{ ok: true; backend: string } | { ok: false; error: string }> {
+  const spec = MODEL_BY_ID[modelId];
+  if (!spec || spec.generative || spec.runtime !== "gguf") {
+    return { ok: false, error: `${modelId} is not a GGUF embedding model.` };
+  }
+  if (!allowDownload) {
+    const cached = await computeCachedModels();
+    if (!cached.has(spec.id)) {
+      return { ok: false, error: `${spec.label} is not downloaded. Download it first.` };
+    }
+  }
+  if (embedModel === spec.id && embedInstance) {
+    return { ok: true, backend: embedBackend };
+  }
+  await exitEmbedInstance();
+
+  const caps = await detectRuntime();
+  const profile = buildInferenceProfile(caps, spec.weightsGb, spec.nLayers, 2048);
+  const gpuOk = caps.webgpu && profile.n_gpu_layers > 0;
+
+  let runtime = await createRuntime(profile.n_threads > 1 ? 6 : 3);
+  embedInstance = runtime;
+
+  const load = async (useGpu: boolean) => {
+    await runtime.loadModelFromHF(
+      { repo: spec.repo, quant: spec.quant },
+      {
+        n_ctx: 2048,
+        useCache: true,
+        embeddings: true,
+        pooling_type: "cls",
+        n_gpu_layers: useGpu ? profile.n_gpu_layers : 0,
+        n_threads: profile.n_threads,
+        n_batch: profile.n_batch,
+        progressCallback: ({ loaded, total }: { loaded: number; total: number }) => {
+          if (allowDownload && total) {
+            ctx.postMessage({
+              type: "loading",
+              modelId: spec.id,
+              progress: loaded / total,
+              reqId,
+            } satisfies AiWorkerResponse);
+          }
+        },
+      } as never,
+    );
+  };
+
+  try {
+    ctx.postMessage({ type: "loading", modelId: spec.id, reqId } satisfies AiWorkerResponse);
+    try {
+      await load(gpuOk);
+      embedBackend = gpuOk ? "webgpu" : caps.wasmSimd || caps.wasm ? "wasm" : "unavailable";
+    } catch (gpuErr) {
+      if (!gpuOk) throw gpuErr;
+      const fresh = await replaceRuntime(runtime, profile.n_threads > 1 ? 6 : 3);
+      embedInstance = fresh;
+      runtime = fresh;
+      await load(false);
+      embedBackend = "wasm";
+    }
+    embedModel = spec.id;
+    return { ok: true, backend: embedBackend };
+  } catch (err) {
+    await exitEmbedInstance();
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : "the encoder failed to start",
+    };
+  }
 }
 
 // ── runtime ──────────────────────────────────────────────────────────
@@ -255,13 +371,17 @@ async function computeCachedModels(): Promise<Set<string>> {
   }
   try {
     if (typeof caches !== "undefined") {
+      // ONNX/transformers-runtime encoders live in the Cache API; match each
+      // by its repo, so encoder fallback swaps never need a worker change.
+      const onnx = MODELS.filter((m) => m.runtime === "transformers");
       const keys = await caches.keys();
       for (const key of keys) {
         if (!/transformers/i.test(key)) continue;
         const cache = await caches.open(key);
         const reqs = await cache.keys();
-        const encoder = MODEL_BY_ID["minilm-6-v2"];
-        if (reqs.some((r) => r.url.toLowerCase().includes(encoder.repo))) out.add("minilm-6-v2");
+        for (const m of onnx) {
+          if (reqs.some((r) => r.url.toLowerCase().includes(m.repo.toLowerCase()))) out.add(m.id);
+        }
       }
     }
   } catch {
@@ -277,10 +397,10 @@ async function loadModelInternal(
   reqId?: number,
 ): Promise<{ ok: true; backend: string; ctx: number } | { ok: false; error: string }> {
   const spec = modelSpec(modelId) ?? modelSpec(DEFAULT_MODEL_ID)!;
-  if (spec.runtime !== "gguf") {
+  if (spec.runtime !== "gguf" || !spec.generative) {
     return {
       ok: false,
-      error: `${spec.label} is loaded through the encoder, not the chat runtime.`,
+      error: `${spec.label} is not a generative GGUF model.`,
     };
   }
 
@@ -461,7 +581,7 @@ async function chatMessages(
     stream: true,
     max_tokens: options.maxTokens ?? 8192,
     temperature: options.temperature ?? sampling?.temperature ?? 0.4,
-    top_p: 0.9,
+    top_p: sampling?.topP ?? 0.9,
     // Native tool menu: the LFM template renders this as
     // `List of tools: [...]` appended to the system prompt.
     ...(options.tools?.length ? { tools: options.tools } : {}),
@@ -534,9 +654,9 @@ ctx.addEventListener(
 
     switch (msg.type) {
       case "load": {
-        if (loadInFlight) {
+        if (loadInFlight || embedLoadInFlight) {
           // Never start a second load while one is in progress: two loads would
-          // fight over the single wllama instance and desync the cache.
+          // fight over the wllama runtime and desync the cache.
           ctx.postMessage({
             type: "error",
             reqId,
@@ -619,6 +739,84 @@ ctx.addEventListener(
         return;
       }
 
+      case "embed-load": {
+        if (embedLoadInFlight) {
+          ctx.postMessage({
+            type: "error",
+            reqId,
+            modelId: msg.modelId,
+            message: "the encoder is already loading, try again in a moment",
+          } satisfies AiWorkerResponse);
+          return;
+        }
+        embedLoadInFlight = true;
+        let result;
+        try {
+          // Two wllama handles initializing at once (WebGPU device + OPFS
+          // cache) conflict and can leave the embed handle half-alive, which
+          // later surfaces as embed RPCs that never answer. The encoder load
+          // waits out any generative load instead of racing it.
+          const deadline = Date.now() + 60_000;
+          while (loadInFlight && Date.now() < deadline) {
+            await new Promise((r) => setTimeout(r, 250));
+          }
+          result = await loadEmbedModelInternal(msg.modelId, msg.allowDownload, reqId);
+        } finally {
+          embedLoadInFlight = false;
+        }
+        if (result.ok) {
+          ctx.postMessage({
+            type: "embed-ready",
+            reqId,
+            modelId: msg.modelId,
+            backend: result.backend,
+          } satisfies AiWorkerResponse);
+        } else {
+          ctx.postMessage({
+            type: "error",
+            reqId,
+            modelId: msg.modelId,
+            message: result.error,
+          } satisfies AiWorkerResponse);
+        }
+        return;
+      }
+
+      case "embed": {
+        try {
+          if (!embedInstance || !embedModel) throw new Error("encoder not loaded");
+          // A wedged handle must answer with an error, not silence: race the
+          // call so the main thread's 30s ceiling is rarely the one firing.
+          const res = await Promise.race([
+            embedInstance.createEmbedding({
+              input: msg.texts,
+              encoding_format: "float",
+            }),
+            new Promise<never>((_, reject) =>
+              setTimeout(() => reject(new Error("embedding timed out")), 25_000),
+            ),
+          ]);
+          const vectors = res.data.map((d) => d.embedding as number[]);
+          ctx.postMessage({ type: "embedded", reqId, vectors } satisfies AiWorkerResponse);
+        } catch (err) {
+          // Drop the failed handle so the next activation builds a fresh one
+          // from cache instead of reusing a half-alive instance.
+          await exitEmbedInstance();
+          ctx.postMessage({
+            type: "error",
+            reqId,
+            message: err instanceof Error ? err.message : "embedding failed",
+          } satisfies AiWorkerResponse);
+        }
+        return;
+      }
+
+      case "embed-unload": {
+        await exitEmbedInstance();
+        ctx.postMessage({ type: "embed-unloaded", reqId } satisfies AiWorkerResponse);
+        return;
+      }
+
       case "unload": {
         // Drop the inference handle; the shared cache manager outlives it, so
         // the weights remain "on device" and can be re-loaded or deleted.
@@ -678,6 +876,8 @@ ctx.addEventListener(
             currentModel = null;
             activeBackend = "unavailable";
           }
+          // An encoder GGUF lives on the warm embed handle instead.
+          if (embedModel === spec.id) await exitEmbedInstance();
 
           // Delete through the shared cache manager: no Wllama instance needed,
           // so no WASM to leak or re-initialize.
