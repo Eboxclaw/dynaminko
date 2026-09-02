@@ -127,6 +127,7 @@ function Dashboard() {
             <p className="eyebrow mt-1">
               {top && `${SECTOR_BY_ID[top.sector]?.label} leads at ${Math.round(top.share * 100)}%`}
             </p>
+            {baskets.slices.length > 0 && (
             <div className="mt-2">
               <BasketOrb
                 slices={baskets.slices.map((s) => ({
@@ -135,6 +136,7 @@ function Dashboard() {
                 }))}
               />
             </div>
+            )}
           </div>
         </Panel>
 
