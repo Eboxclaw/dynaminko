@@ -149,18 +149,19 @@ function SettingsPage() {
 
   return (
     <Shell title="Settings">
-      <section className="doodle-card animate-rise mb-5">
+      <section className="doodle-card animate-rise mb-4 sm:mb-5">
         <WalletPanel
           wallets={wallets}
           activeKey={active ? walletKey(active.chainId, active.address) : null}
         />
       </section>
 
-      <section className="doodle-card animate-rise mb-5 p-4">
-        <p className="text-[15px] font-semibold">Privacy</p>
+      <section className="doodle-card animate-rise mb-4 p-4 sm:mb-5">
+        <p className="eyebrow">Privacy</p>
         <label className="mt-3 flex items-center gap-3 text-[14px]">
           <input
             type="checkbox"
+            className="h-[15px] w-[15px]"
             checked={doc.settings.hideBalances}
             onChange={(e) => patchSettings({ hideBalances: e.target.checked })}
           />
@@ -169,9 +170,9 @@ function SettingsPage() {
       </section>
 
       {/* ── Referrals ──────────────────────────────────────────────────────── */}
-      <section className="doodle-card animate-rise mb-5 p-4">
-        <p className="text-[15px] font-semibold">Referrals</p>
-        <p className="mt-1 text-[13px] text-ink-soft">
+      <section className="doodle-card animate-rise mb-4 p-4 sm:mb-5">
+        <p className="eyebrow">Referrals</p>
+        <p className="mt-1.5 max-w-prose text-[13px] leading-relaxed text-ink-soft">
           Track your referral progress, set codes, and see rewards earned on each venue.
         </p>
 
@@ -182,7 +183,7 @@ function SettingsPage() {
         {/* Hyperliquid */}
         {active && (
           <div className="mt-4 rounded-[3px] border border-stroke p-3">
-            <p className="text-[14px] font-medium">Hyperliquid</p>
+            <p className="text-[14px] font-semibold tracking-tight">Hyperliquid</p>
 
             {hlReferral ? (
               <>
@@ -291,7 +292,7 @@ function SettingsPage() {
         {/* Nado */}
         {active && onInk && (
           <div className="mt-3 rounded-[3px] border border-stroke p-3">
-            <p className="text-[14px] font-medium">Nado</p>
+            <p className="text-[14px] font-semibold tracking-tight">Nado</p>
 
             {nadoReferral ? (
               <>
@@ -399,9 +400,9 @@ function SettingsPage() {
         )}
       </section>
 
-      <section className="doodle-card animate-rise mb-5 p-4">
-        <p className="text-[15px] font-semibold">Assistant &amp; agents</p>
-        <p className="mt-1 text-[13px] text-ink-soft">
+      <section className="doodle-card animate-rise mb-4 p-4 sm:mb-5">
+        <p className="eyebrow">Assistant &amp; agents</p>
+        <p className="mt-1.5 max-w-prose text-[13px] leading-relaxed text-ink-soft">
           Models, skills, tools and the activity log now live in their own console.
         </p>
         <Link
@@ -414,8 +415,8 @@ function SettingsPage() {
       </section>
 
       <section className="doodle-card animate-rise p-4">
-        <p className="text-[15px] font-semibold">Your data</p>
-        <p className="mt-1 text-[13px] text-ink-soft">
+        <p className="eyebrow">Your data</p>
+        <p className="mt-1.5 max-w-prose text-[13px] leading-relaxed text-ink-soft">
           Everything lives in this browser. Export it before clearing your site data.
         </p>
         <div className="mt-3 flex gap-2">
