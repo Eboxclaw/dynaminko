@@ -67,7 +67,12 @@ export function readSession(id: string): ChatMessage[] {
 
 /** Persists a transcript and keeps the index title/turn count in step. */
 export function writeSession(id: string, messages: ChatMessage[]) {
-  write(BODY(id), messages.slice(-MAX_MESSAGES));
+  // Option chips are in-session affordances: persisting them would make old
+  // questions look answerable after a reload, when the flow state is gone.
+  write(
+    BODY(id),
+    messages.slice(-MAX_MESSAGES).map((m) => (m.options ? { ...m, options: undefined } : m)),
+  );
   const index = read<SessionMeta[]>(INDEX_KEY, []);
   const first = messages.find((m) => m.role === "user")?.text ?? "";
   const next = index.map((s) =>

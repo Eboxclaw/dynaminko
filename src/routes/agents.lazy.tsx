@@ -481,7 +481,7 @@ function ChatConsole({
       {
         role: "system",
         content:
-          "You select one tool to answer the user's question, or none. Answer with the JSON the schema allows. The query is the search term for the tool, at most 6 words, or empty; pass limit only when the tool paginates. Only pick a tool when you can fill its required inputs; otherwise pick another tool or none. Pick none when the answer is already in FACTS or in earlier results." +
+          "You select one tool to answer the user's question, or none. Answer with the JSON the schema allows. The query is the search term for the tool, at most 6 words, or empty; pass limit only when the tool paginates. Only pick a tool when you can fill its required inputs; otherwise pick another tool or none. Pick none when the answer is already in FACTS or in earlier results. Entries marked [write] change the journal: when QUESTION explicitly asks for that action, pick the matching [write] entry on this hop instead of asking in prose. Proposing is safe: the app always shows an approval card and the user confirms before anything runs." +
           (opts.remaining != null ? ` At most ${opts.remaining} more tool picks this turn.` : ""),
       },
       {
@@ -490,7 +490,12 @@ function ChatConsole({
           nativeMenu
             ? ""
             : `\n\nTOOLS\n${allowed
-                .map((d) => `${d.id}: ${d.purpose} (inputs: ${d.inputs})`)
+                .map(
+                  (d) =>
+                    `${d.id}: ${d.purpose} (inputs: ${d.inputs})${
+                      d.exec === "write-approval" ? " [write]" : ""
+                    }`,
+                )
                 .join("\n")}`
         }\n\nFACTS\n${facts}${
           web ? "\nweb_search: active, prefer web.search for news and external facts" : ""
@@ -546,6 +551,7 @@ function ChatConsole({
                       ],
                     },
                     limit: { type: "integer", minimum: 1, maximum: 8 },
+                    reason: { type: "string" },
                   },
                   required: ["tool", "query", "why"],
                   additionalProperties: false,
@@ -608,6 +614,7 @@ function ChatConsole({
       ticker?: string;
       basket?: string;
       limit?: number;
+      reason?: string;
     }) => {
       const def = allowed.find((d) => d.id === parsed.tool);
       if (!def) return null;
@@ -632,6 +639,10 @@ function ChatConsole({
         basket: parsed.basket,
         limit:
           typeof parsed.limit === "number" ? Math.min(8, Math.max(1, parsed.limit)) : undefined,
+        reason:
+          typeof parsed.reason === "string" && parsed.reason.trim()
+            ? parsed.reason.trim().slice(0, 120)
+            : undefined,
         why: String(parsed.why ?? "").slice(0, 80),
       };
     };
@@ -660,6 +671,7 @@ function ChatConsole({
     basket?: string;
     limit?: number;
     url?: string;
+    reason?: string;
   }): Record<string, unknown> => {
     const takes = (field: string) =>
       pick.def.inputs === field ||
@@ -670,6 +682,9 @@ function ChatConsole({
     if (pick.ticker && takes("ticker")) input.ticker = pick.ticker;
     if (pick.basket && takes("basket")) input.basket = pick.basket;
     if (typeof pick.limit === "number" && takes("limit")) input.limit = pick.limit;
+    // Write commands (journal.apply_answer) declare a free-text reason the
+    // pick schema carries as its own optional field.
+    if (pick.reason && takes("reason")) input.reason = pick.reason;
     return input;
   };
 
@@ -801,6 +816,14 @@ function ChatConsole({
       const excluded = new Set<string>(HOP_EXCLUDED_IDS);
       let hopAllowed: CapabilityDefinition[] = [];
       let skipDecide = false;
+      // An explicit action request ("resolve the oldest pending trade") admits
+      // write commands into the menu: the model proposes, and the approval
+      // gate still stands between the pick and the write. Without this the
+      // decide physically cannot propose the action the user just asked for
+      // (live finding: it drifted to read tools instead). A false positive
+      // costs nothing — the approval card is the enforcement, not the menu.
+      const actionRequested =
+        /\b(resolve|apply|create|add|delete|dismiss|categorize)\b/i.test(user);
 
       if (needsWeb) {
         const webDef = capabilityCatalogue().find((d) => d.id === "web.search");
@@ -812,7 +835,11 @@ function ChatConsole({
         hopAllowed = selection.selected.filter(
           (d) =>
             (d.kind === "tool" || d.kind === "command" || d.kind === "batch_command") &&
-            (d.access === "READ" || d.access === "COMPUTE") &&
+            (d.access === "READ" ||
+              d.access === "COMPUTE" ||
+              (actionRequested &&
+                d.exec === "write-approval" &&
+                (d.kind === "command" || d.kind === "batch_command"))) &&
             !excluded.has(d.id) &&
             // Capability selection can surface web.search on its own; the
             // toggle is the user's actual web permission and wins here too,
@@ -944,6 +971,28 @@ function ChatConsole({
               break;
             }
             executedKeys.push(key);
+            // A write pick NEVER executes inside the hop: it surfaces the
+            // same approval card the /run path uses and ends the loop. The
+            // approve() handler runs the command and shows the result once
+            // the user approves.
+            if (pick.def.exec === "write-approval" && commandNeedsApproval(pick.def.id)) {
+              turn.settle("tool", "ok", `${pick.def.id} · approval requested`);
+              push({
+                role: "tool",
+                text: `${pick.def.id} needs your approval`,
+                approval: {
+                  toolId: pick.def.id,
+                  kind: "command",
+                  access: "EDIT",
+                  target: Object.entries(input)
+                    .map(([k, v]) => `${k}=${String(v)}`)
+                    .join(" ") || "—",
+                  input,
+                  state: "pending",
+                },
+              });
+              break;
+            }
             const toolStart = Date.now();
             const out = hopTool
               ? await runTool(hopTool, input)
@@ -1477,6 +1526,12 @@ function ChatConsole({
         ],
         data: cap.clamped as Record<string, unknown>,
         offloadKey: cap.offloadKey,
+        // The inbox is where step-by-step resolution starts: the card asks
+        // for input, the chip opens the wizard instead of free-typing.
+        ...(result.command === "journal.resolve_inbox" &&
+        result.status === "needs_input" && !wizardRef.current
+          ? { options: ["resolve step by step"] }
+          : {}),
       },
     });
   };
@@ -1564,10 +1619,138 @@ function ChatConsole({
     }
   };
 
-  const submit = async () => {
-    const text = input.trim();
+
+  // ── step-by-step inbox resolution ──────────────────────────────────────
+  //
+  // When the agent resolves one or more cards, the questions come as
+  // tappable option chips instead of the user having to write every field.
+  // Deterministic on purpose: no model tokens, works offline, and the final
+  // write still passes through the standard approval gate.
+  const wizardRef = useRef<{
+    step: "scope" | "motive" | "alignment" | "reason";
+    limit: number;
+    motive: string | null;
+    alignment: string | null;
+    reason: string | null;
+  } | null>(null);
+
+  const pushChoices = (text: string, options: string[]) =>
+    push({ role: "note", text, options });
+
+  const WIZARD_STEPS = {
+    scope: {
+      question: "How many pending cards should I resolve?",
+      options: ["oldest 1 trade", "oldest 5 trades", "all pending"],
+    },
+    motive: {
+      question: "Why were these trades made?",
+      options: ["conviction", "reactive", "hedge", "fomo", "rebalance"],
+    },
+    alignment: {
+      question: "How aligned with your theses?",
+      options: ["aligned", "partial", "deviated", "no thesis"],
+    },
+    reason: {
+      question:
+        "Pick a reason (or just type your own):",
+      options: ["momentum play", "thesis alignment", "portfolio rebalance", "short-term trade"],
+    },
+  } as const;
+
+  const startWizard = () => {
+    wizardRef.current = { step: "scope", limit: 1, motive: null, alignment: null, reason: null };
+    pushChoices(WIZARD_STEPS.scope.question, [...WIZARD_STEPS.scope.options]);
+  };
+
+  const startWizardIfRequested = (text: string): boolean => {
+    if (!/^\/resolve\b/i.test(text) && !(/\bresolve\b/i.test(text) && /step by step/i.test(text)))
+      return false;
+    startWizard();
+    return true;
+  };
+
+  const advanceWizard = (text: string) => {
+    const w = wizardRef.current;
+    if (!w) return;
+    const t = text.toLowerCase().trim();
+
+    if (/^cancel\b|^stop\b/.test(t)) {
+      wizardRef.current = null;
+      push({ role: "note", text: "Resolution cancelled. Nothing was written." });
+      return;
+    }
+    // The step marker decides what the tapped answer means; a wrong value
+    // re-asks the same question with the same chips instead of guessing.
+    const w2 = w;
+    if (w2.step === "scope") {
+      const limit =
+        t.startsWith("oldest 1") ? 1 : t.startsWith("oldest 5") ? 5 : t.startsWith("all") ? 50 : 0;
+      if (!limit) {
+        pushChoices(WIZARD_STEPS.scope.question, [...WIZARD_STEPS.scope.options]);
+        return;
+      }
+      w2.limit = limit;
+      w2.step = "motive";
+      pushChoices(WIZARD_STEPS.motive.question, [...WIZARD_STEPS.motive.options]);
+      return;
+    }
+    if (w2.step === "motive") {
+      const match = WIZARD_STEPS.motive.options.find((o) => o.toLowerCase() === t);
+      if (!match) {
+        pushChoices(WIZARD_STEPS.motive.question, [...WIZARD_STEPS.motive.options]);
+        return;
+      }
+      w2.motive = match;
+      w2.step = "alignment";
+      pushChoices(WIZARD_STEPS.alignment.question, [...WIZARD_STEPS.alignment.options]);
+      return;
+    }
+    if (w2.step === "alignment") {
+      const match = WIZARD_STEPS.alignment.options.find((o) => o.toLowerCase() === t);
+      if (!match) {
+        pushChoices(WIZARD_STEPS.alignment.question, [...WIZARD_STEPS.alignment.options]);
+        return;
+      }
+      w2.alignment = match === "no thesis" ? "no_thesis" : match;
+      w2.step = "reason";
+      pushChoices(WIZARD_STEPS.reason.question, [...WIZARD_STEPS.reason.options]);
+      return;
+    }
+    // step "reason": chips or free text, then compose and hand the write to
+    // the standard approval gate.
+    const reason = WIZARD_STEPS.reason.options.find((o) => o.toLowerCase() === t);
+    if (reason) w2.reason = text.trim();
+    else if (text.trim().length >= 3) w2.reason = text.trim();
+    if (!w2.reason) {
+      pushChoices(WIZARD_STEPS.reason.question, [...WIZARD_STEPS.reason.options]);
+      return;
+    }
+    // All four answers in: compose and hand the write to the standard
+    // approval gate (the user still approves the actual transaction).
+    const summary =
+      `Ready to resolve ${w.limit === 50 ? "all pending" : `the oldest ${w.limit}`} ` +
+      `with motive ${w.motive}, alignment ${w.alignment}, reason "${w.reason}".`;
+    push({ role: "note", text: summary });
+    wizardRef.current = null;
+    runCommandTurn(
+      "journal.apply_answer",
+      `reason="${w.reason}" motive=${w.motive} alignment=${w.alignment} limit=${w.limit}`,
+    );
+  };
+
+  const submit = async (override?: string) => {
+    const text = (override ?? input).trim();
     if (!text || busy || switchBusy) return;
     setInput("");
+    // Step-by-step flows (the inbox resolution wizard) intercept the turn
+    // before routing: the whole point is deterministic questions with
+    // tappable options, no model tokens and no phrasing ambiguity.
+    if (wizardRef.current) {
+      push({ role: "user", text });
+      advanceWizard(text);
+      return;
+    }
+    if (startWizardIfRequested(text)) return;
     observationsRef.current = [];
     turn.begin();
     beginTurn();
@@ -1982,7 +2165,23 @@ function ChatConsole({
                   </p>
                 )}
                 {m.role === "note" && (
-                  <p className="eyebrow whitespace-pre-wrap leading-relaxed">{m.text}</p>
+                  <div>
+                    <p className="eyebrow whitespace-pre-wrap leading-relaxed">{m.text}</p>
+                    {m.options && m.options.length > 0 && (
+                      <div className="mt-1.5 flex flex-wrap gap-1.5">
+                        {m.options.map((o) => (
+                          <button
+                            key={o}
+                            type="button"
+                            onClick={() => void submit(o)}
+                            className="doodle-pill px-3 py-1 text-[12px]"
+                          >
+                            {o}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                 )}
                 {m.role === "assistant" && (
                   <div className="max-w-[92%]">

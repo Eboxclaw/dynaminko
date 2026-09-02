@@ -20,6 +20,7 @@ import { Route as IndexRouteImport } from './routes/index'
 
 const TradeLazyRouteImport = createFileRoute('/trade')()
 const SettingsLazyRouteImport = createFileRoute('/settings')()
+const EarnLazyRouteImport = createFileRoute('/earn')()
 const AlertsLazyRouteImport = createFileRoute('/alerts')()
 const AgentsLazyRouteImport = createFileRoute('/agents')()
 
@@ -33,6 +34,11 @@ const SettingsLazyRoute = SettingsLazyRouteImport.update({
   path: '/settings',
   getParentRoute: () => rootRouteImport,
 } as any).lazy(() => import('./routes/settings.lazy').then((d) => d.Route))
+const EarnLazyRoute = EarnLazyRouteImport.update({
+  id: '/earn',
+  path: '/earn',
+  getParentRoute: () => rootRouteImport,
+} as any).lazy(() => import('./routes/earn.lazy').then((d) => d.Route))
 const AlertsLazyRoute = AlertsLazyRouteImport.update({
   id: '/alerts',
   path: '/alerts',
@@ -83,6 +89,7 @@ export interface FileRoutesByFullPath {
   '/theses': typeof ThesesRoute
   '/agents': typeof AgentsLazyRoute
   '/alerts': typeof AlertsLazyRoute
+  '/earn': typeof EarnLazyRoute
   '/settings': typeof SettingsLazyRoute
   '/trade': typeof TradeLazyRoute
 }
@@ -95,6 +102,7 @@ export interface FileRoutesByTo {
   '/theses': typeof ThesesRoute
   '/agents': typeof AgentsLazyRoute
   '/alerts': typeof AlertsLazyRoute
+  '/earn': typeof EarnLazyRoute
   '/settings': typeof SettingsLazyRoute
   '/trade': typeof TradeLazyRoute
 }
@@ -108,6 +116,7 @@ export interface FileRoutesById {
   '/theses': typeof ThesesRoute
   '/agents': typeof AgentsLazyRoute
   '/alerts': typeof AlertsLazyRoute
+  '/earn': typeof EarnLazyRoute
   '/settings': typeof SettingsLazyRoute
   '/trade': typeof TradeLazyRoute
 }
@@ -122,6 +131,7 @@ export interface FileRouteTypes {
     | '/theses'
     | '/agents'
     | '/alerts'
+    | '/earn'
     | '/settings'
     | '/trade'
   fileRoutesByTo: FileRoutesByTo
@@ -134,6 +144,7 @@ export interface FileRouteTypes {
     | '/theses'
     | '/agents'
     | '/alerts'
+    | '/earn'
     | '/settings'
     | '/trade'
   id:
@@ -146,6 +157,7 @@ export interface FileRouteTypes {
     | '/theses'
     | '/agents'
     | '/alerts'
+    | '/earn'
     | '/settings'
     | '/trade'
   fileRoutesById: FileRoutesById
@@ -159,6 +171,7 @@ export interface RootRouteChildren {
   ThesesRoute: typeof ThesesRoute
   AgentsLazyRoute: typeof AgentsLazyRoute
   AlertsLazyRoute: typeof AlertsLazyRoute
+  EarnLazyRoute: typeof EarnLazyRoute
   SettingsLazyRoute: typeof SettingsLazyRoute
   TradeLazyRoute: typeof TradeLazyRoute
 }
@@ -177,6 +190,13 @@ declare module '@tanstack/react-router' {
       path: '/settings'
       fullPath: '/settings'
       preLoaderRoute: typeof SettingsLazyRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/earn': {
+      id: '/earn'
+      path: '/earn'
+      fullPath: '/earn'
+      preLoaderRoute: typeof EarnLazyRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/alerts': {
@@ -247,6 +267,7 @@ const rootRouteChildren: RootRouteChildren = {
   ThesesRoute: ThesesRoute,
   AgentsLazyRoute: AgentsLazyRoute,
   AlertsLazyRoute: AlertsLazyRoute,
+  EarnLazyRoute: EarnLazyRoute,
   SettingsLazyRoute: SettingsLazyRoute,
   TradeLazyRoute: TradeLazyRoute,
 }

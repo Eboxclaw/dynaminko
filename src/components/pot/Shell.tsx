@@ -2,6 +2,7 @@ import { Link, useRouterState } from "@tanstack/react-router";
 import {
   BellRing,
   Bot,
+  Coins,
   Gauge,
   LayoutGrid,
   Moon,
@@ -25,6 +26,7 @@ const NAV = [
   { to: "/portfolio", label: "Baskets", icon: Wallet },
   { to: "/journal", label: "Theses", icon: NotebookPen },
   { to: "/pot", label: "POT Index", icon: Gauge },
+  { to: "/earn", label: "Earn", icon: Coins },
   { to: "/alerts", label: "Alerts", icon: BellRing },
   { to: "/agents", label: "Agents", icon: Bot },
 ] as const;

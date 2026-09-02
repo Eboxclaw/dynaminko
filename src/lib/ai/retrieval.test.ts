@@ -230,9 +230,14 @@ describe("retrieveContext structured rerank", () => {
 
   it("boosts cards inside a named date window over cards outside it", async () => {
     const now = Date.now();
+    const startOfToday = new Date().setHours(0, 0, 0, 0);
+    // Midpoint of the local day: guaranteed inside the "today" window no
+    // matter when the suite runs (a fixed now-2h crossed midnight at
+    // 00:00-02:00 local and flaked nightly).
+    const midToday = startOfToday + Math.floor((now - startOfToday) / 2);
     ingestSignals([
       sig({ id: "old:1", symbol: "BTC", ts: now - 40 * 86_400_000 }),
-      sig({ id: "new:1", symbol: "ETH", ts: now - 2 * 3_600_000 }),
+      sig({ id: "new:1", symbol: "ETH", ts: midToday }),
     ]);
     const old = filterCards({ limit: 200 }).find((c) => c.id === "old:1")!;
     const fresh = filterCards({ limit: 200 }).find((c) => c.id === "new:1")!;

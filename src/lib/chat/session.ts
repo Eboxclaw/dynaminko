@@ -30,6 +30,9 @@ export type ChatMessage = {
   thinking?: string | null;
   card?: ChatCard;
   approval?: Approval;
+  /** Selectable next turns (step-by-step flows): tapping one submits it as
+   * the user's message. Transient, never persisted across reloads. */
+  options?: string[];
   ts: number;
 };
 
