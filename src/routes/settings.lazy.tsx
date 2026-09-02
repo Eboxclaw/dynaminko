@@ -1,8 +1,4 @@
-import {
-  createLazyFileRoute,
-  Link,
-  type LazyRouteOptions,
-} from "@tanstack/react-router";
+import { createLazyFileRoute, Link, type LazyRouteOptions } from "@tanstack/react-router";
 import { useState } from "react";
 
 import { Shell } from "@/components/pot/Shell";
@@ -25,22 +21,20 @@ import { useActiveWallet } from "@/hooks/usePortfolio";
 // only models the component props, but the runtime merges every lazy option
 // into route.options when the chunk loads, so head behaves as on the eager
 // route. The cast documents that type gap, not a runtime difference.
-export const Route = createLazyFileRoute("/settings")(
-  {
-    head: () => ({
-      meta: [
-        { title: "Settings · Proof of Thesis" },
-        {
-          name: "description",
-          content: "Wallets, privacy, on-device assistant and your local data.",
-        },
-        { property: "og:title", content: "Settings · Proof of Thesis" },
-        { property: "og:description", content: "Wallets, privacy and your local data." },
-      ],
-    }),
-    component: SettingsPage,
-  } as LazyRouteOptions,
-);
+export const Route = createLazyFileRoute("/settings")({
+  head: () => ({
+    meta: [
+      { title: "Settings · Proof of Thesis" },
+      {
+        name: "description",
+        content: "Wallets, privacy, on-device assistant and your local data.",
+      },
+      { property: "og:title", content: "Settings · Proof of Thesis" },
+      { property: "og:description", content: "Wallets, privacy and your local data." },
+    ],
+  }),
+  component: SettingsPage,
+} as LazyRouteOptions);
 
 function buildSigner(address: string): TypedDataSigner | null {
   const provider = getInjected();

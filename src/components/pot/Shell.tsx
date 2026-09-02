@@ -31,7 +31,6 @@ const NAV = [
   { to: "/agents", label: "Agents", short: "Agent", icon: Bot },
 ] as const;
 
-
 function ThemeToggle() {
   const [dark, setDark] = useState(false);
   useEffect(() => {
@@ -184,7 +183,6 @@ export function Shell({
           })}
         </div>
       </nav>
-
     </div>
   );
 }
@@ -215,7 +213,9 @@ export function Panel({
             {eyebrow && <p className="eyebrow truncate">{eyebrow}</p>}
 
             {title && (
-              <h2 className="mt-1 text-[14px] font-semibold leading-snug tracking-tight">{title}</h2>
+              <h2 className="mt-1 text-[14px] font-semibold leading-snug tracking-tight">
+                {title}
+              </h2>
             )}
           </div>
           {action}

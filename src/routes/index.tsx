@@ -128,14 +128,14 @@ function Dashboard() {
               {top && `${SECTOR_BY_ID[top.sector]?.label} leads at ${Math.round(top.share * 100)}%`}
             </p>
             {baskets.slices.length > 0 && (
-            <div className="mt-2">
-              <BasketOrb
-                slices={baskets.slices.map((s) => ({
-                  label: SECTOR_BY_ID[s.sector]?.label ?? s.sector,
-                  share: s.share,
-                }))}
-              />
-            </div>
+              <div className="mt-2">
+                <BasketOrb
+                  slices={baskets.slices.map((s) => ({
+                    label: SECTOR_BY_ID[s.sector]?.label ?? s.sector,
+                    share: s.share,
+                  }))}
+                />
+              </div>
             )}
           </div>
         </Panel>
@@ -244,9 +244,7 @@ function Dashboard() {
                 </span>
               </li>
             ))}
-            {baskets.holdings.length === 0 && (
-              <li className="empty">No balances.</li>
-            )}
+            {baskets.holdings.length === 0 && <li className="empty">No balances.</li>}
           </ul>
         </Panel>
       </div>
