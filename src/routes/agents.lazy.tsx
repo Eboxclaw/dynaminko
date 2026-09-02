@@ -930,6 +930,15 @@ function ChatConsole({
               if (fallbackUrl) input.url = fallbackUrl;
             }
             const key = hopKey(pick.def.id, input);
+            // Same-tool cap: a model that loops one tool with VARYING invented
+            // inputs (the Qwen distill's journal.search meta-queries) dodges
+            // the exact-repeat guard below forever. Two runs of any single
+            // tool per turn is enough; the hop budget stays as the outer rail.
+            const toolRuns = executedKeys.filter((k) => k.split("|")[0] === pick.def.id).length;
+            if (toolRuns >= 2) {
+              turn.settle("tool", "skipped", `${pick.def.id} already ran twice this turn`);
+              break;
+            }
             if (isRepeatHop(key, executedKeys)) {
               // A repeated search right after its own search usually means
               // the model wants the page but cannot formulate web.read with a

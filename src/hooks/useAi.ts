@@ -132,7 +132,11 @@ export function useAi() {
   );
   /** Reasoning stream from providers that expose it (GLM reasoning_content). */
   const [thinkingText, setThinkingText] = useState<string | null>(null);
-  const [temperature, setTemperature] = useState(0.4);  const [maxTokens, setMaxTokens] = useState(8192);
+  // null until the user touches the slider: the model's own card sampling
+  // (0.2 standard local, provider cards in cloud) must be the default, not a
+  // hardcoded session value silently overriding every spec.
+  const [temperature, setTemperature] = useState<number | null>(null);
+  const [maxTokens, setMaxTokens] = useState(8192);
   const [downloaded, setDownloaded] = useState<Set<string>>(new Set());
   /** Models with an in-flight or interrupted download: the cache index says
    * "missing" but progress says "started", which is exactly "partial". */
@@ -366,8 +370,10 @@ export function useAi() {
           );
           // Every cloud provider is OpenAI-compatible (Z.ai included), so the
           // shared client covers all of them. No per-provider branching.
+          // temperature stays undefined until the user sets the slider, so
+          // the provider card default (zai 0.6) applies.
           const text = await cloudChatMessages(cloudCfg, messages, {
-            temperature: options.temperature ?? temperature,
+            temperature: options.temperature ?? temperature ?? undefined,
             maxTokens: options.maxTokens ?? clampedOut,
             responseSchema: options.responseSchema,
             images: options.images,
@@ -409,7 +415,9 @@ export function useAi() {
             }
           },
           {
-            temperature,
+            // undefined until the user tunes the slider: the model spec's
+            // sampling (the 0.2 local standard) is the real default.
+            temperature: temperature ?? undefined,
             maxTokens,
             onSpeed: (tps, tokens) => mounted.current && setSpeed({ tps, tokens }),
             ...options,

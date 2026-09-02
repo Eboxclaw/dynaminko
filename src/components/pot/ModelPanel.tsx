@@ -432,13 +432,16 @@ function LocalModels({ ai }: { ai: ReturnType<typeof useAi> }) {
 
         <div className="grid gap-3 px-3 py-2.5 sm:grid-cols-2">
           <label className="text-[12px]">
-            <span className="eyebrow block">Temperature {ai.temperature.toFixed(2)}</span>
+            <span className="eyebrow block">
+              Temperature {(ai.temperature ?? MODEL_BY_ID[selected]?.sampling?.temperature ?? 0.4).toFixed(2)}
+              {ai.temperature == null && <span className="ml-1 text-ink-faint">· card default</span>}
+            </span>
             <input
               type="range"
               min={0}
               max={1}
               step={0.05}
-              value={ai.temperature}
+              value={ai.temperature ?? MODEL_BY_ID[selected]?.sampling?.temperature ?? 0.4}
               onChange={(e) => ai.setTemperature(Number(e.target.value))}
               className="mt-2 w-full accent-[var(--ink)]"
             />
