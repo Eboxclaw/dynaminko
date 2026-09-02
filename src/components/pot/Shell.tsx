@@ -84,7 +84,7 @@ export function Shell({
   return (
     <div className="min-h-dvh bg-paper text-ink">
       {/* desktop rail — icons, expands on hover */}
-      <aside className="group fixed inset-y-0 left-0 z-30 hidden w-[68px] flex-col border-r border-stroke bg-surface py-4 transition-[width] duration-200 hover:w-[212px] lg:flex">
+      <aside className="group fixed inset-y-0 left-0 z-30 hidden w-[68px] flex-col border-r border-stroke bg-surface py-4 transition-[width,box-shadow] duration-200 hover:w-[212px] hover:shadow-[8px_0_24px_-16px_rgba(0,0,0,0.35)] lg:flex">
         <Link to="/" className="mb-6 flex h-8 items-center overflow-hidden px-[21px]">
           <Mark className="h-[26px] w-[26px] shrink-0" />
           <span className="ml-3 whitespace-nowrap text-[14px] font-semibold tracking-tight opacity-0 transition-opacity duration-150 group-hover:opacity-100">
