@@ -22,14 +22,15 @@ import { Mark, Wordmark } from "./Mark";
 import { WalletChip } from "./WalletChip";
 
 const NAV = [
-  { to: "/", label: "Dashboard", icon: LayoutGrid },
-  { to: "/portfolio", label: "Baskets", icon: Wallet },
-  { to: "/journal", label: "Theses", icon: NotebookPen },
-  { to: "/pot", label: "POT Index", icon: Gauge },
-  { to: "/earn", label: "Earn", icon: Coins },
-  { to: "/alerts", label: "Alerts", icon: BellRing },
-  { to: "/agents", label: "Agents", icon: Bot },
+  { to: "/", label: "Dashboard", short: "Home", icon: LayoutGrid },
+  { to: "/portfolio", label: "Baskets", short: "Baskets", icon: Wallet },
+  { to: "/journal", label: "Theses", short: "Theses", icon: NotebookPen },
+  { to: "/pot", label: "POT Index", short: "Index", icon: Gauge },
+  { to: "/earn", label: "Earn", short: "Earn", icon: Coins },
+  { to: "/alerts", label: "Alerts", short: "Alerts", icon: BellRing },
+  { to: "/agents", label: "Agents", short: "Agent", icon: Bot },
 ] as const;
+
 
 function ThemeToggle() {
   const [dark, setDark] = useState(false);
