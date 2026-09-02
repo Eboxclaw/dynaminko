@@ -48,6 +48,14 @@ export type ModelSpec = {
    */
   kv?: { attnLayers: number; kvHeads: number; headDim: number };
   /**
+   * True for models too heavy to share the runtime with a second wllama
+   * handle: while such a model is the chat target, routing uses the
+   * transformers.js MiniLM encoder instead of the LFM embedder (measured
+   * 09-01: 1.59GB 2.6B + any second wllama handle = GPU ABORT or wedged
+   * embeds, while every smaller model coexisted fine).
+   */
+  encoderFallback?: boolean;
+  /**
    * Decide-phase tool menu format (opengrok adapter pattern): "book" renders
    * the plain-text capability list in the user message (default), "native"
    * passes the capabilities as `tools` so the LFM chat template renders its
@@ -95,6 +103,10 @@ const MODEL_LIST: Omit<ModelSpec, "backend">[] = [
     // helpers stay (decideTools/inputsToSchema + worker tools passthrough
     // + tool_calls recovery) as tested groundwork for a future build.
     // decideMenu: "native",
+    // Co-residency limit (measured 09-01): this is the one model that cannot
+    // share the machine with a second wllama handle. Routing falls back to
+    // the transformers.js MiniLM encoder while it is the chat target.
+    encoderFallback: true,
     sampling: { temperature: 0.2, minP: 0.15, repeatPenalty: 1.1, penaltyLastN: 64, topK: 50 },
   },
   {

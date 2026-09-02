@@ -196,6 +196,10 @@ async function loadEmbedModelInternal(
 
   try {
     ctx.postMessage({ type: "loading", modelId: spec.id, reqId } satisfies AiWorkerResponse);
+    // Note: a resident 2.6B cannot share the machine with a second wllama
+    // handle (GPU: ABORT, CPU: wedged embeds; measured 09-01). That case is
+    // handled upstream by routing such models to the transformers.js
+    // encoder (spec.encoderFallback), not by downgrading this handle.
     try {
       await load(gpuOk);
       embedBackend = gpuOk ? "webgpu" : caps.wasmSimd || caps.wasm ? "wasm" : "unavailable";
@@ -641,6 +645,18 @@ async function chatMessages(
   return out.trim();
 }
 
+/** An Emscripten "(ABORT)" leaves the handle alive-but-dead: currentModel
+ *  stays set, so every later call fails in milliseconds while the UI still
+ *  says Ready. Drop the handle so the next ask builds a fresh one (weights
+ *  stay cached; the reload is seconds). */
+async function healAbortedInstance(err: unknown): Promise<void> {
+  const message = err instanceof Error ? err.message : String(err ?? "");
+  if (!/abort/i.test(message)) return;
+  await exitInstance();
+  currentModel = null;
+  activeBackend = "unavailable";
+}
+
 // ── message handler ──────────────────────────────────────────────────
 
 const ctx = self as unknown as DedicatedWorkerGlobalScope;
@@ -707,6 +723,7 @@ ctx.addEventListener(
           const text = await chatMessages(msg.turns, msg.options);
           ctx.postMessage({ type: "done", text } satisfies AiWorkerResponse);
         } catch (err) {
+          await healAbortedInstance(err);
           ctx.postMessage({
             type: "error",
             message: err instanceof Error ? err.message : "chat failed",
@@ -726,6 +743,7 @@ ctx.addEventListener(
           );
           ctx.postMessage({ type: "done", text } satisfies AiWorkerResponse);
         } catch (err) {
+          await healAbortedInstance(err);
           ctx.postMessage({
             type: "error",
             message: err instanceof Error ? err.message : "chat failed",

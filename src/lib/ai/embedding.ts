@@ -66,6 +66,21 @@ export const PROVIDER_BY_ID = Object.fromEntries(
 export const DEFAULT_EMBEDDING_ID: EmbeddingProviderId = "lfm2-5-embed-350m";
 export const FALLBACK_EMBEDDING_ID: EmbeddingProviderId = "minilm-6-v2";
 
+// ── co-residency constraint ──────────────────────────────────────────────
+//
+// Heavy chat models (spec.encoderFallback, today the 2.6B) cannot share the
+// machine with a second wllama handle. While one is the chat target, every
+// selection below prefers the transformers.js MiniLM (a separate runtime)
+// over the LFM embedder. Set by useAi whenever the selected model changes.
+
+let encoderConstrained = false;
+export function setEncoderConstraint(heavy: boolean): void {
+  encoderConstrained = heavy;
+}
+export function encoderConstrainedActive(): boolean {
+  return encoderConstrained;
+}
+
 export type ProviderState =
   | "missing"
   | "downloaded"
@@ -296,8 +311,14 @@ export function cosine(a: number[], b: number[]): number {
 
 /** The provider actually usable right now: the resident LFM embedder first,
  * a resident MiniLM fallback second, and for non-opportunistic callers the
- * best cached candidate (MiniLM when the LFM weights are not on device). */
+ * best cached candidate (MiniLM when the LFM weights are not on device, or
+ * whenever a heavy chat model forces the separate-runtime encoder). */
 export async function activeProvider(opportunistic: boolean): Promise<EmbeddingProviderId | null> {
+  if (encoderConstrained) {
+    if (providerReady(FALLBACK_EMBEDDING_ID)) return FALLBACK_EMBEDDING_ID;
+    if (opportunistic) return null;
+    if (await providerCached(FALLBACK_EMBEDDING_ID)) return FALLBACK_EMBEDDING_ID;
+  }
   if (providerReady(DEFAULT_EMBEDDING_ID)) return DEFAULT_EMBEDDING_ID;
   if (providerReady(FALLBACK_EMBEDDING_ID)) return FALLBACK_EMBEDDING_ID;
   if (opportunistic) return null;

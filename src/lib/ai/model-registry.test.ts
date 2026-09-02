@@ -76,6 +76,12 @@ describe("model registry", () => {
     expect(kvCacheGb(MODEL_BY_ID["lfm2-350-thinking"], 8192, "q8_0")).toBeCloseTo(0.0498, 3);
   });
 
+  it("only the 2.6B forces the separate-runtime encoder (co-residency limit)", () => {
+    for (const m of MODELS.filter((x) => x.generative)) {
+      expect(m.encoderFallback ?? false).toBe(m.id === "lfm2-2_6");
+    }
+  });
+
   it("every ctx choice is a valid number and the default is one of them", () => {
     expect(CTX_CHOICES).toContain(DEFAULT_CTX);
     for (const c of CTX_CHOICES) expect(Number.isFinite(c)).toBe(true);

@@ -33,6 +33,7 @@ import {
   type Backend,
   type RuntimeCapabilities,
 } from "@/lib/ai/runtime";
+import { setEncoderConstraint } from "@/lib/ai/embedding";
 import {
   encoderBackend,
   encoderCached,
@@ -113,6 +114,12 @@ export function useAi() {
     [settings.aiModelId],
   );
   const [loadedCtx, setLoadedCtx] = useState(DEFAULT_CTX);
+  // Co-residency: a heavy chat model (the 2.6B) cannot share the machine
+  // with a second wllama handle, so routing must use the transformers.js
+  // encoder while it is selected. Pure main-thread bookkeeping.
+  useEffect(() => {
+    setEncoderConstraint(MODEL_BY_ID[settings.aiModelId]?.encoderFallback === true);
+  }, [settings.aiModelId]);
   // Cloud context is tuned manually (the provider card decides the real
   // ceiling); persisted under a synthetic id so it survives reloads.
   const [cloudCtx, setCloudCtxState] = useState(() => persistedCtx(CLOUD_CTX_KEY) ?? 32768);

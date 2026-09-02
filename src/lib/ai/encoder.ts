@@ -14,6 +14,7 @@ import {
   cosine as cosineOf,
   downloadProvider,
   embed as embedWith,
+  encoderConstrainedActive,
   ensureProviderIfCached,
   lastRankStats,
   loadDownloadedProvider,
@@ -43,16 +44,22 @@ export type EncoderState =
 
 /** The provider this facade acts on, without any await: resident default,
  * resident fallback, then the default. Cache probing is async and only the
- * cached/activate paths below pay for it. */
+ * cached/activate paths below pay for it. A heavy chat model
+ * (spec.encoderFallback, the 2.6B) forces the separate-runtime fallback. */
 function targetId(): EmbeddingProviderId {
-  if (providerReady(DEFAULT_EMBEDDING_ID)) return DEFAULT_EMBEDDING_ID;
+  const constrained = encoderConstrainedActive();
+  if (constrained && providerReady(FALLBACK_EMBEDDING_ID)) return FALLBACK_EMBEDDING_ID;
+  if (!constrained && providerReady(DEFAULT_EMBEDDING_ID)) return DEFAULT_EMBEDDING_ID;
   if (providerReady(FALLBACK_EMBEDDING_ID)) return FALLBACK_EMBEDDING_ID;
-  return DEFAULT_EMBEDDING_ID;
+  return constrained ? FALLBACK_EMBEDDING_ID : DEFAULT_EMBEDDING_ID;
 }
 
 /** Which provider a download should fetch: the LFM embedder everywhere a
- * phone-class memory budget can still carry it next to a generative model. */
+ * phone-class memory budget can still carry it next to a generative model —
+ * except while a heavy chat model holds the machine, when the right encoder
+ * is the separate-runtime fallback. */
 async function downloadId(): Promise<EmbeddingProviderId> {
+  if (encoderConstrainedActive()) return FALLBACK_EMBEDDING_ID;
   try {
     const { deviceProfile } = await import("@/lib/ai");
     const p = deviceProfile();
@@ -105,8 +112,13 @@ export async function encoderDownloadTarget(): Promise<{
 }
 
 /** Load whichever encoder is cached: the LFM embedder when present, the
- * MiniLM fallback otherwise. Never downloads. */
+ * MiniLM fallback otherwise. Never downloads. Under the co-residency
+ * constraint the fallback is preferred even when the LFM handle is cached. */
 export async function activateSemantic(onProgress?: (fraction: number) => void) {
+  if (encoderConstrainedActive() && (await providerCached(FALLBACK_EMBEDDING_ID))) {
+    const mini = await loadDownloadedProvider(FALLBACK_EMBEDDING_ID, onProgress);
+    if (mini) return mini;
+  }
   if (await providerCached(DEFAULT_EMBEDDING_ID)) {
     const lfm = await loadDownloadedProvider(DEFAULT_EMBEDDING_ID, onProgress);
     if (lfm) return lfm;
