@@ -14,7 +14,7 @@ import { buildInferenceProfile, detectRuntime } from "@/lib/ai/runtime";
 import { readDelta } from "@/lib/ai/stream";
 // The registry lives once, on the main thread (lib/ai.ts). This module has no
 // runtime imports of its own, so it bundles into the worker cleanly.
-import { DEFAULT_CTX, DEFAULT_MODEL_ID, MODEL_BY_ID, MODELS, type ModelSpec } from "@/lib/ai";
+import { DEFAULT_CTX, DEFAULT_MODEL_ID, MODEL_BY_ID, MODELS, budgetOutcome, type ModelSpec } from "@/lib/ai";
 import { renderInterceptedCalls, withNativeToolTurns } from "@/lib/ai/nativeTools";
 
 // ── worker global shims ───────────────────────────────────────────────
@@ -36,7 +36,16 @@ if (!g.document || !g.document.baseURI) {
 // ── types ────────────────────────────────────────────────────────────
 
 export type AiWorkerRequest =
-  | { type: "load"; modelId: string; nCtx?: number; allowDownload: boolean }
+  | {
+      type: "load";
+      modelId: string;
+      nCtx?: number;
+      allowDownload: boolean;
+      /** dev-only backend pin for the comparison protocol */
+      forcedBackend?: "webgpu" | "wasm";
+      /** override the spec's reasoning default (FAST vs REASONED reload) */
+      reasoning?: boolean;
+    }
   // Carries the owning load's reqId so the worker releases the guard only for
   // the request the main thread stopped waiting on, never for a newer load.
   | ({ type: "cancel-load"; modelId: string } & WithReqId)
@@ -59,11 +68,16 @@ export type AiWorkerRequest =
 type WithReqId = { reqId?: number };
 
 export type AiWorkerResponse =
-  | ({ type: "ready"; modelId: string; backend: string; ctx: number } & WithReqId)
+  | ({ type: "ready"; modelId: string; backend: string; ctx: number } & WithReqId & {
+      /** what actually engaged, for the perf trace */
+      threadsRequested?: number;
+      threadsEffective?: number;
+      gpuLayers?: number;
+    })
   | ({ type: "loading"; modelId: string; progress?: number } & WithReqId)
   | ({ type: "error"; modelId?: string; message: string } & WithReqId)
   | { type: "token"; text: string; speed?: { tps: number; tokens: number } }
-  | { type: "done"; text: string }
+  | { type: "done"; text: string; metrics?: GenerationMetrics }
   | ({ type: "cached-models"; ids: string[] } & WithReqId)
   | ({ type: "deleted"; modelId: string } & WithReqId)
   | { type: "unloaded" }
@@ -90,6 +104,22 @@ type ChatOptions = {
       };
     };
   }[];
+};
+
+/** One generation, measured honestly: prefill (TTFT), steady-state decode,
+ *  and totals are separate numbers. tok/s is NEVER total wall clock — that
+ *  mixed metric is what hid the 2.6B stall signature for days. */
+export type GenerationMetrics = {
+  promptTokens: number | null;
+  /** true when promptTokens is a chars/4 estimate, not a tokenizer count */
+  promptTokensEstimated: boolean;
+  outputTokens: number;
+  ttftMs: number | null;
+  /** steady-state tokens/sec after the first token */
+  decodeTps: number | null;
+  totalMs: number;
+  /** null until wllama exposes a reasoning-token count */
+  reasoningTokens: number | null;
 };
 
 // ── worker state ─────────────────────────────────────────────────────
@@ -399,7 +429,13 @@ async function loadModelInternal(
   allowDownload: boolean,
   requestCtx?: number,
   reqId?: number,
-): Promise<{ ok: true; backend: string; ctx: number } | { ok: false; error: string }> {
+  opts: { forcedBackend?: "webgpu" | "wasm"; reasoning?: boolean } = {},
+): Promise<
+  | { ok: true; backend: string; ctx: number; threadsRequested: number; threadsEffective: number; gpuLayers: number }
+  | { ok: false; error: string }
+> {
+  const forcedBackend = opts.forcedBackend;
+  const reasoningOverride = opts.reasoning;
   const spec = modelSpec(modelId) ?? modelSpec(DEFAULT_MODEL_ID)!;
   if (spec.runtime !== "gguf" || !spec.generative) {
     return {
@@ -421,8 +457,24 @@ async function loadModelInternal(
   }
 
   const caps = await detectRuntime();
-  const profile = buildInferenceProfile(caps, spec.weightsGb, spec.nLayers, nCtx);
-  const gpuOk = caps.webgpu && profile.n_gpu_layers > 0;
+  // Capacity = feasibility, computed from the real KV geometry against the
+  // conservative envelope (q8_0 is the smaller KV; if even q8 does not fit,
+  // f16 certainly does not). This decides the escape hatch only.
+  const fullGpuFits =
+    budgetOutcome(spec, nCtx, caps.memoryClassGb, "q8_0").verdict !== "UNSAFE";
+  const profile = buildInferenceProfile(caps, spec.weightsGb, spec.nLayers, nCtx, {
+    fullGpuFits,
+  });
+
+  // Backend candidates, equals: webgpu-full preferred when viable, wasm-simd
+  // always available. `forcedBackend` (dev-only, ?forceBackend= on the page)
+  // pins one for the native-vs-browser comparison; a pinned webgpu load that
+  // fails does NOT silently fall back — a comparison run must be honest.
+  // No partial offload on the normal path (capacity escape hatch only,
+  // decided inside buildInferenceProfile).
+  const forced = forcedBackend;
+  const gpuOk =
+    forced === "wasm" ? false : caps.webgpu && !caps.webgpuBroken && profile.n_gpu_layers > 0;
 
   // A fresh inference handle per load: wllama's exit() does not always fully
   // unwind the Emscripten module, so re-loading repeatedly on one handle
@@ -436,6 +488,7 @@ async function loadModelInternal(
     const ctx = self as unknown as DedicatedWorkerGlobalScope;
     ctx.postMessage({ type: "loading", modelId: spec.id, reqId } satisfies AiWorkerResponse);
 
+    let usedGpuLayers = profile.n_gpu_layers;
     const load = async (useGpu: boolean) => {
       const p = { ...profile };
       if (!useGpu) {
@@ -443,6 +496,7 @@ async function loadModelInternal(
         p.offload_kqv = false;
         p.no_kv_offload = false;
       }
+      usedGpuLayers = p.n_gpu_layers;
       await runtime.loadModelFromHF(
         {
           repo: spec.repo,
@@ -452,10 +506,13 @@ async function loadModelInternal(
         {
           n_ctx: nCtx,
           useCache: true,
-          // Reasoning models (2.6B, 1.2B Thinking, 1.2B instruct) get the
-          // template's own thinking path instead of an English sentence
-          // bolted onto the system prompt downstream.
-          reasoning: spec.reasoning,
+          // Reasoning models get the template's own thinking path with an
+          // explicit budget (2K accepted starting point for the 2.6B), instead
+          // of an English sentence bolted onto the system prompt downstream.
+          reasoning: reasoningOverride ?? spec.reasoning,
+          ...(reasoningOverride ?? spec.reasoning
+            ? { reasoning_budget_tokens: spec.reasoningBudget ?? 2048 }
+            : {}),
           n_gpu_layers: p.n_gpu_layers,
           n_threads: p.n_threads,
           n_batch: p.n_batch,
@@ -484,7 +541,7 @@ async function loadModelInternal(
       await load(gpuOk);
       activeBackend = gpuOk ? "webgpu" : caps.wasmSimd || caps.wasm ? "wasm" : "unavailable";
     } catch (gpuErr) {
-      if (!gpuOk) throw gpuErr;
+      if (!gpuOk || forced === "webgpu") throw gpuErr;
       // The failed GPU attempt may have half-initialized this handle's WASM
       // module. Swap in a fresh handle (shared cache, so no re-download)
       // rather than re-initializing the damaged one.
@@ -498,7 +555,17 @@ async function loadModelInternal(
     currentModel = spec.id;
     currentCtx = nCtx;
 
-    return { ok: true, backend: activeBackend, ctx: nCtx };
+    // What actually engaged, for the perf trace: wllama disables pthreads
+    // without SharedArrayBuffer, so effective threads are 1 in any
+    // non-isolated context (the IAB) no matter what was requested.
+    return {
+      ok: true,
+      backend: activeBackend,
+      ctx: nCtx,
+      threadsRequested: profile.n_threads,
+      threadsEffective: caps.crossOriginIsolated ? profile.n_threads : 1,
+      gpuLayers: usedGpuLayers,
+    };
   } catch (err) {
     // Clear the resident-model state so the UI reads "not loaded". The cache
     // is the shared manager, so it survives this handle being dropped.
@@ -515,7 +582,7 @@ async function loadModelInternal(
 async function chatMessages(
   turns: { role: string; content: string }[],
   options: ChatOptions = {},
-): Promise<string> {
+): Promise<{ text: string; metrics: GenerationMetrics }> {
   // The handle outlives the model, so "a model is loaded" means currentModel
   // is set, not that the handle exists.
   if (!instance || !currentModel) throw new Error("assistant not loaded");
@@ -567,7 +634,12 @@ async function chatMessages(
   const abortController = new AbortController();
   let out = "";
   let tokens = 0;
-  const started = performance.now();
+  const startedAt = performance.now();
+  let firstTokenAt: number | null = null;
+  let lastTokenAt = 0;
+  /** OAI streams may carry usage on the final chunk; captured when present so
+   *  promptTokens is a real tokenizer count whenever the backend provides it. */
+  let usage: { prompt_tokens?: number; completion_tokens?: number } | null = null;
   const nativeCalls: { name: string; arguments: string }[] = [];
 
   const sampling = spec?.sampling;
@@ -610,6 +682,9 @@ async function chatMessages(
       : {}),
     abortSignal: abortController.signal,
     onData: (chunk) => {
+      const u = (chunk as { usage?: { prompt_tokens?: number; completion_tokens?: number } })
+        .usage;
+      if (u && (u.prompt_tokens != null || u.completion_tokens != null)) usage = u;
       // When tools are passed, llama.cpp intercepts the model's native tool
       // call out of the content stream and delivers it as tool_calls
       // fragments; content stays empty. Accumulate the fragments so the call
@@ -623,12 +698,19 @@ async function chatMessages(
       if (!piece) return;
       out += piece;
       tokens += 1;
+      if (firstTokenAt == null) firstTokenAt = performance.now();
+      lastTokenAt = performance.now();
       const ctx = self as unknown as DedicatedWorkerGlobalScope;
-      const secs = (performance.now() - started) / 1000;
+      // Steady-state decode rate only: tokens after the first, divided by
+      // the span between the first and the latest token. Prefill time lives
+      // in ttftMs, never in this number.
+      const decodeSecs = firstTokenAt != null ? (lastTokenAt - firstTokenAt) / 1000 : 0;
+      const tps =
+        tokens > 1 && decodeSecs > 0 ? Math.round(((tokens - 1) / decodeSecs) * 10) / 10 : null;
       ctx.postMessage({
         type: "token",
         text: piece,
-        ...(secs > 0 ? { speed: { tps: Math.round((tokens / secs) * 10) / 10, tokens } } : {}),
+        ...(tps != null ? { speed: { tps, tokens } } : {}),
       } satisfies AiWorkerResponse);
       if (abortRun) abortController.abort();
     },
@@ -642,7 +724,25 @@ async function chatMessages(
     if (rendered) out = rendered;
   }
 
-  return out.trim();
+  const totalMs = Math.round(performance.now() - startedAt);
+  const decodeSecs = firstTokenAt != null ? (lastTokenAt - firstTokenAt) / 1000 : 0;
+  const promptChars = turns.reduce((n, t) => n + t.content.length, 0);
+  // Real tokenizer count when the backend reports usage; chars/4 estimate
+  // otherwise (flagged so readers know it is an estimate).
+  type Usage = { prompt_tokens?: number; completion_tokens?: number };
+  const u = usage as Usage | null;
+  const promptTokens = u?.prompt_tokens ?? (promptChars > 0 ? Math.ceil(promptChars / 4) : null);
+  const metrics: GenerationMetrics = {
+    promptTokens,
+    promptTokensEstimated: u?.prompt_tokens == null,
+    outputTokens: u?.completion_tokens ?? tokens,
+    ttftMs: firstTokenAt != null ? Math.round(firstTokenAt - startedAt) : null,
+    decodeTps:
+      tokens > 1 && decodeSecs > 0 ? Math.round(((tokens - 1) / decodeSecs) * 10) / 10 : null,
+    totalMs,
+    reasoningTokens: null,
+  };
+  return { text: out.trim(), metrics };
 }
 
 /** An Emscripten "(ABORT)" leaves the handle alive-but-dead: currentModel
@@ -684,7 +784,10 @@ ctx.addEventListener(
         loadInFlight = { reqId, modelId: msg.modelId };
         let result;
         try {
-          result = await loadModelInternal(msg.modelId, msg.allowDownload, msg.nCtx, reqId);
+          result = await loadModelInternal(msg.modelId, msg.allowDownload, msg.nCtx, reqId, {
+            forcedBackend: msg.forcedBackend,
+            reasoning: msg.reasoning,
+          });
         } finally {
           // Only clear the guard if this request still owns it; a newer load
           // may have taken over after a cancel.
@@ -697,6 +800,9 @@ ctx.addEventListener(
             modelId: msg.modelId,
             backend: result.backend,
             ctx: result.ctx,
+            threadsRequested: result.threadsRequested,
+            threadsEffective: result.threadsEffective,
+            gpuLayers: result.gpuLayers,
           } satisfies AiWorkerResponse);
         } else {
           ctx.postMessage({
@@ -720,8 +826,8 @@ ctx.addEventListener(
 
       case "chat-messages": {
         try {
-          const text = await chatMessages(msg.turns, msg.options);
-          ctx.postMessage({ type: "done", text } satisfies AiWorkerResponse);
+          const { text, metrics } = await chatMessages(msg.turns, msg.options);
+          ctx.postMessage({ type: "done", text, metrics } satisfies AiWorkerResponse);
         } catch (err) {
           await healAbortedInstance(err);
           ctx.postMessage({
@@ -734,14 +840,14 @@ ctx.addEventListener(
 
       case "chat": {
         try {
-          const text = await chatMessages(
+          const { text, metrics } = await chatMessages(
             [
               { role: "system", content: msg.system },
               { role: "user", content: msg.user },
             ],
             msg.options,
           );
-          ctx.postMessage({ type: "done", text } satisfies AiWorkerResponse);
+          ctx.postMessage({ type: "done", text, metrics } satisfies AiWorkerResponse);
         } catch (err) {
           await healAbortedInstance(err);
           ctx.postMessage({

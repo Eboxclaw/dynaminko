@@ -28,6 +28,24 @@ export type PerfTrace = {
     model: string;
     backend?: string;
     phases: Phase;
+    /** what the load actually engaged (P1 telemetry: requested vs effective) */
+    runtime?: {
+      backend?: string;
+      threadsRequested?: number;
+      threadsEffective?: number;
+      gpuLayers?: number;
+      nCtx?: number;
+    };
+    /** the answer generation's own measurements, when a model answered */
+    generation?: {
+      promptTokens: number | null;
+      promptTokensEstimated?: boolean;
+      outputTokens: number;
+      ttftMs: number | null;
+      decodeTps: number | null;
+      totalMs: number;
+      reasoningTokens: number | null;
+    };
     /** timestamp when the first useful deterministic result appeared */
     firstUsefulActionAt?: number;
     /** timestamp when the grounded answer text landed */
@@ -94,6 +112,21 @@ export function tagModel(model: string, backend?: string) {
   if (!perf.turn) return;
   if (!perf.turn.model) perf.turn.model = model;
   if (backend) perf.turn.backend = backend;
+}
+
+/** What the load actually engaged (merge: later fields win, earlier survive). */
+export function tagRuntime(rt: NonNullable<NonNullable<PerfTrace["turn"]>["runtime"]>) {
+  if (!perf.turn) return;
+  perf.turn.runtime = { ...perf.turn.runtime, ...rt };
+  mirror();
+}
+
+/** The answer generation's measurements (last write wins: decide hops share
+ *  the turn, the final answer is what the trace should keep). */
+export function tagGeneration(g: NonNullable<NonNullable<PerfTrace["turn"]>["generation"]>) {
+  if (!perf.turn) return;
+  perf.turn.generation = g;
+  mirror();
 }
 
 /** ms since the active turn began. */

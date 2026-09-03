@@ -10,7 +10,22 @@
 
 import type { Wllama } from "@wllama/wllama/esm/index.js";
 import { runtimeSnapshot, type Backend } from "@/lib/ai/runtime";
-import type { AiWorkerRequest, AiWorkerResponse } from "@/workers/ai.worker";
+import { tagGeneration, tagRuntime } from "@/lib/ai/trace";
+import type { AiWorkerRequest, AiWorkerResponse, GenerationMetrics } from "@/workers/ai.worker";
+
+/** Dev-only backend pin for the comparison protocol: ?forceBackend=webgpu|wasm.
+ *  A pinned webgpu load never silently falls back, so a comparison run is
+ *  honest about which backend produced its numbers. */
+const FORCED_BACKEND: "webgpu" | "wasm" | null = (() => {
+  try {
+    const v = new URLSearchParams(
+      typeof location !== "undefined" ? location.search : "",
+    ).get("forceBackend");
+    return v === "webgpu" || v === "wasm" ? v : null;
+  } catch {
+    return null;
+  }
+})();
 
 // ── static config (stays on main thread) ─────────────────────────────
 // This registry is the single source of truth; the AI worker imports it from
@@ -62,6 +77,12 @@ export type ModelSpec = {
    * own `List of tools: [...]` in the system prompt.
    */
   decideMenu?: "book" | "native";
+  /**
+   * Generated-thinking compute budget for reasoning models (load-time,
+   * wllama reasoning_budget_tokens). 2048 is the accepted starting point;
+   * kept unless the native-vs-browser comparison proves otherwise.
+   */
+  reasoningBudget?: number;
   sampling?: {
     temperature: number;
     minP: number;
@@ -93,7 +114,9 @@ const MODEL_LIST: Omit<ModelSpec, "backend">[] = [
     vision: false,
     reasoning: true,
     generative: true,
-    maxCtx: 128192,
+    // Card limit 131072: the hybrid KV (8 of 30 layers) makes 128K ≈ 1.14 GB
+    // at q8_0, a capacity question per device, not a reason to cap the card.
+    maxCtx: 131072,
     nLayers: 32,
     kv: { attnLayers: 8, kvHeads: 8, headDim: 64 },
     // decideMenu "native" measured-and-shelved (08-30): with `tools` passed,
@@ -107,6 +130,7 @@ const MODEL_LIST: Omit<ModelSpec, "backend">[] = [
     // share the machine with a second wllama handle. Routing falls back to
     // the transformers.js MiniLM encoder while it is the chat target.
     encoderFallback: true,
+    reasoningBudget: 2048,
     sampling: { temperature: 0.2, minP: 0.15, repeatPenalty: 1.1, penaltyLastN: 64, topK: 50 },
   },
   {
@@ -131,6 +155,7 @@ const MODEL_LIST: Omit<ModelSpec, "backend">[] = [
     // guessing a full-attention cache that does not exist (DeltaNet layers
     // carry no context-scaled KV).
     nLayers: 28,
+    reasoningBudget: 2048,
     sampling: { temperature: 0.6, minP: 0.05, repeatPenalty: 1.05, penaltyLastN: 64, topK: 20, topP: 0.95 },
   },
   {
@@ -176,6 +201,7 @@ const MODEL_LIST: Omit<ModelSpec, "backend">[] = [
     maxCtx: 32768,
     nLayers: 28,
     kv: { attnLayers: 6, kvHeads: 8, headDim: 64 },
+    reasoningBudget: 2048,
     // Card quick-start says --temp 0.6; the in-app standard is 0.2, adjusted
     // after live runs if thinking traces loop or stall.
     sampling: { temperature: 0.2, minP: 0.15, repeatPenalty: 1.05, penaltyLastN: 64, topK: 50 },
@@ -263,10 +289,11 @@ export function modelFor(cap: Capability, downloaded?: Set<string>): ModelSpec |
 }
 
 // The full context ladder. The menu a model actually sees is
-// ctxChoicesFor(spec.maxCtx): every model gets its real maximum, the 2.6B
-// included (65536 is the sane in-browser ceiling for it; its spec allows
-// 128192 but the KV cache at q8_0 would dwarf the weights).
-export const CTX_CHOICES = [1024, 2048, 4096, 8192, 16384, 32128, 65536] as const;
+// ctxChoicesFor(spec.maxCtx): every model gets its REAL card maximum — the
+// 2.6B's 131072 included. The KV cost of long contexts (q8_0: 64K ≈ 0.57 GB,
+// 128K ≈ 1.14 GB) is a capacity question the budget model evaluates per
+// device, never a reason to shrink the ladder itself.
+export const CTX_CHOICES = [1024, 2048, 4096, 8192, 16384, 32128, 65536, 131072] as const;
 export function ctxChoicesFor(maxCtx: number): number[] {
   return (CTX_CHOICES as readonly number[]).filter((c) => c <= maxCtx);
 }
@@ -481,6 +508,16 @@ let sLoadedModelId: string | null = null;
 let sLoadedContext = DEFAULT_CTX;
 let sActiveBackend: Backend = "unavailable";
 let sEmbedBackend = "unavailable";
+/** what the current load actually engaged, for /usage and the trace */
+let sLoadInfo: {
+  backend: string;
+  ctx: number;
+  threadsRequested?: number;
+  threadsEffective?: number;
+  gpuLayers?: number;
+} | null = null;
+/** metrics of the most recent generation (decide or answer) */
+let sLastMetrics: GenerationMetrics | null = null;
 
 /**
  * Request/response correlation. Every request carries a `reqId`; the worker
@@ -554,6 +591,20 @@ function getWorker(): Worker | null {
           sLoadedModelId = msg.modelId;
           sLoadedContext = msg.ctx;
           sActiveBackend = msg.backend as Backend;
+          sLoadInfo = {
+            backend: msg.backend,
+            ctx: msg.ctx,
+            threadsRequested: msg.threadsRequested,
+            threadsEffective: msg.threadsEffective,
+            gpuLayers: msg.gpuLayers,
+          };
+          tagRuntime({
+            backend: msg.backend,
+            threadsRequested: msg.threadsRequested,
+            threadsEffective: msg.threadsEffective,
+            gpuLayers: msg.gpuLayers,
+            nCtx: msg.ctx,
+          });
           settle(msg.reqId, (v) => v, { status: "ready", modelId: msg.modelId });
           return;
         }
@@ -714,6 +765,17 @@ export function loadedContext(): number {
   return sLoadedContext;
 }
 
+/** What the current load actually engaged (threads are 1 in any
+ *  non-cross-origin-isolated context, the IAB included). */
+export function loadInfo(): typeof sLoadInfo {
+  return sLoadInfo;
+}
+
+/** Metrics of the most recent generation (decide or answer). */
+export function lastGenerationMetrics(): GenerationMetrics | null {
+  return sLastMetrics;
+}
+
 export function activeBackend(): Backend {
   return sActiveBackend;
 }
@@ -743,7 +805,7 @@ let activeStatusModelId: string | null = null;
 export async function downloadModel(
   modelId: string,
   onStatus: (s: AiStatus) => void,
-  options: { nCtx?: number } = {},
+  options: { nCtx?: number; reasoning?: boolean } = {},
 ): Promise<LifecycleResult> {
   const spec = MODEL_BY_ID[modelId] ?? MODEL_BY_ID[DEFAULT_MODEL_ID];
   const guard = budgetGuard(spec, options.nCtx);
@@ -760,6 +822,8 @@ export async function downloadModel(
       modelId,
       allowDownload: true,
       nCtx: options.nCtx,
+      forcedBackend: FORCED_BACKEND ?? undefined,
+      reasoning: options.reasoning,
     });
     onStatus({ phase: "ready", modelId });
     return { status: "ready", modelId };
@@ -855,7 +919,7 @@ function budgetGuard(spec: ModelSpec, nCtx?: number): LifecycleResult | null {
 export async function loadDownloadedModel(
   modelId: string,
   onStatus: (s: AiStatus) => void,
-  options: { nCtx?: number } = {},
+  options: { nCtx?: number; reasoning?: boolean } = {},
 ): Promise<LifecycleResult> {
   const spec = MODEL_BY_ID[modelId] ?? MODEL_BY_ID[DEFAULT_MODEL_ID];
   if (spec.desktopOnly && deviceProfile().mobile) {
@@ -865,7 +929,14 @@ export async function loadDownloadedModel(
   if (guard) return guard;
   onStatus({ phase: "loading", modelId });
   try {
-    await postAndWait<void>({ type: "load", modelId, allowDownload: false, nCtx: options.nCtx });
+    await postAndWait<void>({
+      type: "load",
+      modelId,
+      allowDownload: false,
+      nCtx: options.nCtx,
+      forcedBackend: FORCED_BACKEND ?? undefined,
+      reasoning: options.reasoning,
+    });
     onStatus({ phase: "ready", modelId });
     return { status: "ready", modelId };
   } catch (err) {
@@ -878,7 +949,7 @@ export async function loadDownloadedModel(
 export async function rotateToDownloadedModel(
   modelId: string,
   onStatus: (s: AiStatus) => void,
-  options: { nCtx?: number } = {},
+  options: { nCtx?: number; reasoning?: boolean } = {},
 ): Promise<LifecycleResult> {
   if (isReady(modelId)) return { status: "already_loaded", modelId };
   return loadDownloadedModel(modelId, onStatus, options);
@@ -984,6 +1055,30 @@ export function chatMessages(
           return;
         }
         case "done": {
+          if (msg.metrics) {
+            sLastMetrics = msg.metrics;
+            // The load usually happens outside any turn, so tagRuntime from
+            // the "ready" moment is gone by answer time: stamp the standing
+            // load info here (same values, last-write-wins).
+            if (sLoadInfo) {
+              tagRuntime({
+                backend: sLoadInfo.backend,
+                threadsRequested: sLoadInfo.threadsRequested,
+                threadsEffective: sLoadInfo.threadsEffective,
+                gpuLayers: sLoadInfo.gpuLayers,
+                nCtx: sLoadInfo.ctx,
+              });
+            }
+            tagGeneration({
+              promptTokens: msg.metrics.promptTokens,
+              promptTokensEstimated: msg.metrics.promptTokensEstimated,
+              outputTokens: msg.metrics.outputTokens,
+              ttftMs: msg.metrics.ttftMs,
+              decodeTps: msg.metrics.decodeTps,
+              totalMs: msg.metrics.totalMs,
+              reasoningTokens: msg.metrics.reasoningTokens,
+            });
+          }
           worker?.removeEventListener("message", handler);
           // Final speed update
           resolve(out);
@@ -1013,13 +1108,25 @@ export function chatMessages(
       },
     } satisfies AiWorkerRequest);
 
-    // Idle-based deadline: a model that is still producing tokens is never
-    // cut, however slowly it thinks (the 2.6B measured 0.4 tok/s mid-think;
-    // the old total-wall timer killed it ~80 tokens in). Only silence ends
-    // the run: 75s covers cold prefill on multi-thousand-token prompts, and
-    // a 10-minute absolute backstop still bounds a wedged stream.
-    const IDLE_MS = 75_000;
+    // Idle-based deadline derived from observed behavior, not a fixed wall:
+    // silence of max(MIN_IDLE_MS, K × recent inter-token latency) ends the
+    // run, with the 10-minute absolute backstop still bounding a wedged
+    // stream. A fast stream that pauses 2× its own rhythm is judged stuck in
+    // seconds; a 0.4 tok/s thinker is never cut mid-thought.
+    const MIN_IDLE_MS = 15_000;
+    const IDLE_K = 4;
+    const MAX_IDLE_MS = 75_000;
     const BACKSTOP_MS = 600_000;
+    let lastTokenTs = 0;
+    let prevTokenTs = 0;
+    const idleBudget = () => {
+      // Before the first token nothing is observable: prefill of a
+      // multi-thousand-token prompt can legitimately be silent for a long
+      // time, so the pre-first-token budget stays at the ceiling.
+      if (lastTokenTs === 0) return MAX_IDLE_MS;
+      const gap = prevTokenTs > 0 ? lastTokenTs - prevTokenTs : 0;
+      return Math.min(MAX_IDLE_MS, Math.max(MIN_IDLE_MS, IDLE_K * gap));
+    };
     let idleTimer: ReturnType<typeof setTimeout> | null = null;
     let backstop: ReturnType<typeof setTimeout> | null = null;
     const settle = (withPartial: boolean) => {
@@ -1031,11 +1138,15 @@ export function chatMessages(
     };
     const armIdle = () => {
       if (idleTimer) clearTimeout(idleTimer);
-      idleTimer = setTimeout(() => settle(true), IDLE_MS);
+      idleTimer = setTimeout(() => settle(true), idleBudget());
     };
     backstop = setTimeout(() => settle(true), BACKSTOP_MS);
     armIdle();
-    (handler as unknown as { rearmOnToken?: () => void }).rearmOnToken = armIdle;
+    (handler as unknown as { rearmOnToken?: () => void }).rearmOnToken = () => {
+      prevTokenTs = lastTokenTs || performance.now();
+      lastTokenTs = performance.now();
+      armIdle();
+    };
   });
 }
 

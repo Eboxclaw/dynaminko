@@ -114,20 +114,24 @@ async function probeWebGpu(): Promise<{
     const description = [info?.vendor, info?.architecture].filter(Boolean).join(" ");
     const vendor = info?.vendor ?? null;
 
-    // Memory CLASS (P0.3): a conservative usable-model-memory budget, never
-    // total RAM. deviceMemory reports class tiers (and Chrome caps it at 8),
-    // so only half of it counts as loadable; absent (Safari), fall back to
-    // the adapter's own storage-binding bound, a real GPU-side ceiling.
+    // Memory CAPACITY ENVELOPE (feasibility only, never performance): a
+    // conservative ~80% working-set ceiling over the best capacity signal.
+    // deviceMemory is a coarse, privacy-clamped CLASS (Chrome caps it at 8,
+    // so a 16 GB machine reports 8 → 6.4 GB envelope); it is NOT free RAM and
+    // NOT VRAM. Where it is absent (Safari), the adapter's storage-binding
+    // bound is the fallback signal. This envelope gates loads (can this
+    // configuration sit on this device at all); it never picks batch, cache
+    // types, threads, or backend speed assumptions.
     const nav = navigator as Navigator & { deviceMemory?: number };
     const deviceMemoryGb = typeof nav.deviceMemory === "number" ? nav.deviceMemory : null;
     const limits = adapter.limits;
     let memoryClassGb: number | null = null;
 
     if (deviceMemoryGb != null) {
-      memoryClassGb = Math.max(0.5, deviceMemoryGb / 2);
+      memoryClassGb = Math.max(1, deviceMemoryGb * 0.8);
     } else if (limits?.maxStorageBufferBindingSize) {
       const maxBufGb = limits.maxStorageBufferBindingSize / 1073741824;
-      if (maxBufGb >= 2) memoryClassGb = maxBufGb;
+      if (maxBufGb >= 2) memoryClassGb = maxBufGb * 0.8;
     }
 
     return { ok: true, broken: false, adapter: description || "adapter", vram: memoryClassGb, vendor };
@@ -215,8 +219,11 @@ function recommendFlashAttn(nCtx: number): boolean {
 }
 
 /**
- * Compute ideal n_gpu_layers based on VRAM vs model weight.
- * Returns the number of transformer layers to offload to GPU.
+ * Capacity escape hatch ONLY: how many layers a partial GPU placement could
+ * carry within the memory envelope. This is not on the normal performance
+ * path — the normal path is webgpu-full or wasm-simd. Partial placement is
+ * considered exclusively when the FULL GPU working set would not fit the
+ * device envelope (decided by the caller via fullGpuFits=false).
  */
 export function computeGpuLayers(
   memoryClassGb: number | null,
@@ -227,7 +234,7 @@ export function computeGpuLayers(
 ): number {
   if (!gpuOk || gpuBroken) return 0;
   if (memoryClassGb === null) {
-    // No VRAM info — conservative: offload everything (assume desktop)
+    // No envelope signal — conservative: offload everything (assume desktop)
     return modelLayers;
   }
 
@@ -262,21 +269,28 @@ export type InferenceProfile = {
 /**
  * Build a per-device, per-model inference profile.
  * Called once at load time, after capabilities are detected.
+ *
+ * Backend candidates are equals: webgpu-full when WebGPU is viable and the
+ * full working set fits the capacity envelope, wasm-simd otherwise. Partial
+ * GPU placement appears ONLY through the capacity escape hatch
+ * (fullGpuFits=false); it is never a performance choice, and "WebGPU
+ * available" never implies "WebGPU fastest" — measured winners can later
+ * override this cold-start policy.
  */
 export function buildInferenceProfile(
   caps: RuntimeCapabilities,
   modelWeightsGb: number,
   modelLayers: number,
   nCtx: number,
+  opts: { fullGpuFits?: boolean } = {},
 ): InferenceProfile {
   const gpuOk = caps.webgpu && !caps.webgpuBroken;
-  const gpuLayers = computeGpuLayers(
-    caps.memoryClassGb,
-    modelWeightsGb,
-    modelLayers,
-    gpuOk,
-    caps.webgpuBroken,
-  );
+  const gpuLayers = gpuOk
+    ? opts.fullGpuFits === false
+      // Capacity escape hatch: the full GPU working set would not fit.
+      ? computeGpuLayers(caps.memoryClassGb, modelWeightsGb, modelLayers, gpuOk, caps.webgpuBroken)
+      : modelLayers
+    : 0;
 
   // Threads: only valuable when cross-origin isolated (SharedArrayBuffer).
   // The curve is threadPolicy: desktop keeps cores-1 (cap 12), mobile gets

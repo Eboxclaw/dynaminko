@@ -8,6 +8,7 @@ import {
   deviceProfile,
   isReady,
   downloadModel,
+  loadDownloadedModel,
   deleteModel,
   loadedModelId,
   rotateToDownloadedModel,
@@ -327,17 +328,75 @@ export function useAi() {
   );
 
   /**
+   * Switch the loaded model's reasoning mode (FAST vs REASONED). wllama's
+   * reasoning controls are load-time, so this is a reload: seconds, weights
+   * stay cached. The Thinking toggle maps onto it for reasoning-capable
+   * local models, so the UI state and the loaded template always agree.
+   */
+  const reloadReasoning = useCallback(
+    async (on: boolean): Promise<{ ok: boolean; error?: string }> => {
+      if (opInFlight.current) return { ok: false, error: "another model operation is in progress" };
+      opInFlight.current = true;
+      const modelId = settings.aiModelId;
+      setActiveStatusCallback(applyStatus, modelId);
+      try {
+        const result = await loadDownloadedModel(modelId, applyStatus, {
+          nCtx: localCtx,
+          reasoning: on,
+        });
+        if (result.status !== "ready") {
+          throw new Error("message" in result ? result.message : "the model failed to reload");
+        }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "the model failed to reload";
+        if (mounted.current) setStatus({ phase: "error", message, modelId });
+        return { ok: false, error: message };
+      } finally {
+        setActiveStatusCallback(null, null);
+        opInFlight.current = false;
+      }
+      setLoadedCtx(loadedContext());
+      setBackend(activeBackend());
+      return { ok: true };
+    },
+    [applyStatus, localCtx, settings.aiModelId],
+  );
+
+  /**
    * Chat calls this before answering. A model already on this device is woken
    * up automatically; weights are never fetched without an explicit download.
+   * `reasoning` keeps the wake consistent with the Thinking toggle: without
+   * it a re-wake would silently restore the template's default mode.
    */
-  const wake = useCallback(async (): Promise<{ ok: boolean; error?: string }> => {
-    if (cloudCfg) return { ok: true };
-    const id = settings.aiModelId;
-    if (isReady(id)) return { ok: true };
-    const cached = await cachedModels();
-    if (!cached.has(id)) return { ok: false, error: "not_downloaded" };
-    return activate(id);
-  }, [activate, cloudCfg, settings.aiModelId]);
+  const wake = useCallback(
+    async (reasoning?: boolean): Promise<{ ok: boolean; error?: string }> => {
+      if (cloudCfg) return { ok: true };
+      const id = settings.aiModelId;
+      if (isReady(id)) return { ok: true };
+      const cached = await cachedModels();
+      if (!cached.has(id)) return { ok: false, error: "not_downloaded" };
+      if (reasoning == null) return activate(id);
+      opInFlight.current = true;
+      setActiveStatusCallback(applyStatus, id);
+      try {
+        const result = await loadDownloadedModel(id, applyStatus, { nCtx: localCtx, reasoning });
+        if (result.status !== "ready") {
+          throw new Error("message" in result ? result.message : "the model failed to load");
+        }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "the model failed to load";
+        if (mounted.current) setStatus({ phase: "error", message, modelId: id });
+        return { ok: false, error: message };
+      } finally {
+        setActiveStatusCallback(null, null);
+        opInFlight.current = false;
+      }
+      setLoadedCtx(loadedContext());
+      setBackend(activeBackend());
+      return { ok: true };
+    },
+    [activate, applyStatus, cloudCfg, localCtx, settings.aiModelId],
+  );
 
   /** Full multi-turn form: the model's own chat template structures history. */
   const askMessages = useCallback(
@@ -606,6 +665,8 @@ export function useAi() {
     setMaxTokens,
     load,
     wake,
+    /** reload the loaded local model with reasoning on/off (FAST vs REASONED) */
+    reloadReasoning,
     /** 0..1 while the active download runs, null otherwise */
     progress: status.phase === "downloading" ? status.progress : null,
     ensure,

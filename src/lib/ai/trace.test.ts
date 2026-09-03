@@ -9,7 +9,9 @@ import {
   markAnswerDone,
   markFirstUsefulAction,
   measure,
+  tagGeneration,
   tagModel,
+  tagRuntime,
   tagTurn,
 } from "./trace";
 
@@ -38,5 +40,33 @@ describe("perf trace", () => {
     expect(done?.totalMs).not.toBeNull();
     beginTurn(); // a /usage command turn resets the active trace…
     expect(completedTurn()).toBe(done); // …but the snapshot survives
+  });
+
+  it("runtime tags merge field-by-field and land in the completed snapshot", () => {
+    beginTurn();
+    tagTurn("q-rt");
+    tagRuntime({ backend: "webgpu", threadsRequested: 9 });
+    tagRuntime({ threadsEffective: 1, gpuLayers: 30, nCtx: 16384 });
+    tagGeneration({
+      promptTokens: 2861,
+      promptTokensEstimated: true,
+      outputTokens: 64,
+      ttftMs: 41000,
+      decodeTps: 5.2,
+      totalMs: 44500,
+      reasoningTokens: null,
+    });
+    markAnswerDone();
+    const t = completedTurn();
+    // Field-by-field merge: the backend survives the second partial tag.
+    expect(t?.runtime).toEqual({
+      backend: "webgpu",
+      threadsRequested: 9,
+      threadsEffective: 1,
+      gpuLayers: 30,
+      nCtx: 16384,
+    });
+    expect(t?.generation?.decodeTps).toBe(5.2);
+    expect(t?.generation?.promptTokensEstimated).toBe(true);
   });
 });

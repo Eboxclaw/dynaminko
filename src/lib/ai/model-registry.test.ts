@@ -82,6 +82,22 @@ describe("model registry", () => {
     }
   });
 
+  it("the 2.6B keeps its real 131072 card ceiling and the ladder reaches it", () => {
+    expect(MODEL_BY_ID["lfm2-2_6"].maxCtx).toBe(131072);
+    expect(CTX_CHOICES).toContain(131072);
+    // Hybrid KV (8 of 30 layers): 128K at q8_0 ≈ 1.0625 GiB (= the ~1.14
+    // decimal GB of the card math), a capacity question the budget model
+    // evaluates, never a reason to cap the card.
+    expect(kvCacheGb(MODEL_BY_ID["lfm2-2_6"], 131072, "q8_0")).toBeCloseTo(1.0625, 3);
+    expect(kvCacheGb(MODEL_BY_ID["lfm2-2_6"], 65536, "q8_0")).toBeCloseTo(0.53125, 3);
+  });
+
+  it("every reasoning model carries the 2048 starting thinking budget", () => {
+    const reasoning = MODELS.filter((m) => m.reasoning);
+    expect(reasoning.length).toBeGreaterThan(0);
+    for (const m of reasoning) expect(m.reasoningBudget).toBe(2048);
+  });
+
   it("every ctx choice is a valid number and the default is one of them", () => {
     expect(CTX_CHOICES).toContain(DEFAULT_CTX);
     for (const c of CTX_CHOICES) expect(Number.isFinite(c)).toBe(true);

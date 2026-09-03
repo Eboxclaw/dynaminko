@@ -712,7 +712,11 @@ function ChatConsole({
     turn.stage("model", ai.target.label);
     if (ai.target.kind === "local" && !ai.loadedModelId) {
       setSwitchBusy(true);
-      const woke = await ai.wake();
+      const woke = await ai.wake(
+        // Keep the wake consistent with the Thinking toggle for
+        // reasoning-capable models (FAST vs REASONED is a load-time mode).
+        canReason ? thinking : undefined,
+      );
       setSwitchBusy(false);
       measure("modelLoad", Date.now() - wakeStart);
       if (!woke.ok) {
@@ -1897,6 +1901,17 @@ function ChatConsole({
               .map(([k, v]) => `${k} ${v.ms}ms`)
               .join(", ")
           : "no measured turn yet (ask a question)";
+        // What the load actually engaged + the answer generation's own split:
+        // threadsEffective 1 = non-isolated context (the IAB), decodeTps is
+        // steady-state AFTER the first token, ttft carries the prefill.
+        const rt = perf?.runtime;
+        const gen = perf?.generation;
+        const runtimeLine = rt
+          ? `runtime ${rt.backend ?? "?"} · threads ${rt.threadsEffective ?? "?"}/${rt.threadsRequested ?? "?"} · gpu layers ${rt.gpuLayers ?? "?"} · ctx ${rt.nCtx ?? "?"}`
+          : "runtime not recorded this turn";
+        const genLine = gen
+          ? `gen: prompt ${gen.promptTokens ?? "?"}${gen.promptTokensEstimated ? "≈" : ""}t · ttft ${gen.ttftMs ?? "?"}ms · decode ${gen.decodeTps ?? "?"} tok/s · out ${gen.outputTokens}t · ${gen.totalMs}ms`
+          : "no model generation this turn";
         // The last effective-settings line, logged by the answer turn.
         const usageLine = getDoc().logs?.find(
           (l) => l.agent === "agent" && l.event === "usage",
@@ -1905,6 +1920,8 @@ function ChatConsole({
           role: "note",
           text: [
             perfLine,
+            runtimeLine,
+            genLine,
             usageLine ?? "no model answer yet this session",
             `last prompt ${lastT != null && lastT > 0 ? `${lastT}t` : "—"} · ctx budget ${Math.floor(ai.ctx * 0.75)}`,
             `memory ${memCtx.chars}/${memCtx.limit} chars · ${memCtx.entries} notes`,
@@ -2333,7 +2350,16 @@ function ChatConsole({
               <Toggle
                 on={thinking}
                 disabled={!canReason}
-                onClick={() => setThinking((v) => !v)}
+                onClick={() => {
+                  const next = !thinking;
+                  setThinking(next);
+                  // For local reasoning-capable models the template's thinking
+                  // path is a load-time setting: the toggle is a reload (FAST
+                  // vs REASONED), so the UI state and the loaded model can
+                  // never disagree. Weights stay cached; seconds, not a
+                  // re-download.
+                  if (ai.target.kind === "local" && canReason) void ai.reloadReasoning(next);
+                }}
                 icon={<Brain className="h-3 w-3" />}
                 label="Thinking"
               />
