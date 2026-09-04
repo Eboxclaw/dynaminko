@@ -45,14 +45,20 @@ describe("decide prompt prefix stability", () => {
   const base = {
     question: "what patterns do you see in my recent trades",
     menuText: "journal.filter: filter entries by ticker (inputs: ticker)",
-    facts: "wallet: none watched\nentries: 12",
-    web: false,
   };
 
   it("keeps the system prompt free of per-hop state", () => {
     // The slot cache reuses the longest common token prefix of consecutive
     // completions; a per-hop byte anywhere in the head kills the reuse.
     expect(DECIDE_SYSTEM).not.toMatch(/At most \d+ more tool picks/);
+  });
+
+  it("carries no FACTS block: facts ride in the compiled shared head", () => {
+    // Facts render once, in the head every call of the turn shares. A FACTS
+    // section in the user content would break decide/answer byte sharing.
+    const content = decideUserContent(base);
+    expect(content).not.toContain("FACTS");
+    expect(content.startsWith("QUESTION\n")).toBe(true);
   });
 
   it("appends the remaining count after evidence, at the tail", () => {

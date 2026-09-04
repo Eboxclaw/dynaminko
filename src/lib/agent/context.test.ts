@@ -1,15 +1,19 @@
 // buildTurn is the single budget-aware assembly point for every prompt the
 // model sees. These tests pin the section order, the shed order, the forced
-// degradation levels, and the history head+tail compaction.
+// degradation levels, the history head+tail compaction, and the compiled
+// shared head that makes decide and answer prompts share a byte-exact prefix.
 
 import { describe, expect, it } from "vitest";
 
 import {
   buildTurn,
   clampDataText,
+  compileHead,
   GROUND_RULES,
+  HEAD_SECTION_NAMES,
   MAX_OBSERVATION_CHARS,
   observationsPrompt,
+  renderHead,
   type ToolObservation,
 } from "./context";
 import { capabilityCatalogue } from "@/lib/capabilities/catalogue";
@@ -20,12 +24,15 @@ function baseInput(overrides: Partial<Parameters<typeof buildTurn>[0]> = {}) {
     (d) => d.kind !== "concept" && d.kind !== "agent_capability",
   );
   return {
-    instructions: "Answer briefly.",
-    state: "wallet: none watched\nentries: 0",
-    capabilitiesDigest: defs.map((d) => `${d.id} | ${d.kind}`).join("\n"),
+    head: compileHead({
+      instructions: "Answer briefly.",
+      memory: "",
+      book: defs.map((d) => `${d.id} | ${d.kind}`).join("\n"),
+      facts: "wallet: none watched\nentries: 0",
+      portfolio: "",
+    }),
     selectedCapabilities: [] as Parameters<typeof buildTurn>[0]["selectedCapabilities"],
     records: [] as string[],
-    memory: "",
     observations: [] as Parameters<typeof buildTurn>[0]["observations"],
     history: [] as ChatMessage[],
     user: "hello",
@@ -217,6 +224,122 @@ describe("buildTurn", () => {
     const b = buildTurn(baseInput());
     const sectionSum = b.sections.reduce((n, s) => n + s.estTokens, 0);
     expect(b.estTokens).toBeGreaterThanOrEqual(sectionSum);
+  });
+
+  it("renders the shared head in volatility order, tail sections behind history", () => {
+    const defs = capabilityCatalogue().filter((d) => d.kind === "tool").slice(0, 2);
+    const b = buildTurn(
+      baseInput({
+        head: compileHead({
+          instructions: "Answer briefly.",
+          memory: "user prefers short answers",
+          book: "journal.search | tool",
+          facts: "entries: 0",
+          portfolio: "net_worth: 1.00",
+        }),
+        selectedCapabilities: defs,
+        records: ["rec"],
+        observations: [
+          {
+            id: "t1",
+            kind: "tool",
+            source: "journal.search",
+            status: "ok",
+            summary: "3 rows",
+            data: { rows: [1] },
+          },
+        ],
+        history: [
+          { id: "h1", role: "user", text: "earlier question", ts: 1 },
+          { id: "h2", role: "assistant", text: "earlier answer", ts: 2 },
+        ] as unknown as ChatMessage[],
+        budgetTokens: 12000,
+      }),
+    );
+    const names = b.sections.map((s) => s.name);
+    // head sections appear in renderHead order, then the per-turn tail in
+    // volatility order; INSTRUCTIONS is always last so the head never moves.
+    const idx = (n: string) => names.indexOf(n);
+    for (const n of ["PORTFOLIO", "HISTORY", "DETAIL", "OBSERVATIONS", "RECORDS", "INSTRUCTIONS"]) {
+      expect(idx(n)).toBeGreaterThanOrEqual(0);
+    }
+    expect(idx("PORTFOLIO")).toBeLessThan(idx("HISTORY"));
+    expect(idx("HISTORY")).toBeLessThan(idx("DETAIL"));
+    expect(idx("DETAIL")).toBeLessThan(idx("OBSERVATIONS"));
+    expect(idx("OBSERVATIONS")).toBeLessThan(idx("RECORDS"));
+    expect(idx("RECORDS")).toBeLessThan(idx("INSTRUCTIONS"));
+    expect(names.slice(0, 5)).toEqual(HEAD_SECTION_NAMES);
+  });
+
+  it("opens the system prompt with the byte-exact renderHead prefix the decide view shares", () => {
+    const head = compileHead({
+      instructions: "Answer briefly.",
+      memory: "mem line",
+      book: "journal.search | tool",
+      facts: "entries: 0",
+      portfolio: "net_worth: 1.00",
+    });
+    const b = buildTurn(baseInput({ head }));
+    const system = b.messages[0].content;
+    const headRendered = renderHead(head);
+    expect(system.startsWith(headRendered)).toBe(true);
+    // The decide view renders the same head followed by the DECIDE role body,
+    // so the longest common prefix of the two system prompts is the head
+    // itself: a decide-to-answer transition prefills only the tail.
+    const decideSystem = `${headRendered}\n\nDECIDE\npick`;
+    let lcp = 0;
+    while (lcp < Math.min(system.length, decideSystem.length) && system[lcp] === decideSystem[lcp]) {
+      lcp++;
+    }
+    // The shared prefix is the head plus the "\n\n" separator both views
+    // place after it; the next byte already differs (tail section vs DECIDE).
+    expect(lcp).toBe(headRendered.length + 2);
+    // The answer's per-call instructions render at the tail, never in the head.
+    expect(system.slice(0, headRendered.length)).not.toContain("Answer briefly.");
+    expect(system).toContain("INSTRUCTIONS\nAnswer briefly.");
+  });
+
+  it("keeps FACTS byte-equal across every build of one turn", () => {
+    const head = compileHead({
+      instructions: "Answer briefly.",
+      memory: "",
+      book: "journal.search | tool",
+      facts: "entries: 0\npot_score: 0.72",
+      portfolio: "net_worth: 1.00",
+    });
+    const a = buildTurn(baseInput({ head }));
+    const b = buildTurn(
+      baseInput({
+        head,
+        observations: [
+          {
+            id: "t1",
+            kind: "tool",
+            source: "journal.search",
+            status: "ok",
+            summary: "3 rows",
+            data: { rows: [1] },
+          },
+        ],
+      }),
+    );
+    const factsA = a.sections.find((s) => s.name === "FACTS")!;
+    const factsB = b.sections.find((s) => s.name === "FACTS")!;
+    expect(factsA.text).toBe(factsB.text);
+    expect(factsA.text).toBe(head.facts);
+  });
+
+  it("renderHead skips empty sections so no bare headings drift the prefix", () => {
+    const minimal = renderHead(
+      compileHead({ instructions: "i", memory: "", book: "b", facts: "f", portfolio: "" }),
+    );
+    // CORE always renders the full profile text; MEMORY and PORTFOLIO drop
+    // entirely when empty rather than leaving a bare heading. (The profile
+    // prose mentions MEMORY as a word, so match the heading forms.)
+    expect(minimal.startsWith("CORE\n")).toBe(true);
+    expect(minimal).not.toContain("MEMORY\n");
+    expect(minimal).not.toContain("PORTFOLIO\n");
+    expect(minimal.endsWith("CAPABILITIES\nFull book:\nb\n\nFACTS\nf")).toBe(true);
   });
 });
 

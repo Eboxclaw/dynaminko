@@ -173,18 +173,18 @@ export type TurnBuild = {
 };
 
 export type BuildTurnInput = {
-  /** per-call instruction line, e.g. the analyst prompt for a skill turn */
-  instructions: string;
-  /** labeled fact lines (`key: value`), see factLines() */
-  state: string;
-  /** one-line-per-capability book */
-  capabilitiesDigest: string;
-  /** full detail blocks for the turn's selected capabilities, may be "" */
+  /**
+   * The turn's compiled shared head: the byte-identical prefix every prompt
+   * of this turn (decide hops, answer) opens with, so the KV slot cache hits
+   * across calls instead of re-prefilling a differently-shaped prompt.
+   * Compile once with compileHead(); render with renderHead().
+   */
+  head: CompiledHead;
+  /** full detail blocks for the turn's selected capabilities, may be [] */
   selectedCapabilities: CapabilityDefinition[];
   /** retrieved record lines */
   records: string[];
   /** rendered agent memory lines (memoryPrompt()), may be "" */
-  memory: string;
   observations: ToolObservation[];
   /** prior transcript, compacted to fit */
   history: ChatMessage[];
@@ -198,6 +198,74 @@ export type BuildTurnInput = {
    */
   shedLevel?: 0 | 1 | 2;
 };
+
+// ── compiled shared head ────────────────────────────────────────────────
+//
+// The KV slot cache reuses the longest common token prefix of consecutive
+// completions, so every prompt a turn produces opens with the same
+// byte-identical head and diverges only at its role tail. Sections run
+// most-stable-first: identity and the capability book never move, journal
+// FACTS barely move within a session, the per-refresh PORTFOLIO block sits
+// behind them, and per-turn evidence (history, detail, observations,
+// records, the role instructions) comes last so a drifted byte only
+// re-prefills the smallest possible suffix. notes/11 lever (d).
+
+export type CompiledHead = {
+  /** per-call role framing; rendered at the TAIL of the answer system so the
+   *  head stays byte-identical with the decide view */
+  instructions: string;
+  /** rendered agent memory lines (memoryPrompt()), may be "" */
+  memory: string;
+  /** one-line-per-capability book (capabilityDigest()) */
+  book: string;
+  /** journal fact lines plus the web_search line: stable within a session */
+  facts: string;
+  /** live portfolio lines, computed once per turn; may be "" */
+  portfolio: string;
+};
+
+/**
+ * Compile the shared head once per turn. The same object feeds the decide
+ * hops and the answer build, which is what makes their prompts share a
+ * prefix instead of merely resembling each other.
+ */
+export function compileHead(parts: {
+  instructions: string;
+  memory: string;
+  book: string;
+  facts: string;
+  portfolio?: string;
+}): CompiledHead {
+  return {
+    instructions: parts.instructions,
+    memory: parts.memory,
+    book: parts.book,
+    facts: parts.facts,
+    portfolio: parts.portfolio ?? "",
+  };
+}
+
+/**
+ * The head's byte-exact rendering. Never interpolate per-call state here:
+ * decideAction renders this same string as its system prompt's prefix, and
+ * one drifted byte re-prefills everything after it on the next call.
+ */
+export function renderHead(h: CompiledHead): string {
+  const parts: string[] = [];
+  const add = (name: string, text: string) => {
+    const clean = text.trim();
+    if (clean) parts.push(`${name}\n${clean}`);
+  };
+  add("CORE", `${INKO_PROFILE.instructions}\n\n${GROUND_RULES}`);
+  add("MEMORY", h.memory);
+  add("CAPABILITIES", `Full book:\n${h.book}`);
+  add("FACTS", h.facts);
+  add("PORTFOLIO", h.portfolio);
+  return parts.join("\n\n");
+}
+
+/** The section names that make up the shared head, in render order. */
+export const HEAD_SECTION_NAMES = ["CORE", "MEMORY", "CAPABILITIES", "FACTS", "PORTFOLIO"];
 
 /** One history entry as a compact chat turn. Tool cards collapse to one line.
  * Approval-pending messages and slash-command echoes are UI chrome, never
@@ -240,23 +308,27 @@ export function buildTurn(input: BuildTurnInput): TurnBuild {
   const userCost = estimateTokens(input.user);
   const budget = Math.max(0, input.budgetTokens - userCost);
 
-  const coreText = `${INKO_PROFILE.instructions}\n\n${GROUND_RULES}\n\n${input.instructions}`;
-  const factsText = input.state;
-  const bookText = `Full book:\n${input.capabilitiesDigest}`;
-  const detailText = selectedText ? `\n\nDetail for this turn:\n${selectedText}` : "";
+  const h = input.head;
+  const coreText = `${INKO_PROFILE.instructions}\n\n${GROUND_RULES}`;
+  const factsText = h.facts;
+  const bookText = `Full book:\n${h.book}`;
+  const detailText = selectedText ? `Detail for this turn:\n${selectedText}` : "";
 
   const cost = (t: string) => estimateTokens(t.trim());
   const coreCost = cost(coreText);
   const factsCost = cost(factsText);
   // MEMORY is bounded by the store cap (2200 chars) and is never shed: it is
   // persistent identity, not turn evidence, and it always fits.
-  const memCost = cost(input.memory);
-  let capsCost = cost(bookText + detailText);
+  const memCost = cost(h.memory);
+  const capsCost = cost(bookText);
+  const portCost = cost(h.portfolio);
+  let detailCost = cost(detailText);
   let obsCost = cost(observationsPrompt(input.observations));
   let recCost = cost(input.records.join("\n"));
 
   const shed: string[] = [];
-  const over = () => coreCost + factsCost + memCost + capsCost + obsCost + recCost - budget;
+  const over = () =>
+    coreCost + factsCost + memCost + capsCost + portCost + detailCost + obsCost + recCost - budget;
   // Forced degradation for overflow recovery: deterministic levels instead of
   // guessing a smaller budget number.
   const forced = input.shedLevel ?? 0;
@@ -292,34 +364,25 @@ export function buildTurn(input: BuildTurnInput): TurnBuild {
   // 3. capability detail block drops; the one-line book always stays
   if ((over() > 0 || forced >= 1) && detailText) {
     shed.push("capability detail");
-    capsCost = cost(bookText);
+    detailCost = 0;
   }
 
-  const fixed: Array<[string, string, boolean]> = [
-    ["CORE", coreText, false],
-    ["FACTS", factsText, false],
-    ["MEMORY", input.memory, false],
-    [
-      "CAPABILITIES",
-      shed.includes("capability detail") ? bookText : `${bookText}${detailText}`,
-      shed.includes("capability detail"),
-    ],
-    [
-      "OBSERVATIONS",
-      shed.includes("observations data")
-        ? observationsSummaryPrompt(input.observations)
-        : observationsPrompt(input.observations),
-      shed.includes("observations data"),
-    ],
-    ["RECORDS", input.records.join("\n"), shed.some((s) => s.endsWith("records"))],
-  ];
-  for (const [name, text, truncated] of fixed) {
-    if (text.trim()) section(name, text, truncated);
+  // The head first, in renderHead() order so the decide view shares it
+  // byte for byte. Everything per-turn (history, detail, evidence, role
+  // framing) renders after it.
+  for (const [name, text] of [
+    ["CORE", coreText],
+    ["MEMORY", h.memory],
+    ["CAPABILITIES", bookText],
+    ["FACTS", factsText],
+    ["PORTFOLIO", h.portfolio],
+  ] as const) {
+    if (text.trim()) section(name, text);
   }
 
   let historyBudget = Math.max(
     0,
-    budget - (coreCost + factsCost + memCost + capsCost + obsCost + recCost),
+    budget - (coreCost + factsCost + memCost + capsCost + portCost + detailCost + obsCost + recCost),
   );
 
   const lines =
@@ -374,6 +437,25 @@ export function buildTurn(input: BuildTurnInput): TurnBuild {
   if (historyText) {
     section("HISTORY", historyText, middleDropped > 0);
   }
+  // Per-turn tail, volatility order: the selected capability docs, evidence,
+  // retrieved records, and last of all the role framing. Everything here
+  // changes between calls, so it lives behind the shared head and history.
+  if (!shed.includes("capability detail") && detailText) {
+    section("DETAIL", detailText);
+  }
+  if (input.observations.length > 0) {
+    section(
+      "OBSERVATIONS",
+      shed.includes("observations data")
+        ? observationsSummaryPrompt(input.observations)
+        : observationsPrompt(input.observations),
+      shed.includes("observations data"),
+    );
+  }
+  if (input.records.length > 0) {
+    section("RECORDS", input.records.join("\n"), shed.some((s) => s.endsWith("records")));
+  }
+  section("INSTRUCTIONS", h.instructions);
   if (middleDropped > 0) {
     sections.push({
       name: "COMPACTION",
@@ -391,10 +473,18 @@ export function buildTurn(input: BuildTurnInput): TurnBuild {
     });
   }
 
-  const system = sections
-    .filter((s) => s.name !== "COMPACTION" && s.name !== "SHED")
+  // The system prompt opens with the byte-exact shared head (the same string
+  // decideAction renders), then the per-turn tail: a decide-to-answer
+  // transition reuses everything before HISTORY.
+  const tail = sections
+    .filter(
+      (s) =>
+        !HEAD_SECTION_NAMES.includes(s.name) && s.name !== "COMPACTION" && s.name !== "SHED",
+    )
     .map((s) => `${s.name}\n${s.text}`)
     .join("\n\n");
+  const headRendered = renderHead(h);
+  const system = tail ? `${headRendered}\n\n${tail}` : headRendered;
 
   // Chat templates expect alternating roles. Tool evidence rides as
   // user-role prose lines, which can stack consecutive user messages; merge

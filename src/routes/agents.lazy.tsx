@@ -26,7 +26,10 @@ import {
   buildTurn,
   clampDataText,
   commandObservation,
+  compileHead,
+  renderHead,
   skillObservation,
+  type CompiledHead,
   type ToolObservation,
 } from "@/lib/agent/context";
 import { DECIDE_SYSTEM, decideUserContent, hopEvidence, hopKey, isRepeatHop } from "@/lib/agent/hops";
@@ -458,7 +461,7 @@ function ChatConsole({
   const decideAction = async (
     user: string,
     allowed: CapabilityDefinition[],
-    opts: { evidence?: string; remaining?: number } = {},
+    opts: { head: CompiledHead; evidence?: string; remaining?: number },
   ): Promise<{
     def: CapabilityDefinition;
     query: string;
@@ -470,22 +473,21 @@ function ChatConsole({
   } | null> => {
     const ids = allowed.map((d) => d.id);
     if (ids.length === 0) return null;
-    // The pick prompt carries the same live portfolio lines as the answer
-    // prompt: when holdings are already in FACTS the model has no reason to
-    // spend its one hop on journal.search. Empty when the cache is cold.
-    const portfolio = await portfolioFactLines().catch(() => "");
-    const facts = [factLines(), portfolio].filter(Boolean).join("\n");
     // Adapter variant (opengrok pattern): models with decideMenu "native"
     // get the menu through the template's own `tools` render ("List of
     // tools: [...]") instead of the plain-text book. The output contract
     // stays the GBNF JSON pick either way.
     const nativeMenu = ai.spec?.decideMenu === "native";
     const tools = nativeMenu ? decideTools(allowed) : undefined;
-    // Shared builders in hops.ts keep the decide head byte-identical across
-    // hops (the remaining count appends at the tail), so the KV slot cache
-    // prefills only each hop's new evidence instead of the whole prompt.
+    // The decide view opens with the turn's compiled shared head, so hop
+    // prompts share every head byte (CORE, MEMORY, book, FACTS, PORTFOLIO)
+    // with the answer prompt and with each other; the DECIDE role body
+    // appends after it. Shared builders in hops.ts keep the rest
+    // byte-identical across hops (the remaining count appends at the tail),
+    // so the KV slot cache prefills only each hop's new evidence instead of
+    // the whole prompt.
     const messages: TurnMessage[] = [
-      { role: "system", content: DECIDE_SYSTEM },
+      { role: "system", content: `${renderHead(opts.head)}\n\nDECIDE\n${DECIDE_SYSTEM}` },
       {
         role: "user",
         content: decideUserContent({
@@ -500,8 +502,6 @@ function ChatConsole({
                     }`,
                 )
                 .join("\n"),
-          facts,
-          web,
           evidence: opts.evidence,
           remaining: opts.remaining,
         }),
@@ -873,6 +873,39 @@ function ChatConsole({
         }
       }
 
+      // The turn's compiled shared head, built once and handed byte-identical
+      // to every call this turn: decide hops open with renderHead(head) +
+      // DECIDE, the answer opens with renderHead(head) + its tail. Sections
+      // sit most-stable-first, so per-refresh drift (PORTFOLIO last)
+      // re-prefills only the suffix behind it. Portfolio lines are computed
+      // HERE, not at answer time, so the decide and answer views see
+      // identical bytes and the IDB read happens once per turn. Safe to gate
+      // on observations before the loop: skill turns skip hops entirely, and
+      // hops only ever push tool observations.
+      const hasSkillObservation = observationsRef.current.some((o) => o.kind === "skill");
+      const portfolioLines =
+        ground && !conversational && !hasSkillObservation
+          ? await portfolioFactLines().catch(() => "")
+          : "";
+      const turnHead = compileHead({
+        instructions: system,
+        memory: memoryPrompt(),
+        book: capabilityDigest(),
+        facts: [
+          factLines(),
+          `web_search: ${
+            web
+              ? "active this turn, prefer web.search for news and external facts"
+              : intentExternal === true
+                ? "disabled (Web toggle) — this question probably needs the web, enable it on the next turn"
+                : "disabled (Web toggle)"
+          }`,
+        ]
+          .filter(Boolean)
+          .join("\n"),
+        portfolio: portfolioLines,
+      });
+
       // The hop loop: the model picks one read-only tool per hop and sees
       // what every earlier hop observed, so a follow-up hop can build on the
       // one before it (search then read, positions then history). Stop
@@ -904,6 +937,7 @@ function ChatConsole({
                 why: "external intent, web.search forced",
               }
             : await decideAction(user, hopAllowed, {
+                head: turnHead,
                 evidence: hopEvidence(observationsRef.current),
                 remaining: LIMITS.maxToolHops - hop + 1,
               });
@@ -1062,15 +1096,6 @@ function ChatConsole({
       // tripped over. Revisit if answers grow. ai.ctx already resolves to
       // the cloud ladder when a cloud provider is active.
       const budgetTokens = Math.floor(ai.ctx * 0.85);
-      // When a skill already ran this turn its observation carries the same
-      // portfolio numbers FACTS would repeat; both riding along doubled the
-      // prompt (4495t of a 6144 budget) and taught the model to answer by
-      // dumping the pile. Skill turns read the numbers from the observation.
-      const hasSkillObservation = observationsRef.current.some((o) => o.kind === "skill");
-      const portfolioLines =
-        ground && !conversational && !hasSkillObservation
-          ? await portfolioFactLines().catch(() => "")
-          : "";
       // Native tool protocol: model-chosen observations become the
       // call → role:tool response dialogue the LFM template expects (the
       // model re-issues its call forever when the results arrive as prose).
@@ -1087,22 +1112,8 @@ function ChatConsole({
               typeof o.data === "string" ? o.data : JSON.stringify(o.data ?? {})
             }`.slice(0, 2400),
         }));
-      const stateLines = [
-        factLines(),
-        ...(portfolioLines ? [portfolioLines] : []),
-        `web_search: ${
-          web
-            ? "active this turn, prefer web.search for news and external facts"
-            : intentExternal === true
-              ? "disabled (Web toggle) — this question probably needs the web, enable it on the next turn"
-              : "disabled (Web toggle)"
-        }`,
-      ].join("\n");
       const buildInput = {
-        instructions: system,
-        state: stateLines,
-        memory: memoryPrompt(),
-        capabilitiesDigest: capabilityDigest(),
+        head: turnHead,
         selectedCapabilities: selection.selected,
         records,
         observations: toolTurns.length ? [] : observationsRef.current,
@@ -1291,7 +1302,13 @@ function ChatConsole({
           const retryBuild = buildTurn({
             ...buildInput,
             observations: [],
-            state: `${stateLines}\ntool_calls: closed for this turn; answer now from the tool results above`,
+            // The closed-calls directive rides as a leading record: it must
+            // sit at the prompt tail (after the tool dialogue) to bind the
+            // model to prose, not in the shared head.
+            records: [
+              "tool_calls: closed for this turn; answer now from the tool results above",
+              ...records,
+            ],
           });
           lastPromptRef.current = retryBuild.estTokens;
           lastBuildRef.current = retryBuild.sections.map(
@@ -1329,7 +1346,8 @@ function ChatConsole({
       let finalText = text;
       if (ground && !conversational && text) {
         const evidenceText = [
-          stateLines,
+          turnHead.facts,
+          turnHead.portfolio,
           records.join("\n"),
           ...observationsRef.current.map(
             (o) =>
