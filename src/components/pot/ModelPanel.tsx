@@ -117,7 +117,6 @@ const STATE_TEXT: Record<string, string> = {
   downloaded: "on device",
   loading: "working",
   loaded: "active",
-  unavailable: "unavailable here",
   error: "error",
 };
 
@@ -186,7 +185,6 @@ function ModelRow({
           type="radio"
           name="model"
           className="mt-1 accent-[var(--ink)]"
-          disabled={state === "unavailable"}
           checked={selected}
           onChange={() => {
             patchAssistant({ modelId: id, provider: "local" });
@@ -201,7 +199,7 @@ function ModelRow({
                 "eyebrow",
                 state === "loaded" && "text-gain",
                 state === "downloaded" && "text-ink-soft",
-                (state === "error" || state === "unavailable") && "text-loss",
+                (state === "error") && "text-loss",
                 state === "missing" && "text-ink-faint",
               )}
             >
@@ -240,11 +238,7 @@ function ModelRow({
         </div>
         <div className="flex shrink-0 flex-wrap justify-end gap-1">
           {actions.map((a) =>
-            a === "unavailable" ? (
-              <span key={a} className="eyebrow self-center text-ink-faint">
-                unavailable here
-              </span>
-            ) : a === "delete" && confirmingDelete ? (
+            a === "delete" && confirmingDelete ? (
               <span key={a} className="flex gap-1">
                 <button
                   type="button"

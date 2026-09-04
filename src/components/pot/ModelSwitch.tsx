@@ -144,12 +144,10 @@ export function ModelSwitch({
                     <li key={m.id}>
                       <button
                         type="button"
-                        disabled={action === "unavailable"}
                         onClick={() => void pick(m.id)}
                         className={cn(
                           "flex w-full items-baseline gap-2 px-3 py-2 text-left text-[12px] hover:bg-ink/5",
                           active && "bg-ink/5 font-medium",
-                          action === "unavailable" && "opacity-40",
                         )}
                       >
                         <span className="min-w-0 flex-1 truncate">{m.label}</span>

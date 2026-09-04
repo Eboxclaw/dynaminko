@@ -518,11 +518,10 @@ export function useAi() {
         downloaded,
         status,
         loadedId: loadedModelId(),
-        mobile: profile.mobile,
       });
     }
     return out;
-  }, [downloaded, profile.mobile, status]);
+  }, [downloaded, status]);
 
   const select = useCallback(
     (modelId: string) => setSettings({ aiModelId: modelId }),
@@ -562,22 +561,14 @@ export function useAi() {
 
   const actionFor = useCallback(
     (modelId: string): ModelAction =>
-      modelAction(
-        install[modelId] ?? "missing",
-        isReady(modelId),
-        states[modelId] !== "unavailable",
-      ),
-    [install, states],
+      modelAction(install[modelId] ?? "missing", isReady(modelId)),
+    [install],
   );
 
   const actionsFor = useCallback(
     (modelId: string): ModelAction[] =>
-      modelActions(
-        install[modelId] ?? "missing",
-        isReady(modelId),
-        states[modelId] !== "unavailable",
-      ),
-    [install, states],
+      modelActions(install[modelId] ?? "missing", isReady(modelId)),
+    [install],
   );
 
   /** Removes cached weights. Unloads first when that model is resident. */

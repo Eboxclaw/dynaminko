@@ -71,7 +71,6 @@ export type ModelSpec = {
   blurb: string;
   role: string;
   capabilities: Capability[];
-  desktopOnly?: boolean;
   weightsGb: number;
   minRamGb: number;
   vision: boolean;
@@ -132,10 +131,9 @@ const MODEL_LIST: Omit<ModelSpec, "backend">[] = [
     quant: "QAD-Q4_0",
     runtime: "gguf",
     serve: "llama serve -hf LiquidAI/LFM2.5-2.6B-GGUF:QAD-Q4_0",
-    blurb: "Strongest and slowest. Desktop standard.",
+    blurb: "Strongest and slowest. The quality ceiling.",
     role: "Complex reasoning and generation, when it is actually needed",
     capabilities: ["assist", "reason", "extract"],
-    desktopOnly: true,
     weightsGb: 1.59,
     minRamGb: 6,
     vision: false,
@@ -217,7 +215,6 @@ const MODEL_LIST: Omit<ModelSpec, "backend">[] = [
     blurb: "Thinking fine-tune of the 350M backbone. Emits <think> traces; ChatML template with native tool-call tokens.",
     role: "Reasoning executor on the junior backbone, for in-app testing",
     capabilities: ["assist", "reason", "extract"],
-    desktopOnly: true,
     weightsGb: 0.71,
     minRamGb: 3,
     vision: false,
@@ -392,13 +389,14 @@ export function recommendModel(profile = deviceProfile()): { id: string; reason:
   if (!profile.probed) {
     return { id: DEFAULT_MODEL_ID, reason: "checking what this device can carry…" };
   }
+  // The suggestion is order-driven, not device-gated: the roster never hides
+  // models by class (the honest budgetGuard decides fit at the chosen ctx),
+  // and the reported budget is not halved for touch devices.
   const assumed = profile.ramGb ?? (profile.mobile ? 2 : 4);
-  const budget = profile.mobile ? assumed / 2 : assumed;
   const candidates = RECOMMEND_ORDER.map((id) => MODEL_BY_ID[id]).filter(Boolean);
   const pick =
-    candidates.find(
-      (m) => m.generative && budget >= m.minRamGb && !(m.desktopOnly && profile.mobile),
-    ) ?? MODEL_BY_ID[DEFAULT_MODEL_ID]!;
+    candidates.find((m) => m.generative && assumed >= m.minRamGb) ??
+    MODEL_BY_ID[DEFAULT_MODEL_ID]!;
   const seen =
     profile.ramGb != null ? `${profile.ramGb} GB reported` : "memory not reported by the browser";
   return {
@@ -966,9 +964,6 @@ export async function loadDownloadedModel(
   options: { nCtx?: number; reasoning?: boolean } = {},
 ): Promise<LifecycleResult> {
   const spec = MODEL_BY_ID[modelId] ?? MODEL_BY_ID[DEFAULT_MODEL_ID];
-  if (spec.desktopOnly && deviceProfile().mobile) {
-    return { status: "unsupported", modelId: spec.id, message: "This model is unavailable here." };
-  }
   const guard = budgetGuard(spec, options.nCtx);
   if (guard) return guard;
   onStatus({ phase: "loading", modelId });
@@ -1290,11 +1285,10 @@ export function stripToolCallMarkup(text: string): string {
 
 export function modelState(
   modelId: string,
-  opts: { downloaded: Set<string>; status: AiStatus; loadedId: string | null; mobile?: boolean },
+  opts: { downloaded: Set<string>; status: AiStatus; loadedId: string | null },
 ): ModelState {
   const spec = MODEL_BY_ID[modelId];
   if (!spec) return "unavailable";
-  if (spec.desktopOnly && opts.mobile) return "unavailable";
   if (opts.status.modelId === modelId) {
     if (opts.status.phase === "error") return "error";
     if (opts.status.phase === "downloading" || opts.status.phase === "loading") return "loading";

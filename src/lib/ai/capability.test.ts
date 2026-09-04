@@ -7,11 +7,6 @@ import { describe, expect, it } from "vitest";
 import { deriveCapability, modelAction, modelActions } from "./capability";
 
 describe("modelAction", () => {
-  it("unavailable wins over everything", () => {
-    expect(modelAction("missing", false, false)).toBe("unavailable");
-    expect(modelAction("complete", true, false)).toBe("unavailable");
-  });
-
   it("a loaded model offers only unload", () => {
     expect(modelAction("complete", true)).toBe("unload");
     expect(modelAction("partial", true)).toBe("unload");
@@ -30,7 +25,6 @@ describe("modelActions", () => {
     expect(modelActions("partial", false)).toEqual(["resume", "delete"]);
     expect(modelActions("complete", false)).toEqual(["load", "delete"]);
     expect(modelActions("complete", true)).toEqual(["unload", "delete"]);
-    expect(modelActions("missing", false, false)).toEqual(["unavailable"]);
   });
 });
 

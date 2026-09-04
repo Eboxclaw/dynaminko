@@ -25,11 +25,10 @@ export type ModelCapabilityState = {
 /** Cache state for one generative model, independent of what is selected. */
 export type InstallState = "missing" | "partial" | "complete";
 
-export type ModelAction = "download" | "resume" | "load" | "unload" | "delete" | "unavailable";
+export type ModelAction = "download" | "resume" | "load" | "unload" | "delete";
 
 /** The action a button must offer, derived from cache and load state only. */
-export function modelAction(install: InstallState, loaded: boolean, available = true): ModelAction {
-  if (!available) return "unavailable";
+export function modelAction(install: InstallState, loaded: boolean): ModelAction {
   if (loaded) return "unload";
   if (install === "missing") return "download";
   if (install === "partial") return "resume";
@@ -40,12 +39,7 @@ export function modelAction(install: InstallState, loaded: boolean, available = 
  * Every action that applies to one model right now, so each is its own button
  * instead of one control that relabels itself.
  */
-export function modelActions(
-  install: InstallState,
-  loaded: boolean,
-  available = true,
-): ModelAction[] {
-  if (!available) return ["unavailable"];
+export function modelActions(install: InstallState, loaded: boolean): ModelAction[] {
   const out: ModelAction[] = [];
   if (install === "missing") out.push("download");
   else if (install === "partial") out.push("resume");
@@ -61,7 +55,6 @@ export const ACTION_LABEL: Record<ModelAction, string> = {
   load: "Load",
   unload: "Unload",
   delete: "Delete",
-  unavailable: "Unavailable",
 };
 
 function generationSlot(state: ModelState | undefined, status: AiStatus): CapabilitySlot {

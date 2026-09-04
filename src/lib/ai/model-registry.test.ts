@@ -30,8 +30,20 @@ describe("model registry", () => {
     const m = MODEL_BY_ID[DEFAULT_MODEL_ID];
     expect(m).toBeDefined();
     expect(m.generative).toBe(true);
-    expect(m.desktopOnly).toBeFalsy();
     expect(DEFAULT_CTX).toBeLessThanOrEqual(m.maxCtx);
+  });
+
+  it("the roster carries no device-class gate: every model is offered everywhere", () => {
+    // The old desktopOnly flag hid the 2.6B and the Thinking tune on touch
+    // devices regardless of RAM. Detection now tunes the inference PATH, it
+    // never filters the roster; fit is the budgetGuard's job at load time.
+    for (const m of MODELS) expect("desktopOnly" in m).toBe(false);
+  });
+
+  it("the formerly gated models fit an 8GB-class phone envelope at 8K", () => {
+    // deviceMemory 8 x 0.8 = the 6.4 GB envelope a Pixel-class phone reports.
+    expect(budgetOutcome(MODEL_BY_ID["lfm2-2_6"], 8192, 6.4).verdict).toBe("SAFE");
+    expect(budgetOutcome(MODEL_BY_ID["lfm2-350-thinking"], 8192, 6.4).verdict).toBe("SAFE");
   });
 
   it("the roster is the approved LFM2.5 + Qwen set: the 1.2B pair is gone", () => {
@@ -161,15 +173,19 @@ describe("model registry", () => {
     );
   });
 
-  it("recommendModel falls back to the default 350M on a tight 2GB phone", () => {
+  it("recommendModel suggests the 350M on a tight 2GB phone", () => {
     const rec = recommendModel({ ramGb: 2, cores: 4, mobile: true, probed: true });
-    // Mobile halves the reported budget to 1GB, below every model's minRam,
-    // so the fallback default (350M) is returned.
+    // The suggestion is order-driven and the budget is no longer halved for
+    // touch: 2 GB reported covers the 350M's 1.5 GB minRam directly.
     expect(rec.id).toBe("lfm2-350");
   });
 
-  it("recommendModel never recommends a desktop-only model on a phone", () => {
-    const rec = recommendModel({ ramGb: 16, cores: 8, mobile: true, probed: true });
-    expect(MODEL_BY_ID[rec.id].desktopOnly).toBeFalsy();
+  it("recommendModel ignores touch for the suggestion: same memory, same pick", () => {
+    // The old rule excluded desktop-flagged models and halved the mobile
+    // budget; the phone pick now depends only on reported memory and order.
+    const phone = recommendModel({ ramGb: 8, cores: 8, mobile: true, probed: true });
+    const desktop = recommendModel({ ramGb: 8, cores: 8, mobile: false, probed: true });
+    expect(phone.id).toBe(desktop.id);
+    expect(phone.reason).toContain("touch device");
   });
 });
