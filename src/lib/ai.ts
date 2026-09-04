@@ -1124,15 +1124,17 @@ export function chatMessages(
               totalMs: msg.metrics.totalMs,
               reasoningTokens: msg.metrics.reasoningTokens,
             });
-            // Feed the rate only from turns with a real tokenizer count:
-            // a chars/4 estimate would scale the deadlines by the estimate's
-            // own error, and cache-hit turns self-correct through the
-            // high-percentile read in prefillRateMsPerToken.
+            // Feed the rate from every turn with a ttft and a token count,
+            // estimated counts included: the chars/4 estimate errs a few
+            // percent while the reuse signal it must not blur is 2x and up,
+            // and the primary dev backend reports no real tokenizer usage at
+            // all (a real-count-only gate would leave the estimate dead
+            // exactly where the measurements happen).
             if (
               msg.metrics.ttftMs != null &&
               msg.metrics.ttftMs > 0 &&
               msg.metrics.promptTokens != null &&
-              !msg.metrics.promptTokensEstimated
+              msg.metrics.promptTokens > 0
             ) {
               const key = `${sLoadedModelId ?? "none"}|${sActiveBackend}`;
               const list = sPrefillSamples.get(key) ?? [];
