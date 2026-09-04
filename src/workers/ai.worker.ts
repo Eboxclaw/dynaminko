@@ -406,11 +406,35 @@ async function listCacheEntries(): Promise<unknown[] | null> {
   }
 }
 
-/** Whether this repo's weights are in the cache. null = unreadable. */
+/**
+ * Whether this repo's weights are in the cache. null = unreadable. The match
+ * is by repo needle (substring), which is deliberately looser than wllama's
+ * exact-URL assembly: a stale entry from an old quant passes here while
+ * wllama rejects it, which is why loadModelInternal self-heals that split.
+ */
 async function cacheContains(spec: ModelSpec, entries?: unknown[] | null): Promise<boolean | null> {
   const list = entries === undefined ? await listCacheEntries() : entries;
   if (list === null) return null;
   return list.some((e) => entryMatches(e, specNeedle(spec)));
+}
+
+/** Remove every cache entry that mentions this model's repo, returning the
+ * purged entry names (for the honest error message). The stale-entry
+ * self-heal: an entry whose stored address no longer matches the spec's
+ * current URL used to strand the model row between "on device" and
+ * "Model file not found" with no Download button to escape. */
+async function purgeStaleEntries(spec: ModelSpec): Promise<string[]> {
+  try {
+    const cache = await getSharedCache();
+    const entries = (await cache.list()) ?? [];
+    const needle = specNeedle(spec);
+    const doomed = entries.filter((e) => entryMatches(e, needle));
+    if (doomed.length === 0) return [];
+    await cache.deleteMany((e) => entryMatches(e, needle));
+    return doomed.map((e) => (e as { name?: string }).name ?? "unnamed entry");
+  } catch {
+    return [];
+  }
 }
 
 async function computeCachedModels(): Promise<Set<string>> {
@@ -451,6 +475,8 @@ async function loadModelInternal(
     forcedFlashAttn?: boolean | null;
     forcedCache?: boolean | null;
     reasoning?: boolean;
+    /** set by the stale-entry self-heal retry so it never recurses twice */
+    healRetry?: boolean;
   } = {},
 ): Promise<
   | { ok: true; backend: string; ctx: number; threadsRequested: number; threadsEffective: number; gpuLayers: number;
@@ -606,15 +632,38 @@ async function loadModelInternal(
       cacheReuse: profile.flash_attn ? 256 : 0,
     };
   } catch (err) {
+    const message = err instanceof Error ? err.message : "the assistant failed to start";
     // Clear the resident-model state so the UI reads "not loaded". The cache
     // is the shared manager, so it survives this handle being dropped.
     await exitInstance();
     currentModel = null;
     activeBackend = "unavailable";
-    return {
-      ok: false,
-      error: err instanceof Error ? err.message : "the assistant failed to start",
-    };
+
+    // Stale-entry self-heal. wllama's "Model file not found" means its
+    // exact-URL cache assembly missed while our needle gate (above) passed:
+    // the cache holds an entry for this repo whose stored address no longer
+    // matches the spec (an old quant, a half-migrated entry). That state
+    // never recovered on its own: the row kept saying "on device" so no
+    // Download button appeared, and every Load re-threw. Purge the stale
+    // entries; with downloads allowed (the Download button) retry the load,
+    // which now re-fetches with progress; otherwise hand back the honest
+    // one-click recovery error (the row flips to Download once the UI
+    // refreshes its cache listing).
+    if (/^Model file not found:/.test(message) && !opts.healRetry) {
+      const purged = await purgeStaleEntries(spec);
+      if (purged.length > 0) {
+        if (allowDownload) {
+          return loadModelInternal(modelId, true, requestCtx, reqId, { ...opts, healRetry: true });
+        }
+        return {
+          ok: false,
+          error:
+            `${spec.label}: stale cached files were removed (their address no longer matches ` +
+            `the current model file); press Download to fetch it again`,
+        };
+      }
+    }
+    return { ok: false, error: message };
   }
 }
 

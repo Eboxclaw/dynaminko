@@ -311,6 +311,10 @@ export function useAi() {
       } catch (err) {
         const message = err instanceof Error ? err.message : "the model failed to load";
         if (mounted.current) setStatus({ phase: "error", message, modelId });
+        // The worker's stale-entry self-heal may have purged cache entries
+        // under us; re-list so a healed row stops claiming "on device" and
+        // offers Download instead of a Load that would re-fail.
+        await refreshDownloaded();
         return { ok: false, error: message };
       } finally {
         setActiveStatusCallback(null, null);
@@ -386,6 +390,8 @@ export function useAi() {
       } catch (err) {
         const message = err instanceof Error ? err.message : "the model failed to load";
         if (mounted.current) setStatus({ phase: "error", message, modelId: id });
+        // Same heal-awareness as activate(): the cache may have been purged.
+        await refreshDownloaded();
         return { ok: false, error: message };
       } finally {
         setActiveStatusCallback(null, null);
@@ -395,7 +401,7 @@ export function useAi() {
       setBackend(activeBackend());
       return { ok: true };
     },
-    [activate, applyStatus, cloudCfg, localCtx, settings.aiModelId],
+    [activate, applyStatus, cloudCfg, localCtx, refreshDownloaded, settings.aiModelId],
   );
 
   /** Full multi-turn form: the model's own chat template structures history. */
