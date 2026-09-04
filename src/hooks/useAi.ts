@@ -143,7 +143,9 @@ export function useAi() {
   // (0.2 standard local, provider cards in cloud) must be the default, not a
   // hardcoded session value silently overriding every spec.
   const [temperature, setTemperature] = useState<number | null>(null);
-  const [maxTokens, setMaxTokens] = useState(8192);
+  const [maxTokens, setMaxTokens] = useState(() =>
+    Math.min(8192, Math.floor(localCtx * 0.4)),
+  );
   const [downloaded, setDownloaded] = useState<Set<string>>(new Set());
   /** Models with an in-flight or interrupted download: the cache index says
    * "missing" but progress says "started", which is exactly "partial". */
