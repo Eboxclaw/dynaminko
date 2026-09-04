@@ -313,6 +313,9 @@ function ChatConsole({
   const lastBuildRef = useRef<{ name: string; estTokens: number; truncated: boolean }[] | null>(
     null,
   );
+  // The context ledger of the last turn (allocation + per-section rows),
+  // what /context renders as the session's actual context allocation.
+  const lastLedgerRef = useRef<ReturnType<typeof buildTurn>["ledger"] | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
   // ── idle semantic prewarm ────────────────────────────────────────────
@@ -1225,6 +1228,7 @@ function ChatConsole({
         history: Number.isFinite(historyTurnCap) ? messages.slice(-historyTurnCap) : messages,
         user,
         budgetTokens,
+        allocation,
       };
       let build = buildTurn(buildInput);
       const ctxStart = Date.now();
@@ -1237,6 +1241,7 @@ function ChatConsole({
           estTokens,
           truncated,
         }));
+        lastLedgerRef.current = build.ledger;
       };
       recordBuild();
       measure("context", Date.now() - ctxStart, `build ${build.estTokens}t`);
@@ -2009,10 +2014,31 @@ function ChatConsole({
         const table = sections
           .map((s) => `${s.truncated ? "!" : " "} ${s.name} · ${s.estTokens}t`)
           .join("\n");
+        const ledger = lastLedgerRef.current;
+        const ledgerTable = ledger
+          ? (() => {
+              const row = (r: { label: string; tokens: number }) =>
+                `${r.label.padEnd(18, " ")} ${r.tokens.toLocaleString("en-US")}t`;
+              const meta = ledger.filter((r) => r.kind === "meta");
+              const rows = ledger.filter((r) => r.kind !== "meta" && r.kind !== "reserve");
+              const avail = ledger.find((r) => r.kind === "reserve");
+              const used = rows.reduce((sum, r) => sum + r.tokens, 0);
+              return [
+                ...meta.map(row),
+                "",
+                ...rows.map(row),
+                "",
+                `USED${" ".repeat(14)}${used.toLocaleString("en-US")}t`,
+                avail ? row(avail) : null,
+              ]
+                .filter(Boolean)
+                .join("\n");
+            })()
+          : null;
         const alloc = allocateContext(ai.ctx, ai.maxTokens);
         push({
           role: "note",
-          text: `last prompt ${lastT}t of ${alloc.inputBudget}t input budget · ctx ${alloc.contextWindow} · output reserve ${alloc.outputReserve}t (+${alloc.safetyMargin}t margin) · model ${ai.spec?.label ?? ai.target.label}\n${table}\nhistory scope: this session only · ${messages.length} messages stored\n(! = section truncated/shed; memory is the only cross-session section)`,
+          text: `last prompt ${lastT}t of ${alloc.inputBudget}t input budget · ctx ${alloc.contextWindow} · output reserve ${alloc.outputReserve}t (+${alloc.safetyMargin}t margin) · model ${ai.spec?.label ?? ai.target.label}\n${ledgerTable ?? table}${ledgerTable ? "\n(! = section truncated/shed, see rows marked shed in the agent log)" : ""}\nhistory scope: this session only · ${messages.length} messages stored`,
         });
         return;
       }

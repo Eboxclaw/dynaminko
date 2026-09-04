@@ -2,6 +2,7 @@ import { LIMITS } from "@/lib/commands/runner";
 import type { CommandResult } from "@/lib/commands/types";
 import { capabilityPrompt, type CapabilityDefinition } from "@/lib/capabilities/catalogue";
 import { estimateTokens } from "@/lib/chat/context";
+import type { ContextAllocation } from "@/lib/chat/context";
 import type { ChatMessage } from "@/lib/chat/session";
 import type { TurnMessage } from "@/lib/ai";
 
@@ -170,6 +171,20 @@ export type TurnBuild = {
   messages: TurnMessage[];
   sections: ContextSection[];
   estTokens: number;
+  /**
+   * The session context ledger: what this turn's prompt allocation actually
+   * is, section by section, distinguishing the resident capability index
+   * from equipped (full) skill/tool definitions, transient tool results,
+   * and the output reserve. Runtime state the /context command renders and
+   * equip-policy benchmarks measure against, not a display-only table.
+   */
+  ledger: LedgerRow[];
+};
+
+export type LedgerRow = {
+  label: string;
+  tokens: number;
+  kind: "meta" | "head" | "index" | "equipped" | "evidence" | "prompt" | "reserve";
 };
 
 export type BuildTurnInput = {
@@ -190,6 +205,12 @@ export type BuildTurnInput = {
   history: ChatMessage[];
   user: string;
   budgetTokens: number;
+  /**
+   * The explicit window allocation (window, output reserve, margin) this
+   * budget came from. Optional so existing callers keep compiling; when
+   * present, the ledger's meta rows carry it.
+   */
+  allocation?: ContextAllocation;
   /**
    * Forced degradation for overflow recovery. 0 = shed only as the budget
    * requires. 1 = summary-only observations, records dropped, capability
@@ -546,9 +567,69 @@ export function buildTurn(input: BuildTurnInput): TurnBuild {
   }
   const messages = merged;
 
+  // ── context ledger ──────────────────────────────────────────────────
+  // Post-shed reality of this prompt, distinguishing the resident capability
+  // index (one-line book, always on) from equipped full definitions (DETAIL,
+  // this turn's selection), transient tool results (OBSERVATIONS), and the
+  // output reserve. Equipped skills and tools are costed separately so an
+  // equip-policy benchmark can compare "always on" vs "equip on decide".
+  const sectionCost = (name: string) =>
+    sections.filter((s) => s.name === name).reduce((sum, s) => sum + s.estTokens, 0);
+  // When the capability detail was shed, the equipped rows must read zero:
+  // the ledger reports what the prompt carries, not what was considered.
+  const equippedShed = shed.includes("capability detail");
+  const equipped = equippedShed
+    ? []
+    : input.selectedCapabilities.map((d) => ({
+        label: `${d.kind} ${d.id}`,
+        tokens: estimateTokens(capabilityPrompt([d])),
+      }));
+  const ledger: LedgerRow[] = [
+    ...(input.allocation
+      ? ([
+          { label: "CONTEXT WINDOW", tokens: input.allocation.contextWindow, kind: "meta" },
+          { label: "OUTPUT RESERVE", tokens: input.allocation.outputReserve, kind: "meta" },
+          { label: "SAFETY MARGIN", tokens: input.allocation.safetyMargin, kind: "meta" },
+        ] as LedgerRow[])
+      : []),
+    { label: "CORE", tokens: sectionCost("CORE"), kind: "head" },
+    { label: "MEMORY", tokens: sectionCost("MEMORY"), kind: "head" },
+    { label: "CAPABILITY INDEX", tokens: sectionCost("CAPABILITIES"), kind: "index" },
+    { label: "FACTS", tokens: sectionCost("FACTS"), kind: "head" },
+    { label: "PORTFOLIO", tokens: sectionCost("PORTFOLIO"), kind: "head" },
+    {
+      label: "EQUIPPED SKILLS",
+      tokens: equipped.filter((e) => e.label.startsWith("skill")).reduce((s, e) => s + e.tokens, 0),
+      kind: "equipped",
+    },
+    {
+      label: "EQUIPPED TOOLS",
+      tokens: equipped
+        .filter((e) => !e.label.startsWith("skill"))
+        .reduce((s, e) => s + e.tokens, 0),
+      kind: "equipped",
+    },
+    { label: "HISTORY", tokens: sectionCost("HISTORY"), kind: "evidence" },
+    { label: "OBSERVATIONS", tokens: sectionCost("OBSERVATIONS"), kind: "evidence" },
+    { label: "RECORDS", tokens: sectionCost("RECORDS"), kind: "evidence" },
+    { label: "INSTRUCTIONS", tokens: sectionCost("INSTRUCTIONS"), kind: "prompt" },
+    { label: "USER PROMPT", tokens: userCost, kind: "prompt" },
+  ];
+  const usedInput = ledger
+    .filter((r) => r.kind !== "meta" && r.kind !== "reserve")
+    .reduce((sum, r) => sum + r.tokens, 0);
+  if (input.allocation) {
+    ledger.push({
+      label: "AVAILABLE INPUT",
+      tokens: Math.max(0, input.allocation.inputBudget - usedInput),
+      kind: "reserve",
+    });
+  }
+
   return {
     messages,
     sections,
     estTokens: sections.reduce((sum, s) => sum + s.estTokens, 0) + userCost,
+    ledger,
   };
 }

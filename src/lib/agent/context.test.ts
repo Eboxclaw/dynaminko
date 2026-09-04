@@ -395,3 +395,73 @@ describe("renderPrewarmHead", () => {
     expect(renderPrewarmHead("head", parts)).toContain("FACTS");
   });
 });
+
+describe("buildTurn ledger", () => {
+  it("reports the allocation, the index/equipped split and the available input", () => {
+    const head = compileHead({
+      instructions: "answer",
+      memory: "mem line",
+      book: "tool t1 | read",
+      facts: "wallet: 0xabc",
+      portfolio: "net_worth: $1",
+    });
+    const allocation = { contextWindow: 32128, outputReserve: 8192, safetyMargin: 1606, inputBudget: 22330 };
+    const build = buildTurn({
+      head,
+      selectedCapabilities: [],
+      records: [],
+      observations: [],
+      history: [],
+      user: "hello",
+      budgetTokens: allocation.inputBudget,
+      allocation,
+    });
+    const get = (label: string) => build.ledger.find((r) => r.label === label)?.tokens ?? -1;
+    expect(get("CONTEXT WINDOW")).toBe(32128);
+    expect(get("OUTPUT RESERVE")).toBe(8192);
+    expect(get("CAPABILITY INDEX")).toBeGreaterThan(0);
+    expect(get("EQUIPPED SKILLS")).toBe(0);
+    expect(get("EQUIPPED TOOLS")).toBe(0);
+    expect(get("USER PROMPT")).toBeGreaterThan(0);
+    const avail = build.ledger.find((r) => r.label === "AVAILABLE INPUT");
+    expect(avail).toBeDefined();
+    expect(avail!.tokens).toBeGreaterThan(0);
+    const used = build.ledger
+      .filter((r) => r.kind !== "meta" && r.kind !== "reserve")
+      .reduce((s, r) => s + r.tokens, 0);
+    expect(avail!.tokens).toBe(allocation.inputBudget - used);
+  });
+
+  it("equipped rows read zero when the capability detail was shed", () => {
+    const head = compileHead({
+      instructions: "answer",
+      memory: "",
+      book: "tool t1 | read",
+      facts: "wallet: 0xabc",
+      portfolio: "",
+    });
+    const build = buildTurn({
+      head,
+      selectedCapabilities: [
+        {
+          id: "journal.search",
+          kind: "tool",
+          label: "Journal search",
+          purpose: "search journal entries",
+          inputs: "query",
+          exec: "read",
+          category: "journal",
+          aliases: [],
+          examples: [],
+        } as never,
+      ],
+      records: [],
+      observations: [],
+      history: [],
+      user: "find entries",
+      budgetTokens: 40,
+      shedLevel: 1,
+    });
+    expect(build.ledger.find((r) => r.label === "EQUIPPED TOOLS")?.tokens).toBe(0);
+  });
+});
