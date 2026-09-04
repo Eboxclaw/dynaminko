@@ -55,6 +55,10 @@ export type AiWorkerRequest =
   | ({ type: "cancel-load"; modelId: string } & WithReqId)
   | { type: "chat-messages"; turns: { role: string; content: string }[]; options?: ChatOptions }
   | { type: "chat"; system: string; user: string; options?: ChatOptions }
+  // Idle semantic prewarm: one silent 1-token completion over a strict byte
+  // prefix of the turn prompt so the KV slot holds it before the first real
+  // turn. Never posts token/done messages; skipped while a generation runs.
+  | { type: "warm"; system: string }
   | { type: "stop" }
   | { type: "unload" }
   | { type: "cached-models" }
@@ -85,6 +89,7 @@ export type AiWorkerResponse =
       cacheReuse?: number;
     })
   | ({ type: "loading"; modelId: string; progress?: number } & WithReqId)
+  | ({ type: "warm-done" } & WithReqId)
   | ({ type: "error"; modelId?: string; message: string } & WithReqId)
   | { type: "token"; text: string; speed?: { tps: number; tokens: number } }
   | { type: "done"; text: string; metrics?: GenerationMetrics }
@@ -765,6 +770,22 @@ async function chatMessages(
   if (spec && !spec.generative) {
     throw new Error(`${spec.label} makes embeddings, not prose.`);
   }
+  generating = true;
+  try {
+    return await runChatMessages(turns, options, spec);
+  } finally {
+    generating = false;
+  }
+}
+
+/** True while a real completion is decoding; the idle prewarm yields to it. */
+let generating = false;
+
+async function runChatMessages(
+  turns: { role: string; content: string }[],
+  options: ChatOptions,
+  spec: ModelSpec | undefined,
+): Promise<{ text: string; metrics: GenerationMetrics }> {
 
   const systemText = turns
     .filter((t) => t.role === "system")
@@ -827,7 +848,11 @@ async function chatMessages(
       ? withNativeToolTurns(messages as { role: string; content: unknown }[], options.toolTurns)
       : (messages as { role: string; content: unknown }[]);
 
-  await instance.createChatCompletion({
+  // runChatMessages runs only under chatMessages' ready guard; the local
+  // binding keeps that fact visible to the type checker across the await.
+  const runtime = instance;
+  if (!runtime) throw new Error("assistant not loaded");
+  await runtime.createChatCompletion({
     messages: composed as never,
     stream: true,
     cache_prompt: cachePrompt,
@@ -1038,6 +1063,41 @@ ctx.addEventListener(
             message: err instanceof Error ? err.message : "chat failed",
           } satisfies AiWorkerResponse);
         }
+        return;
+      }
+
+      case "warm": {
+        // Skip silently while a real generation runs; a load exiting the
+        // instance mid-warm rejects and is swallowed below. One token, no
+        // streaming; the slot gains the prefix and a quiet ack settles the
+        // caller's promise.
+        if (generating || !instance || !currentModel) {
+          ctx.postMessage({ type: "warm-done", reqId } satisfies AiWorkerResponse);
+          return;
+        }
+        try {
+          const spec = MODEL_BY_ID[currentModel];
+          const sampling = spec?.sampling;
+          await instance.createChatCompletion({
+            messages: [{ role: "system", content: msg.system }] as never,
+            stream: false,
+            cache_prompt: cachePrompt,
+            max_tokens: 1,
+            ...(sampling
+              ? {
+                  temperature: sampling.temperature,
+                  top_p: sampling.topP ?? 0.9,
+                  min_p: sampling.minP,
+                  penalty_repeat: sampling.repeatPenalty,
+                  penalty_last_n: sampling.penaltyLastN,
+                  ...(sampling.topK ? { top_k: sampling.topK } : {}),
+                }
+              : {}),
+          } as never);
+        } catch {
+          /* warm is best-effort by design */
+        }
+        ctx.postMessage({ type: "warm-done", reqId } satisfies AiWorkerResponse);
         return;
       }
 

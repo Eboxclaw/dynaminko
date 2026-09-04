@@ -740,6 +740,10 @@ function getWorker(): Worker | null {
           settle(msg.reqId, (v) => v, { status: "ready", modelId: msg.modelId });
           return;
         }
+        case "warm-done": {
+          settle(msg.reqId, () => undefined, undefined);
+          return;
+        }
         case "error": {
           // The reqId tells us which request failed; a load failure must
           // REJECT its promise, not resolve it with a fake success.
@@ -1144,6 +1148,23 @@ export async function unload() {
 
 export function stopGeneration() {
   worker?.postMessage({ type: "stop" } satisfies AiWorkerRequest);
+}
+
+/**
+ * Idle semantic prewarm: one silent 1-token completion over a strict byte
+ * prefix of the turn prompt, so the KV slot holds that prefix before the
+ * first real turn and the first ttft pays only the suffix. Nothing surfaces:
+ * no metrics, no log line, no status change; skipped by the worker while a
+ * real generation runs.
+ */
+export async function prewarmSlot(systemText: string): Promise<boolean> {
+  if (!sReady) return false;
+  try {
+    await postAndWait<void>({ type: "warm", system: systemText });
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 export type ChatOptions = {

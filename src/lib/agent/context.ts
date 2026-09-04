@@ -258,7 +258,9 @@ export function renderHead(h: CompiledHead): string {
   };
   add("CORE", `${INKO_PROFILE.instructions}\n\n${GROUND_RULES}`);
   add("MEMORY", h.memory);
-  add("CAPABILITIES", `Full book:\n${h.book}`);
+  // The "Full book:" header rides the book: an empty book leaves no stub
+  // section behind, so shorter heads stay byte-prefixes of longer ones.
+  add("CAPABILITIES", h.book.trim() ? `Full book:\n${h.book.trim()}` : "");
   add("FACTS", h.facts);
   add("PORTFOLIO", h.portfolio);
   return parts.join("\n\n");
@@ -266,6 +268,40 @@ export function renderHead(h: CompiledHead): string {
 
 /** The section names that make up the shared head, in render order. */
 export const HEAD_SECTION_NAMES = ["CORE", "MEMORY", "CAPABILITIES", "FACTS", "PORTFOLIO"];
+
+/**
+ * Semantic prewarm levels. Each renders a strict byte prefix of the turn
+ * prompt (renderHead skips absent sections, so fewer trailing sections is a
+ * prefix of more), which is what makes the warmed KV slot reusable by the
+ * first real turn. PORTFOLIO is never warmed: it is recomputed per turn and
+ * prewarming volatile data buys nothing.
+ *   tiny  - template boilerplate only; measures device overhead
+ *   core  - identity and ground rules
+ *   index - core + memory + the capability book (the default)
+ *   head  - the full shared head minus PORTFOLIO
+ */
+export type PrewarmLevel = "tiny" | "core" | "index" | "head";
+
+export const PREWARM_LEVELS: PrewarmLevel[] = ["tiny", "core", "index", "head"];
+
+export function renderPrewarmHead(
+  level: PrewarmLevel,
+  parts: { memory: string; book: string; facts: string },
+): string {
+  const base = { instructions: "", portfolio: "" };
+  switch (level) {
+    case "tiny":
+      return "";
+    case "core":
+      return renderHead(compileHead({ ...base, memory: "", book: "", facts: "" }));
+    case "index":
+      return renderHead(compileHead({ ...base, memory: parts.memory, book: parts.book, facts: "" }));
+    case "head":
+      return renderHead(
+        compileHead({ ...base, memory: parts.memory, book: parts.book, facts: parts.facts }),
+      );
+  }
+}
 
 /** One history entry as a compact chat turn. Tool cards collapse to one line.
  * Approval-pending messages and slash-command echoes are UI chrome, never

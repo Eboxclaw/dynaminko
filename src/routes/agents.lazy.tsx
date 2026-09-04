@@ -28,10 +28,22 @@ import {
   commandObservation,
   compileHead,
   renderHead,
+  renderPrewarmHead,
   skillObservation,
   type CompiledHead,
+  type PrewarmLevel,
   type ToolObservation,
 } from "@/lib/agent/context";
+// Module-scope prewarm pin. The router's validateSearch rewrites the query
+// string before this module evaluates, so the pin lives in the URL hash,
+// which nothing touches: #prewarm=none|tiny|core|index|head. Default index.
+const PREWARM_PIN = (() => {
+  if (typeof window === "undefined") return "index";
+  const hash = new URLSearchParams(window.location.hash.replace(/^#/, ""));
+  const search = new URLSearchParams(window.location.search);
+  const p = hash.get("prewarm") ?? search.get("prewarm");
+  return (p ?? "index") as PrewarmLevel | "none";
+})();
 import { DECIDE_SYSTEM, decideUserContent, hopEvidence, hopKey, isRepeatHop } from "@/lib/agent/hops";
 import { captureResult, readOffloaded, type CapturedResult } from "@/lib/agent/offload";
 import {
@@ -53,6 +65,7 @@ import {
   budgetOutcome,
   deviceProfile,
   prefillRate,
+  prewarmSlot,
   splitThinking,
   stripToolCallMarkup,
 } from "@/lib/ai";
@@ -300,6 +313,40 @@ function ChatConsole({
     null,
   );
   const fileRef = useRef<HTMLInputElement>(null);
+
+  // ── idle semantic prewarm ────────────────────────────────────────────
+  // After a local model reaches Ready, one silent 1-token completion over a
+  // strict byte prefix of the turn prompt parks that prefix in the KV slot,
+  // so the first real turn prefills only its suffix. Opportunistic by
+  // design: cancelled the moment the user types or sends, never a
+  // prerequisite for interacting. PORTFOLIO is never warmed (volatile).
+  // ?prewarm=none|tiny|core|index|head picks the benchmark arm; default
+  // index (core + memory + capability book).
+  const prewarmCancelRef = useRef(false);
+  const prewarmInfoRef = useRef<string | null>(null);
+  // Module-scope pin: the router's validateSearch strips unknown query
+  // params on the first render, so a mount-time read can already be too late.
+  const prewarmLevel = PREWARM_PIN;
+  useEffect(() => {
+    if (prewarmLevel === "none") return;
+    if (ai.status.phase !== "ready") return;
+    prewarmCancelRef.current = false;
+    const timer = setTimeout(() => {
+      if (prewarmCancelRef.current) return;
+      const text = renderPrewarmHead(prewarmLevel, {
+        memory: memoryPrompt(),
+        book: capabilityDigest(),
+        facts: factLines(),
+      });
+      const startedAt = performance.now();
+      void prewarmSlot(text || " ").then((ok) => {
+        if (!ok || prewarmCancelRef.current) return;
+        prewarmInfoRef.current =
+          `head pre-warm: ${prewarmLevel} · ~${estimateTokens(text || " ")}t parked in ${Math.round(performance.now() - startedAt)}ms`;
+      });
+    }, 1500);
+    return () => clearTimeout(timer);
+  }, [ai.status.phase, prewarmLevel]);
   // Semantic engine onboarding: one offer, never a nag, never a silent download.
   const [semanticChip, setSemanticChip] = useState<"hidden" | "offer" | "downloading" | "done">(
     "hidden",
@@ -1835,6 +1882,8 @@ function ChatConsole({
     const text = (override ?? input).trim();
     if (!text || busy || switchBusy) return;
     setInput("");
+    // The user acted: any in-flight idle prewarm yields immediately.
+    prewarmCancelRef.current = true;
     // Step-by-step flows (the inbox resolution wizard) intercept the turn
     // before routing: the whole point is deterministic questions with
     // tappable options, no model tokens and no phrasing ambiguity.
@@ -2061,6 +2110,7 @@ function ChatConsole({
             runtimeLine,
             deviceLine,
             budgetLine,
+            ...(prewarmInfoRef.current ? [prewarmInfoRef.current] : []),
             genLine,
             usageLine ?? "no model answer yet this session",
             `last prompt ${lastT != null && lastT > 0 ? `${lastT}t` : "n/a"} · input budget ${(() => { const a = allocateContext(ai.ctx, ai.maxTokens); return `${a.inputBudget}t · output reserve ${a.outputReserve}t of ctx ${a.contextWindow}`; })()}`,
@@ -2440,7 +2490,10 @@ function ChatConsole({
                 ref={inputRef}
                 rows={1}
                 value={input}
-                onChange={(e) => setInput(e.target.value)}
+                onChange={(e) => {
+                  prewarmCancelRef.current = true;
+                  setInput(e.target.value);
+                }}
                 onKeyDown={(e) => {
                   if (e.key === "Enter" && !e.shiftKey) {
                     e.preventDefault();

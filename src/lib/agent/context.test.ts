@@ -14,6 +14,7 @@ import {
   MAX_OBSERVATION_CHARS,
   observationsPrompt,
   renderHead,
+  renderPrewarmHead,
   type ToolObservation,
 } from "./context";
 import { capabilityCatalogue } from "@/lib/capabilities/catalogue";
@@ -373,5 +374,24 @@ describe("observationsPrompt", () => {
     // The parked-copy key must never leak into what the model reads until a
     // hop loop can act on it.
     expect(observationsPrompt([withKey])).toBe(observationsPrompt([base]));
+  });
+});
+
+describe("renderPrewarmHead", () => {
+  const parts = { memory: "user likes numbers", book: "portfolio.snapshot | read", facts: "wallet: 0xabc" };
+
+  it("every level is a strict byte prefix of the levels after it", () => {
+    const core = renderPrewarmHead("core", parts);
+    const index = renderPrewarmHead("index", parts);
+    const head = renderPrewarmHead("head", parts);
+    expect(index.startsWith(core)).toBe(true);
+    expect(head.startsWith(index)).toBe(true);
+    expect(core.length).toBeGreaterThan(0);
+  });
+
+  it("tiny warms nothing but the template, and PORTFOLIO never rides", () => {
+    expect(renderPrewarmHead("tiny", parts)).toBe("");
+    expect(renderPrewarmHead("head", parts)).not.toContain("PORTFOLIO");
+    expect(renderPrewarmHead("head", parts)).toContain("FACTS");
   });
 });
