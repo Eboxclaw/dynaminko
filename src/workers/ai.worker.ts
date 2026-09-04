@@ -77,6 +77,12 @@ export type AiWorkerResponse =
       threadsRequested?: number;
       threadsEffective?: number;
       gpuLayers?: number;
+      /** the chosen inference path, printed by /usage */
+      batch?: number;
+      cacheK?: string;
+      cacheV?: string;
+      flashAttn?: boolean;
+      cacheReuse?: number;
     })
   | ({ type: "loading"; modelId: string; progress?: number } & WithReqId)
   | ({ type: "error"; modelId?: string; message: string } & WithReqId)
@@ -447,7 +453,8 @@ async function loadModelInternal(
     reasoning?: boolean;
   } = {},
 ): Promise<
-  | { ok: true; backend: string; ctx: number; threadsRequested: number; threadsEffective: number; gpuLayers: number }
+  | { ok: true; backend: string; ctx: number; threadsRequested: number; threadsEffective: number; gpuLayers: number;
+      batch: number; cacheK: string; cacheV: string; flashAttn: boolean; cacheReuse: number }
   | { ok: false; error: string }
 > {
   const forcedBackend = opts.forcedBackend;
@@ -592,6 +599,11 @@ async function loadModelInternal(
       threadsRequested: profile.n_threads,
       threadsEffective: caps.crossOriginIsolated ? profile.n_threads : 1,
       gpuLayers: usedGpuLayers,
+      batch: profile.n_batch,
+      cacheK: profile.cache_type_k,
+      cacheV: profile.cache_type_v,
+      flashAttn: profile.flash_attn,
+      cacheReuse: profile.flash_attn ? 256 : 0,
     };
   } catch (err) {
     // Clear the resident-model state so the UI reads "not loaded". The cache
@@ -833,6 +845,11 @@ ctx.addEventListener(
             threadsRequested: result.threadsRequested,
             threadsEffective: result.threadsEffective,
             gpuLayers: result.gpuLayers,
+            batch: result.batch,
+            cacheK: result.cacheK,
+            cacheV: result.cacheV,
+            flashAttn: result.flashAttn,
+            cacheReuse: result.cacheReuse,
           } satisfies AiWorkerResponse);
         } else {
           ctx.postMessage({

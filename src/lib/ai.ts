@@ -495,6 +495,35 @@ export function budgetOutcome(
   };
 }
 
+/** The budget line's components for /usage: the same numbers memoryBudgetGb
+ * folds into one peak, kept separate so the printout can show the addition.
+ * Observability only; nothing reads this for a decision. */
+export function budgetBreakdown(
+  spec: Pick<ModelSpec, "kv" | "weightsGb">,
+  nCtx: number,
+  kvDtype: string = "q8_0",
+): {
+  weightsGb: number;
+  kvGb: number | null;
+  buffersGb: number;
+  overheadGb: number;
+  margin: number;
+  peakGb: number | null;
+} {
+  const kv = kvCacheGb(spec, nCtx, kvDtype);
+  const buffers = spec.weightsGb * BUFFER_FACTOR;
+  const peak =
+    kv == null ? null : (spec.weightsGb + kv + buffers + OVERHEAD_GB) * (1 + SAFETY_MARGIN);
+  return {
+    weightsGb: spec.weightsGb,
+    kvGb: kv,
+    buffersGb: buffers,
+    overheadGb: OVERHEAD_GB,
+    margin: SAFETY_MARGIN,
+    peakGb: peak,
+  };
+}
+
 /** Display estimate for the ModelPanel: architecture-aware when the KV
  * geometry is known, weights-proportional fallback otherwise. */
 export function memoryEstimateGb(modelId: string, nCtx: number): number {
@@ -540,6 +569,11 @@ let sLoadInfo: {
   threadsRequested?: number;
   threadsEffective?: number;
   gpuLayers?: number;
+  batch?: number;
+  cacheK?: string;
+  cacheV?: string;
+  flashAttn?: boolean;
+  cacheReuse?: number;
 } | null = null;
 /** metrics of the most recent generation (decide or answer) */
 let sLastMetrics: GenerationMetrics | null = null;
@@ -637,6 +671,11 @@ function getWorker(): Worker | null {
             threadsRequested: msg.threadsRequested,
             threadsEffective: msg.threadsEffective,
             gpuLayers: msg.gpuLayers,
+            batch: msg.batch,
+            cacheK: msg.cacheK,
+            cacheV: msg.cacheV,
+            flashAttn: msg.flashAttn,
+            cacheReuse: msg.cacheReuse,
           };
           tagRuntime({
             backend: msg.backend,
@@ -644,6 +683,11 @@ function getWorker(): Worker | null {
             threadsEffective: msg.threadsEffective,
             gpuLayers: msg.gpuLayers,
             nCtx: msg.ctx,
+            batch: msg.batch,
+            cacheK: msg.cacheK,
+            cacheV: msg.cacheV,
+            flashAttn: msg.flashAttn,
+            cacheReuse: msg.cacheReuse,
           });
           settle(msg.reqId, (v) => v, { status: "ready", modelId: msg.modelId });
           return;
@@ -1108,6 +1152,11 @@ export function chatMessages(
                 threadsEffective: sLoadInfo.threadsEffective,
                 gpuLayers: sLoadInfo.gpuLayers,
                 nCtx: sLoadInfo.ctx,
+                batch: sLoadInfo.batch,
+                cacheK: sLoadInfo.cacheK,
+                cacheV: sLoadInfo.cacheV,
+                flashAttn: sLoadInfo.flashAttn,
+                cacheReuse: sLoadInfo.cacheReuse,
               });
             }
             tagGeneration({

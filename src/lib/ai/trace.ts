@@ -35,6 +35,11 @@ export type PerfTrace = {
       threadsEffective?: number;
       gpuLayers?: number;
       nCtx?: number;
+      batch?: number;
+      cacheK?: string;
+      cacheV?: string;
+      flashAttn?: boolean;
+      cacheReuse?: number;
     };
     /** the answer generation's own measurements, when a model answered */
     generation?: {

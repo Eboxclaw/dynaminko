@@ -12,6 +12,7 @@ import {
   MODELS,
   MODEL_BY_ID,
   budgetOutcome,
+  budgetBreakdown,
   deviceProfile,
   kvCacheGb,
   memoryBudgetGb,
@@ -149,6 +150,14 @@ describe("model registry", () => {
   it("budget peak reference: 350M at 8192 lands just above half a gigabyte", () => {
     // weights 0.219 + KV 0.0498 + buffers 0.0263 + overhead 0.15, +15% margin
     expect(memoryBudgetGb(MODEL_BY_ID["lfm2-350"], 8192)).toBeCloseTo(0.512, 2);
+  });
+
+  it("budgetBreakdown shows the same peak as the addition it prints", () => {
+    const bd = budgetBreakdown(MODEL_BY_ID["lfm2-2_6"], 8192);
+    expect(bd.kvGb).not.toBeNull();
+    const sum = bd.weightsGb + bd.kvGb! + bd.buffersGb + bd.overheadGb;
+    expect(bd.peakGb).toBeCloseTo(sum * (1 + bd.margin), 6);
+    expect(bd.peakGb).toBeCloseTo(memoryBudgetGb(MODEL_BY_ID["lfm2-2_6"], 8192)!, 6);
   });
 
   it("budget outcomes reject only true overflow predictions", () => {

@@ -49,12 +49,14 @@ import { relativeTime } from "@/lib/format";
 import {
   MODELS,
   STATE_LABEL,
+  budgetBreakdown,
+  budgetOutcome,
   deviceProfile,
   prefillRate,
   splitThinking,
   stripToolCallMarkup,
 } from "@/lib/ai";
-import { scaledHopDeadlineMs } from "@/lib/ai/runtime";
+import { runtimeSnapshot, scaledHopDeadlineMs } from "@/lib/ai/runtime";
 import type { TurnMessage } from "@/lib/ai";
 import {
   prewarmRetrieval,
@@ -1989,8 +1991,33 @@ function ChatConsole({
         const rt = perf?.runtime;
         const gen = perf?.generation;
         const runtimeLine = rt
-          ? `runtime ${rt.backend ?? "?"} · threads ${rt.threadsEffective ?? "?"}/${rt.threadsRequested ?? "?"} · gpu layers ${rt.gpuLayers ?? "?"} · ctx ${rt.nCtx ?? "?"}`
+          ? `runtime ${rt.backend ?? "?"} · threads ${rt.threadsEffective ?? "?"}/${rt.threadsRequested ?? "?"} · gpu layers ${rt.gpuLayers ?? "?"} · ctx ${rt.nCtx ?? "?"} · batch ${rt.batch ?? "?"} · cache ${rt.cacheK ?? "?"}/${rt.cacheV ?? "?"} · flash-attn ${rt.flashAttn ? "on" : "off"}${rt.cacheReuse ? ` · cache-reuse ${rt.cacheReuse}` : ""}`
           : "runtime not recorded this turn";
+        // The device truth, from the same snapshot the load path consulted:
+        // what the browser reports vs the envelope the budget guard assumed.
+        const caps = runtimeSnapshot();
+        const deviceLine =
+          `device: ram ${caps.deviceMemoryGb != null ? `${caps.deviceMemoryGb}GB` : "not reported"}` +
+          ` · cores ${caps.cores ?? "?"}` +
+          ` · ${caps.mobile ? "touch" : "fine pointer"}` +
+          ` · crossOriginIsolated ${caps.crossOriginIsolated ? "yes" : "no"}` +
+          ` · ${caps.adapter ?? "no WebGPU adapter"}` +
+          ` · envelope ${caps.memoryClassGb != null ? `${caps.memoryClassGb}GB` : "?"} (${caps.gpuTier})`;
+        // The active model's memory ledger: the same numbers budgetGuard
+        // judged, printed as the addition it performs.
+        const activeSpec = ai.spec;
+        const budgetLine = activeSpec
+          ? (() => {
+              const bd = budgetBreakdown(activeSpec, ai.ctx);
+              const o = budgetOutcome(activeSpec, ai.ctx, caps.memoryClassGb);
+              const peak = bd.peakGb != null ? `${bd.peakGb.toFixed(2)}GB` : "unknown";
+              return (
+                `budget: ${bd.weightsGb.toFixed(2)}GB weights + ${bd.kvGb != null ? `${bd.kvGb.toFixed(2)}GB` : "?"} KV@${ai.ctx}` +
+                ` + ${bd.buffersGb.toFixed(2)}GB buffers + ${bd.overheadGb.toFixed(2)}GB overhead` +
+                ` = ${peak} peak (+${Math.round(bd.margin * 100)}% margin) · ${o.verdict}: ${o.basis}`
+              );
+            })()
+          : "budget: no local model selected";
         // Prefix-reuse estimate (heuristic): the measured full-prefill rate
         // times the prompt predicts ttft without slot reuse; a ttft far
         // under that means the KV prefix was reused. Never a decision input.
@@ -2018,9 +2045,11 @@ function ChatConsole({
             ...(failedNote ? [failedNote] : []),
             perfLine,
             runtimeLine,
+            deviceLine,
+            budgetLine,
             genLine,
             usageLine ?? "no model answer yet this session",
-            `last prompt ${lastT != null && lastT > 0 ? `${lastT}t` : "—"} · ctx budget ${Math.floor(ai.ctx * 0.85)}`,
+            `last prompt ${lastT != null && lastT > 0 ? `${lastT}t` : "n/a"} · ctx budget ${Math.floor(ai.ctx * 0.85)}`,
             `memory ${memCtx.chars}/${memCtx.limit} chars · ${memCtx.entries} notes`,
             session ? `${session.turns} turns in this session` : "no active session",
           ].join("\n"),
