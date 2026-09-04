@@ -266,6 +266,48 @@ export type InferenceProfile = {
   no_kv_offload: boolean;
 };
 
+// ── Measured prefill rate and the deadlines scaled from it ────────────
+//
+// The IAB's single-thread wasm prefills ~10x slower than threaded real
+// Chrome (notes/11: ~7.2 ms/token vs well under 1), so static deadlines
+// either false-fire "chat timed out" on slow devices or waste minutes on
+// fast ones. These helpers turn the rolling ttft/prompt-token observations
+// into deadlines. Heuristic only: a sizing hint for watchdogs, never a
+// backend or quality decision source.
+
+/**
+ * Robust full-prefill rate from recent per-turn observations (ttftMs /
+ * promptTokens). KV slot reuse makes cache-hit turns report a small ttft
+ * over a large prompt, which drags low samples into every window; the 9th
+ * decile (nearest-rank) tracks the FULL-prefill turns the deadlines must
+ * actually survive. Null until at least one sample exists.
+ */
+export function prefillRateMsPerToken(samples: number[]): number | null {
+  if (samples.length === 0) return null;
+  const sorted = [...samples].sort((a, b) => a - b);
+  const idx = Math.floor(0.9 * (sorted.length - 1));
+  const rate = sorted[idx];
+  return Number.isFinite(rate) && rate > 0 ? rate : null;
+}
+
+/** Pre-first-token idle ceiling: 3 x the measured rate x the prompt
+ * estimate, floored at the static 75s ceiling and capped at 240s. */
+export function prefirstTokenIdleMs(rate: number | null, promptTokensEstimate: number): number {
+  const FLOOR_MS = 75_000;
+  const CAP_MS = 240_000;
+  if (rate == null) return FLOOR_MS;
+  return Math.min(CAP_MS, Math.max(FLOOR_MS, 3 * rate * promptTokensEstimate));
+}
+
+/** Hop deadline: the same 3 x rate x estimate with the static 60s
+ * LIMITS.hopDeadlineMs as floor and a 180s cap. */
+export function scaledHopDeadlineMs(rate: number | null, promptTokensEstimate: number): number {
+  const FLOOR_MS = 60_000;
+  const CAP_MS = 180_000;
+  if (rate == null) return FLOOR_MS;
+  return Math.min(CAP_MS, Math.max(FLOOR_MS, 3 * rate * promptTokensEstimate));
+}
+
 /**
  * Build a per-device, per-model inference profile.
  * Called once at load time, after capabilities are detected.

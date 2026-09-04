@@ -46,7 +46,15 @@ import { routeMessage, routeSemantic, classifyIntent, suppressedAdviceRead } fro
 import { PHASE_LABEL } from "@/lib/chat/pipeline";
 import { useDoc } from "@/hooks/useDoc";
 import { relativeTime } from "@/lib/format";
-import { MODELS, STATE_LABEL, deviceProfile, splitThinking, stripToolCallMarkup } from "@/lib/ai";
+import {
+  MODELS,
+  STATE_LABEL,
+  deviceProfile,
+  prefillRate,
+  splitThinking,
+  stripToolCallMarkup,
+} from "@/lib/ai";
+import { scaledHopDeadlineMs } from "@/lib/ai/runtime";
 import type { TurnMessage } from "@/lib/ai";
 import {
   prewarmRetrieval,
@@ -931,7 +939,13 @@ function ChatConsole({
       const executedKeys: string[] = [];
       let hopDeadline = 0;
       if (ground && !conversational && hopAllowed.length > 0 && !opts.skipHop) {
-        hopDeadline = Date.now() + LIMITS.hopDeadlineMs;
+        // S4: the hop deadline scales from the measured prefill rate. A
+        // decide prompt is the compiled head plus the question, and on the
+        // IAB's single-thread wasm that alone can outfill the static 60s;
+        // 3x the measured rate bounds the hop on this device, floored at
+        // LIMITS.hopDeadlineMs and capped at 180s.
+        const hopPromptEstimate = Math.ceil((renderHead(turnHead).length + user.length) / 4);
+        hopDeadline = Date.now() + scaledHopDeadlineMs(prefillRate(), hopPromptEstimate);
         let lastSearchObs: ToolObservation | null = null;
         let didRead = false;
         for (let hop = 1; hop <= LIMITS.maxToolHops; hop++) {

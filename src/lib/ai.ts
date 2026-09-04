@@ -9,7 +9,7 @@
 // Static config (MODELS, MODEL_BY_ID, etc.) stays on the main thread.
 
 import type { Wllama } from "@wllama/wllama/esm/index.js";
-import { runtimeSnapshot, type Backend } from "@/lib/ai/runtime";
+import { runtimeSnapshot, prefillRateMsPerToken, prefirstTokenIdleMs, type Backend } from "@/lib/ai/runtime";
 import { tagGeneration, tagRuntime } from "@/lib/ai/trace";
 import type { AiWorkerRequest, AiWorkerResponse, GenerationMetrics } from "@/workers/ai.worker";
 
@@ -545,6 +545,21 @@ let sLoadInfo: {
 } | null = null;
 /** metrics of the most recent generation (decide or answer) */
 let sLastMetrics: GenerationMetrics | null = null;
+
+// Rolling prefill-rate observations, keyed by model|backend because a rate
+// measured on threaded Chrome says nothing about the IAB's single-thread
+// wasm (and models differ in depth). Each turn with a real tokenizer count
+// contributes ttftMs / promptTokens; read through prefillRate() at deadline
+// time. Heuristic sizing only, never a backend or quality decision source.
+const PREFILL_SAMPLES_MAX = 8;
+const sPrefillSamples = new Map<string, number[]>();
+
+/** The rolling full-prefill rate (ms/token) for the active model+backend,
+ * or null before the first measured turn. */
+export function prefillRate(): number | null {
+  const key = `${sLoadedModelId ?? "none"}|${sActiveBackend}`;
+  return prefillRateMsPerToken(sPrefillSamples.get(key) ?? []);
+}
 
 /**
  * Request/response correlation. Every request carries a `reqId`; the worker
@@ -1109,6 +1124,22 @@ export function chatMessages(
               totalMs: msg.metrics.totalMs,
               reasoningTokens: msg.metrics.reasoningTokens,
             });
+            // Feed the rate only from turns with a real tokenizer count:
+            // a chars/4 estimate would scale the deadlines by the estimate's
+            // own error, and cache-hit turns self-correct through the
+            // high-percentile read in prefillRateMsPerToken.
+            if (
+              msg.metrics.ttftMs != null &&
+              msg.metrics.ttftMs > 0 &&
+              msg.metrics.promptTokens != null &&
+              !msg.metrics.promptTokensEstimated
+            ) {
+              const key = `${sLoadedModelId ?? "none"}|${sActiveBackend}`;
+              const list = sPrefillSamples.get(key) ?? [];
+              list.push(msg.metrics.ttftMs / msg.metrics.promptTokens);
+              if (list.length > PREFILL_SAMPLES_MAX) list.shift();
+              sPrefillSamples.set(key, list);
+            }
           }
           worker?.removeEventListener("message", handler);
           // Final speed update
@@ -1148,13 +1179,21 @@ export function chatMessages(
     const IDLE_K = 4;
     const MAX_IDLE_MS = 75_000;
     const BACKSTOP_MS = 600_000;
+    // Pre-first-token budget scales from the measured prefill rate (S4):
+    // a 3.4Kt full prefill at the IAB's ~7.2 ms/token needs ~25s of silence,
+    // while threaded Chrome does it in under 3. 3× the rate × this prompt's
+    // estimate, floored at the static ceiling and capped at 240s.
+    const promptEstimate = Math.ceil(
+      turns.reduce((n, t) => n + t.content.length, 0) / 4,
+    );
     let lastTokenTs = 0;
     let prevTokenTs = 0;
     const idleBudget = () => {
       // Before the first token nothing is observable: prefill of a
       // multi-thousand-token prompt can legitimately be silent for a long
-      // time, so the pre-first-token budget stays at the ceiling.
-      if (lastTokenTs === 0) return MAX_IDLE_MS;
+      // time, so this window runs from the measured rate, not the fixed
+      // ceiling.
+      if (lastTokenTs === 0) return prefirstTokenIdleMs(prefillRate(), promptEstimate);
       const gap = prevTokenTs > 0 ? lastTokenTs - prevTokenTs : 0;
       return Math.min(MAX_IDLE_MS, Math.max(MIN_IDLE_MS, IDLE_K * gap));
     };
