@@ -56,6 +56,26 @@ const FORCED_CACHE: boolean | null = (() => {
   }
 })();
 
+/** Dev-only reasoning-budget override for the per-model benchmark sweep
+ *  (?forceBudget=512..16384): overrides the spec's reasoningBudget at load
+ *  so budgets can be A/B'd without registry edits. Null = spec value. */
+const FORCED_BUDGET: number | null = (() => {
+  try {
+    const v = new URLSearchParams(
+      typeof location !== "undefined" ? location.search : "",
+    ).get("forceBudget");
+    const n = v ? Number(v) : NaN;
+    return Number.isFinite(n) && n >= 256 && n <= 16384 ? Math.floor(n) : null;
+  } catch {
+    return null;
+  }
+})();
+
+/** The dev pin's value, for the effective-settings printout. */
+export function forcedReasoningBudget(): number | null {
+  return FORCED_BUDGET;
+}
+
 // ── static config (stays on main thread) ─────────────────────────────
 // This registry is the single source of truth; the AI worker imports it from
 // here instead of keeping its own copy (this module has no runtime imports,
@@ -961,6 +981,7 @@ export async function downloadModel(
       forcedBackend: FORCED_BACKEND ?? undefined,
       forcedFlashAttn: FORCED_FA,
       forcedCache: FORCED_CACHE,
+      forcedBudget: FORCED_BUDGET ?? undefined,
       reasoning: options.reasoning,
     });
     onStatus({ phase: "ready", modelId });
@@ -1100,6 +1121,7 @@ export async function loadDownloadedModel(
       forcedBackend: FORCED_BACKEND ?? undefined,
       forcedFlashAttn: FORCED_FA,
       forcedCache: FORCED_CACHE,
+      forcedBudget: FORCED_BUDGET ?? undefined,
       reasoning: options.reasoning,
     });
     onStatus({ phase: "ready", modelId });

@@ -64,6 +64,7 @@ import {
   budgetBreakdown,
   budgetOutcome,
   deviceProfile,
+  forcedReasoningBudget,
   prefillRate,
   prewarmSlot,
   splitThinking,
@@ -1480,7 +1481,8 @@ function ChatConsole({
         level: "info",
         detail:
           `${ai.target.label} · quant ${spec?.quant ?? "?"} · ` +
-          `temp ${answerTemp ?? (spec?.sampling?.temperature ?? 0.4)} (top_p ${topP}, min_p ${spec?.sampling?.minP ?? "—"}, rep ${spec?.sampling?.repeatPenalty ?? "—"}/${spec?.sampling?.penaltyLastN ?? "—"}) · ` +
+          `temp ${answerTemp ?? (spec?.sampling?.temperature ?? 0.4)} (top_p ${topP}, min_p ${spec?.sampling?.minP ?? "n/a"}, rep ${spec?.sampling?.repeatPenalty ?? "n/a"}/${spec?.sampling?.penaltyLastN ?? "n/a"}) · ` +
+          `think budget ${forcedReasoningBudget() ?? spec?.reasoningBudget ?? "n/a"} · ` +
           `maxTokens ${ai.maxTokens} · ctx ${ai.loadedCtx}/${spec?.maxCtx ?? "?"} · ` +
           `${ai.backend} · prompt ~${build.estTokens}t · ` +
           `answer ~${estimateTokens(finalText)}t · tps ${ai.speed?.tps ?? "?"}` +

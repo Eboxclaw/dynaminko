@@ -47,6 +47,8 @@ export type AiWorkerRequest =
       forcedFlashAttn?: boolean | null;
       /** dev-only prompt-cache (cache_prompt) override for the KV-reuse A/B */
       forcedCache?: boolean | null;
+      /** dev-only reasoning-budget override for the budget benchmark sweep */
+      forcedBudget?: number;
       /** override the spec's reasoning default (FAST vs REASONED reload) */
       reasoning?: boolean;
     }
@@ -546,6 +548,8 @@ async function loadModelInternal(
     forcedBackend?: "webgpu" | "wasm";
     forcedFlashAttn?: boolean | null;
     forcedCache?: boolean | null;
+    /** dev-only reasoning-budget override for the per-model benchmark sweep */
+    forcedBudget?: number;
     reasoning?: boolean;
     /** set by the stale-entry self-heal retry so it never recurses twice */
     healRetry?: boolean;
@@ -640,11 +644,13 @@ async function loadModelInternal(
           n_ctx: nCtx,
           useCache: true,
           // Reasoning models get the template's own thinking path with an
-          // explicit budget (2K accepted starting point for the 2.6B), instead
-          // of an English sentence bolted onto the system prompt downstream.
+          // explicit budget (registry value; 2048 floor until the per-model
+          // benchmark sweep says otherwise), instead of an English sentence
+          // bolted onto the system prompt downstream. ?forceBudget= overrides
+          // the spec for the A/B without registry edits.
           reasoning: reasoningOverride ?? spec.reasoning,
           ...(reasoningOverride ?? spec.reasoning
-            ? { reasoning_budget_tokens: spec.reasoningBudget ?? 2048 }
+            ? { reasoning_budget_tokens: opts.forcedBudget ?? spec.reasoningBudget ?? 2048 }
             : {}),
           n_gpu_layers: p.n_gpu_layers,
           n_threads: p.n_threads,
@@ -989,6 +995,7 @@ ctx.addEventListener(
             forcedBackend: msg.forcedBackend,
             forcedFlashAttn: msg.forcedFlashAttn ?? null,
             forcedCache: msg.forcedCache ?? null,
+            forcedBudget: msg.forcedBudget,
             reasoning: msg.reasoning,
           });
         } finally {
