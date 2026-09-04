@@ -3,7 +3,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { routeMessage } from "./route";
+import { routeMessage, suppressedAdviceRead } from "./route";
 
 describe("routeMessage", () => {
   it("routes portfolio status phrasings to portfolio.snapshot", () => {
@@ -108,5 +108,33 @@ describe("routeMessage", () => {
       expect(r.kind, `expected command for "${text}"`).toBe("command");
       if (r.kind === "command") expect(r.commandId).toBe("portfolio.snapshot");
     }
+  });
+});
+
+describe("suppressedAdviceRead", () => {
+  it("returns the withheld status read for advice questions built on a status phrase", () => {
+    // The router refused the deterministic capture (advice gate) but the
+    // status half is still a plain fact request: the hop loop runs it as
+    // hop 1 without a decide model call.
+    for (const text of [
+      "how is my portfolio looking and what could I improve?",
+      "what do i hold and what should I trim",
+      "show my exposure and recommend improvements",
+    ]) {
+      const pick = suppressedAdviceRead(text);
+      expect(pick, `expected a withheld read for "${text}"`).not.toBeNull();
+      expect(pick!.id).toBe("portfolio.snapshot");
+      expect(pick!.why).toContain("advice gate");
+    }
+  });
+
+  it("returns null for pure status, pure advice, and write commands", () => {
+    // Pure status runs as a terminal command turn (no read was withheld);
+    // pure advice never matched a status alias; non-adviceGated PRE_EXECUTE
+    // entries never suppress.
+    expect(suppressedAdviceRead("how is my portfolio doing")).toBeNull();
+    expect(suppressedAdviceRead("what should I improve about my process?")).toBeNull();
+    expect(suppressedAdviceRead("resolve my pending trades")).toBeNull();
+    expect(suppressedAdviceRead("what patterns do you see in my recent trades")).toBeNull();
   });
 });

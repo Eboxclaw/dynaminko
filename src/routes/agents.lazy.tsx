@@ -42,7 +42,7 @@ import {
   selectCapabilities,
   type CapabilityDefinition,
 } from "@/lib/capabilities/catalogue";
-import { routeMessage, routeSemantic, classifyIntent } from "@/lib/chat/route";
+import { routeMessage, routeSemantic, classifyIntent, suppressedAdviceRead } from "@/lib/chat/route";
 import { PHASE_LABEL } from "@/lib/chat/pipeline";
 import { useDoc } from "@/hooks/useDoc";
 import { relativeTime } from "@/lib/format";
@@ -906,6 +906,17 @@ function ChatConsole({
         portfolio: portfolioLines,
       });
 
+      // Router-deterministic hop 1 (S3): when the deterministic router named
+      // a READ capture for this text but withheld it behind the advice gate,
+      // hop 1 runs it without a decide model call; the decide still runs for
+      // later hops, so ambiguous advice stays with the model. ?forceDecide=1
+      // keeps the old all-decide path for an honest A/B.
+      const forceDecide =
+        new URLSearchParams(typeof location !== "undefined" ? location.search : "").get(
+          "forceDecide",
+        ) === "1";
+      const routerPick = forceDecide ? null : suppressedAdviceRead(user);
+
       // The hop loop: the model picks one read-only tool per hop and sees
       // what every earlier hop observed, so a follow-up hop can build on the
       // one before it (search then read, positions then history). Stop
@@ -930,20 +941,38 @@ function ChatConsole({
             break;
           }
           const decStart = Date.now();
+          const routerHop = hop === 1 && routerPick?.id != null;
+          const routerDef = routerHop
+            ? hopAllowed.find((d) => d.id === routerPick!.id)
+            : undefined;
           const pick = skipDecide
             ? {
                 def: hopAllowed[0],
                 query: user,
                 why: "external intent, web.search forced",
               }
-            : await decideAction(user, hopAllowed, {
-                head: turnHead,
-                evidence: hopEvidence(observationsRef.current),
-                remaining: LIMITS.maxToolHops - hop + 1,
-              });
+            : routerDef
+              ? {
+                  def: routerDef,
+                  query: user,
+                  why: `router-deterministic: ${routerPick!.why}`,
+                }
+              : await decideAction(user, hopAllowed, {
+                  head: turnHead,
+                  evidence: hopEvidence(observationsRef.current),
+                  remaining: LIMITS.maxToolHops - hop + 1,
+                });
           // The decide call is model inference even though it outputs a tool
-          // pick: it belongs in its own phase, not in tool execution.
-          if (!skipDecide) measure("decide", Date.now() - decStart, `hop ${hop}`);
+          // pick: it belongs in its own phase, not in tool execution. The
+          // router-deterministic hop records the label so /usage shows the
+          // decide ms it never spent.
+          if (!skipDecide) {
+            measure(
+              "decide",
+              Date.now() - decStart,
+              routerDef ? "router-deterministic" : `hop ${hop}`,
+            );
+          }
           if (!pick) {
             turn.settle("tool", "skipped", "no tool chosen");
             break;
@@ -1058,11 +1087,14 @@ function ChatConsole({
             const capture = captureResult(out);
             const isWebSearch = pick.def.id === "web.search";
             const isWebRead = pick.def.id === "web.read";
+            const routerChosen = pick.why.startsWith("router-deterministic");
             push({
               role: "tool",
-              text: isWebRead ? "web.read · follow-up" : `${pick.def.id} · model-chosen`,
+              text: isWebRead
+                ? "web.read · follow-up"
+                : `${pick.def.id} · ${routerChosen ? "router" : "model"}-chosen`,
               card: {
-                source: `${pick.def.id} (model pick)`,
+                source: `${pick.def.id} (${routerChosen ? "router pick" : "model pick"})`,
                 facts: isWebSearch
                   ? searchFacts(out, pick.why)
                   : isWebRead

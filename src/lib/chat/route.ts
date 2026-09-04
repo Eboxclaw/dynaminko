@@ -83,6 +83,29 @@ function includesAlias(q: string, aliases: string[]) {
 }
 
 /**
+ * The READ the deterministic router recognized but deliberately withheld:
+ * a status phrase embedded in an advice question ("how is my portfolio
+ * doing and what could I improve?"). The status half is still a plain fact
+ * request, so the hop loop can run that read as hop 1 without paying a
+ * decide model call for it; the model keeps the floor through later hops,
+ * where it answers the advice half from the evidence. null when nothing
+ * was withheld (pure status already runs as a terminal command turn, pure
+ * advice never matched). Read-only by construction: only the advice-gated
+ * PRE_EXECUTE entry is returned, and that entry is a READ capture.
+ */
+export function suppressedAdviceRead(text: string): { id: string; why: string } | null {
+  const q = text.toLowerCase();
+  for (const route of PRE_EXECUTE) {
+    if (!route.adviceGated) continue;
+    const hit = includesAlias(q, route.aliases);
+    if (hit && ADVICE_MARKER.test(q)) {
+      return { id: route.commandId, why: `matched "${hit}" behind the advice gate` };
+    }
+  }
+  return null;
+}
+
+/**
  * Advice intent riding on a status phrase: "how is my portfolio looking and
  * what could I improve?" contains the status alias but asks for an opinion,
  * which the snapshot data alone cannot give. When one of these markers is
