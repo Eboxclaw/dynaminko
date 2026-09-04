@@ -9,7 +9,9 @@
 // Static config (MODELS, MODEL_BY_ID, etc.) stays on the main thread.
 
 import type { Wllama } from "@wllama/wllama/esm/index.js";
-import { runtimeSnapshot, prefillRateMsPerToken, prefirstTokenIdleMs, type Backend } from "@/lib/ai/runtime";
+import { runtimeSnapshot, webgpuWeightsFactor, prefillRateMsPerToken, prefirstTokenIdleMs, type Backend } from "@/lib/ai/runtime";
+
+export { webgpuWeightsFactor };
 import { tagGeneration, tagRuntime } from "@/lib/ai/trace";
 import type { AiWorkerRequest, AiWorkerResponse, GenerationMetrics } from "@/workers/ai.worker";
 
@@ -347,7 +349,14 @@ export const CTX_CHOICES = [1024, 2048, 4096, 8192, 16384, 32128, 65536, 131072]
 export function ctxChoicesFor(maxCtx: number): number[] {
   return (CTX_CHOICES as readonly number[]).filter((c) => c <= maxCtx);
 }
-export const DEFAULT_CTX = 8192;
+/**
+ * The default window for every model that can carry it: 32k leaves room for
+ * long documents and multi-hop evidence instead of rationing context, and the
+ * per-model persisted choice still wins. Feasibility stays with budgetGuard,
+ * which refuses only what the device cannot carry, with the reason in the
+ * error and the /usage budget line.
+ */
+export const DEFAULT_CTX = 32128;
 
 // Per-model context persistence: a /context choice survives reloads, keyed
 // by model, clamped to that model's real maximum.
@@ -472,10 +481,12 @@ export function memoryBudgetGb(
   spec: Pick<ModelSpec, "kv" | "weightsGb">,
   nCtx: number,
   kvDtype: string = "q8_0",
+  opts: { weightsFactor?: number; coResidentGb?: number } = {},
 ): number | null {
   const kv = kvCacheGb(spec, nCtx, kvDtype);
   if (kv == null) return null;
-  const peak = spec.weightsGb + kv + spec.weightsGb * BUFFER_FACTOR + OVERHEAD_GB;
+  const weights = spec.weightsGb * (opts.weightsFactor ?? 1);
+  const peak = weights + kv + spec.weightsGb * BUFFER_FACTOR + OVERHEAD_GB + (opts.coResidentGb ?? 0);
   return peak * (1 + SAFETY_MARGIN);
 }
 
@@ -496,8 +507,14 @@ export function budgetOutcome(
   nCtx: number,
   memoryClassGb: number | null,
   kvDtype: string = "q8_0",
+  opts: { weightsFactor?: number; coResidentGb?: number } = {},
 ): BudgetOutcome {
-  const peak = memoryBudgetGb(spec, nCtx, kvDtype);
+  const peak = memoryBudgetGb(spec, nCtx, kvDtype, opts);
+  const factor = opts.weightsFactor ?? 1;
+  const extras =
+    (kvDtype !== "q8_0" ? ` · ${kvDtype} KV` : "") +
+    (factor > 1 ? ` · weights x${factor} (webgpu residency)` : "") +
+    (opts.coResidentGb ? ` · +${opts.coResidentGb.toFixed(2)}GB resident encoder` : "");
   if (peak == null)
     return { verdict: "UNCERTAIN", peakGb: null, basis: "model KV architecture unknown" };
   if (memoryClassGb == null)
@@ -506,18 +523,18 @@ export function budgetOutcome(
     return {
       verdict: "UNSAFE",
       peakGb: peak,
-      basis: `peak ${peak.toFixed(2)} GB over the ${memoryClassGb} GB class`,
+      basis: `peak ${peak.toFixed(2)} GB over the ${memoryClassGb} GB class${extras}`,
     };
   if (peak > memoryClassGb * 0.7)
     return {
       verdict: "UNCERTAIN",
       peakGb: peak,
-      basis: `peak ${peak.toFixed(2)} GB near the ${memoryClassGb} GB class`,
+      basis: `peak ${peak.toFixed(2)} GB near the ${memoryClassGb} GB class${extras}`,
     };
   return {
     verdict: "SAFE",
     peakGb: peak,
-    basis: `peak ${peak.toFixed(2)} GB of ${memoryClassGb} GB`,
+    basis: `peak ${peak.toFixed(2)} GB of ${memoryClassGb} GB${extras}`,
   };
 }
 
@@ -528,24 +545,29 @@ export function budgetBreakdown(
   spec: Pick<ModelSpec, "kv" | "weightsGb">,
   nCtx: number,
   kvDtype: string = "q8_0",
+  opts: { weightsFactor?: number; coResidentGb?: number } = {},
 ): {
   weightsGb: number;
   kvGb: number | null;
   buffersGb: number;
   overheadGb: number;
   margin: number;
+  coResidentGb: number;
   peakGb: number | null;
 } {
   const kv = kvCacheGb(spec, nCtx, kvDtype);
+  const weights = spec.weightsGb * (opts.weightsFactor ?? 1);
   const buffers = spec.weightsGb * BUFFER_FACTOR;
+  const coResidentGb = opts.coResidentGb ?? 0;
   const peak =
-    kv == null ? null : (spec.weightsGb + kv + buffers + OVERHEAD_GB) * (1 + SAFETY_MARGIN);
+    kv == null ? null : (weights + kv + buffers + OVERHEAD_GB + coResidentGb) * (1 + SAFETY_MARGIN);
   return {
-    weightsGb: spec.weightsGb,
+    weightsGb: weights,
     kvGb: kv,
     buffersGb: buffers,
     overheadGb: OVERHEAD_GB,
     margin: SAFETY_MARGIN,
+    coResidentGb,
     peakGb: peak,
   };
 }
@@ -1016,16 +1038,44 @@ export async function embedUnload(): Promise<void> {
  * load configuration BEFORE the worker allocates and crashes the tab.
  * UNCERTAIN proceeds: conservative configuration and calibration are P1.
  * Null when the prediction does not block.
+ *
+ * The feasibility math accounts for what the load will actually engage:
+ * the KV dtype the runtime would pick (f16 doubles the cache), the WebGPU
+ * weight-residency factor (x2 off-VRAM), and the warm encoder that
+ * co-resides unless this model rotates it out. A configuration that only
+ * overflows under WebGPU residency but fits as a single wasm copy is NOT
+ * refused: the load path escapes to partial or zero GPU layers, and the
+ * basis strings carry the reason for the diagnostics.
  */
 function budgetGuard(spec: ModelSpec, nCtx?: number): LifecycleResult | null {
   const ctx = nCtx ?? persistedCtx(spec.id) ?? DEFAULT_CTX;
-  const { verdict, basis } = budgetOutcome(spec, ctx, runtimeSnapshot().memoryClassGb);
+  const caps = runtimeSnapshot();
+  const kvDtype = caps.cacheTypeK;
+  const weightsFactor = webgpuWeightsFactor(caps);
+  // Co-residency: the warm GGUF encoder shares the machine with every model
+  // except those flagged encoderFallback (they rotate it out for the tiny
+  // transformers.js MiniLM, itself ~0.1GB).
+  const coResidentGb = spec.encoderFallback ? 0.1 : 0.25;
+  const opts = { weightsFactor, coResidentGb };
+  const { verdict, basis } = budgetOutcome(spec, ctx, caps.memoryClassGb, kvDtype, opts);
   if (verdict !== "UNSAFE") return null;
-  return {
-    status: "unsupported",
-    modelId: spec.id,
-    message: `${spec.label} at ctx ${ctx} is predicted not to fit on this device (${basis}). Lower the context or pick a smaller model.`,
-  };
+  // Would a single-copy (wasm) residency fit? Then the load must not be
+  // blocked outright: buildInferenceProfile escapes to partial or zero GPU
+  // layers and the model runs CPU-side.
+  const wasm = budgetOutcome(spec, ctx, caps.memoryClassGb, kvDtype, {
+    weightsFactor: 1,
+    coResidentGb,
+  });
+  if (wasm.verdict === "UNSAFE") {
+    return {
+      status: "unsupported",
+      modelId: spec.id,
+      message:
+        `${spec.label} at ctx ${ctx} is predicted not to fit on this device (${basis}); ` +
+        `not even a CPU-only load fits (${wasm.basis}). Lower the context or pick a smaller model.`,
+    };
+  }
+  return null;
 }
 
 export async function loadDownloadedModel(

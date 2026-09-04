@@ -67,6 +67,18 @@ export function runtimeSnapshot(): RuntimeCapabilities {
   return cached ?? UNKNOWN;
 }
 
+/**
+ * The weight-residency factor the memory budget must apply for a WebGPU load:
+ * under WebGPU the weights exist twice (wasm-heap ggml buffers plus GPU
+ * device buffers, an upstream property). On a DISCRETE GPU the device copy
+ * lives in VRAM, off the system-RAM envelope the budget guards, so the factor
+ * is 1 there; on integrated/mobile GPUs both copies draw on the same RAM, so
+ * it is 2. WASM keeps exactly one copy.
+ */
+export function webgpuWeightsFactor(caps: Pick<RuntimeCapabilities, "webgpu" | "webgpuBroken" | "gpuTier">): number {
+  return caps.webgpu && !caps.webgpuBroken && caps.gpuTier !== "discrete" ? 2 : 1;
+}
+
 /** True mobile signal: coarse pointer or touch, not the user agent string. */
 function isMobile(): boolean {
   if (typeof navigator === "undefined") return false;

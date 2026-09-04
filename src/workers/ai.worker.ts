@@ -14,7 +14,7 @@ import { buildInferenceProfile, detectRuntime } from "@/lib/ai/runtime";
 import { readDelta } from "@/lib/ai/stream";
 // The registry lives once, on the main thread (lib/ai.ts). This module has no
 // runtime imports of its own, so it bundles into the worker cleanly.
-import { DEFAULT_CTX, DEFAULT_MODEL_ID, MODEL_BY_ID, MODELS, budgetOutcome, expectedGgufFilename, orphanRecoveryDecision, type ModelSpec } from "@/lib/ai";
+import { DEFAULT_CTX, DEFAULT_MODEL_ID, MODEL_BY_ID, MODELS, budgetOutcome, expectedGgufFilename, orphanRecoveryDecision, webgpuWeightsFactor, type ModelSpec } from "@/lib/ai";
 import { renderInterceptedCalls, withNativeToolTurns } from "@/lib/ai/nativeTools";
 
 // ── worker global shims ───────────────────────────────────────────────
@@ -577,9 +577,14 @@ async function loadModelInternal(
   const caps = await detectRuntime();
   // Capacity = feasibility, computed from the real KV geometry against the
   // conservative envelope (q8_0 is the smaller KV; if even q8 does not fit,
-  // f16 certainly does not). This decides the escape hatch only.
+  // f16 certainly does not). Same audit factors as the main-thread
+  // budgetGuard: WebGPU weight residency and the co-resident encoder. This
+  // decides the escape hatch only.
   const fullGpuFits =
-    budgetOutcome(spec, nCtx, caps.memoryClassGb, "q8_0").verdict !== "UNSAFE";
+    budgetOutcome(spec, nCtx, caps.memoryClassGb, "q8_0", {
+      weightsFactor: webgpuWeightsFactor(caps),
+      coResidentGb: spec.encoderFallback ? 0.1 : 0.25,
+    }).verdict !== "UNSAFE";
   const profile = (() => {
     const base = buildInferenceProfile(caps, spec.weightsGb, spec.nLayers, nCtx, {
       fullGpuFits,

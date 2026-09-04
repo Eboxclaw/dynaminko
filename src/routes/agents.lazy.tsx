@@ -56,7 +56,7 @@ import {
   splitThinking,
   stripToolCallMarkup,
 } from "@/lib/ai";
-import { runtimeSnapshot, scaledHopDeadlineMs } from "@/lib/ai/runtime";
+import { runtimeSnapshot, scaledHopDeadlineMs, webgpuWeightsFactor } from "@/lib/ai/runtime";
 import type { TurnMessage } from "@/lib/ai";
 import {
   prewarmRetrieval,
@@ -2005,17 +2005,30 @@ function ChatConsole({
           ` · ${caps.adapter ?? "no WebGPU adapter"}` +
           ` · envelope ${caps.memoryClassGb != null ? `${caps.memoryClassGb}GB` : "?"} (${caps.gpuTier})`;
         // The active model's memory ledger: the same numbers budgetGuard
-        // judged, printed as the addition it performs.
+        // judged, printed as the addition it performs (webgpu weight
+        // residency and the co-resident encoder included).
         const activeSpec = ai.spec;
         const budgetLine = activeSpec
           ? (() => {
-              const bd = budgetBreakdown(activeSpec, ai.ctx);
-              const o = budgetOutcome(activeSpec, ai.ctx, caps.memoryClassGb);
+              const guardOpts = {
+                weightsFactor: webgpuWeightsFactor(caps),
+                coResidentGb: activeSpec.encoderFallback ? 0.1 : 0.25,
+              };
+              const bd = budgetBreakdown(activeSpec, ai.ctx, caps.cacheTypeK, guardOpts);
+              const o = budgetOutcome(activeSpec, ai.ctx, caps.memoryClassGb, caps.cacheTypeK, guardOpts);
               const peak = bd.peakGb != null ? `${bd.peakGb.toFixed(2)}GB` : "unknown";
+              const parts = [
+                bd.weightsGb > 0
+                  ? `${bd.weightsGb.toFixed(2)}GB weights${guardOpts.weightsFactor > 1 ? " (x2 webgpu)" : ""}`
+                  : null,
+                bd.kvGb != null ? `${bd.kvGb.toFixed(2)}GB KV@${ai.ctx}` : null,
+                `${bd.buffersGb.toFixed(2)}GB buffers`,
+                `${bd.overheadGb.toFixed(2)}GB overhead`,
+                bd.coResidentGb ? `${bd.coResidentGb.toFixed(2)}GB encoder` : null,
+              ].filter(Boolean);
               return (
-                `budget: ${bd.weightsGb.toFixed(2)}GB weights + ${bd.kvGb != null ? `${bd.kvGb.toFixed(2)}GB` : "?"} KV@${ai.ctx}` +
-                ` + ${bd.buffersGb.toFixed(2)}GB buffers + ${bd.overheadGb.toFixed(2)}GB overhead` +
-                ` = ${peak} peak (+${Math.round(bd.margin * 100)}% margin) · ${o.verdict}: ${o.basis}`
+                `budget: ${parts.join(" + ")} = ${peak} peak (+${Math.round(bd.margin * 100)}% margin)` +
+                ` · ${o.verdict}: ${o.basis}`
               );
             })()
           : "budget: no local model selected";
