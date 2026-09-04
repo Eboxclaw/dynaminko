@@ -441,12 +441,15 @@ function LocalModels({ ai }: { ai: ReturnType<typeof useAi> }) {
             />
           </label>
           <label className="text-[12px]">
-            <span className="eyebrow block">Max tokens {ai.maxTokens}</span>
+            <span className="eyebrow block">
+              Max tokens {ai.maxTokens}
+              <span className="ml-1 text-ink-faint">· output reserve of ctx {ai.ctx}</span>
+            </span>
             <input
               type="range"
               min={64}
-              max={8192}
-              step={32}
+              max={ai.ctx}
+              step={128}
               value={ai.maxTokens}
               onChange={(e) => ai.setMaxTokens(Number(e.target.value))}
               className="mt-2 w-full accent-[var(--ink)]"

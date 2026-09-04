@@ -107,6 +107,38 @@ export function estimateTokens(text: string): number {
 }
 
 /**
+ * Explicit context allocation. The window splits into an input budget for the
+ * prompt and an output reserve for the answer, plus a small safety margin for
+ * the tokenizer estimate error. The reserve is the user's actual max-output
+ * setting, not a fixed fraction of the window: a larger reservation trades
+ * input context for output capacity, and all three numbers stay visible in
+ * /context and /usage instead of hiding inside one percentage.
+ */
+export type ContextAllocation = {
+  contextWindow: number;
+  outputReserve: number;
+  safetyMargin: number;
+  inputBudget: number;
+};
+
+export const OUTPUT_MARGIN_FRACTION = 0.05;
+
+export function allocateContext(
+  contextWindow: number,
+  outputReserve: number,
+  marginFraction: number = OUTPUT_MARGIN_FRACTION,
+): ContextAllocation {
+  const reserve = Math.max(0, Math.min(outputReserve, contextWindow));
+  const margin = Math.floor(contextWindow * marginFraction);
+  return {
+    contextWindow,
+    outputReserve: reserve,
+    safetyMargin: margin,
+    inputBudget: Math.max(0, contextWindow - reserve - margin),
+  };
+}
+
+/**
  * The state as labeled fact lines. Small models invent numbers when counts
  * float unlabeled inside prose; one `key: value` line per fact, nothing else,
  * plus a hard rule in CORE that numbers may only come from these lines.

@@ -76,7 +76,7 @@ import type { NativeToolTurn } from "@/lib/ai";
 
 import { AGENTS, automationOn } from "@/lib/agents/registry";
 import { COMMANDS, parseCommand, suggestions, type Suggestion } from "@/lib/chat/commands";
-import { estimateTokens, factLines, portfolioFactLines } from "@/lib/chat/context";
+import { allocateContext, estimateTokens, factLines, portfolioFactLines } from "@/lib/chat/context";
 import {
   beginTurn,
   completedTurn,
@@ -1148,11 +1148,11 @@ function ChatConsole({
         }
       }
 
-      // 0.85 of the window, not 0.75: post-penalty answers measure 25 to 60
-      // tokens, so the old reply reserve was dead weight the FACTS pile
-      // tripped over. Revisit if answers grow. ai.ctx already resolves to
-      // the cloud ladder when a cloud provider is active.
-      const budgetTokens = Math.floor(ai.ctx * 0.85);
+      // Explicit allocation, not a fixed fraction: the prompt gets the window
+      // minus the user's actual output reserve minus a small margin. ai.ctx
+      // already resolves to the cloud ladder when a cloud provider is active.
+      const allocation = allocateContext(ai.ctx, ai.maxTokens);
+      const budgetTokens = allocation.inputBudget;
       // Native tool protocol: model-chosen observations become the
       // call → role:tool response dialogue the LFM template expects (the
       // model re-issues its call forever when the results arrive as prose).
@@ -1958,9 +1958,10 @@ function ChatConsole({
         const table = sections
           .map((s) => `${s.truncated ? "!" : " "} ${s.name} · ${s.estTokens}t`)
           .join("\n");
+        const alloc = allocateContext(ai.ctx, ai.maxTokens);
         push({
           role: "note",
-          text: `last prompt ${lastT}t of ${Math.floor(ai.ctx * 0.85)}t budget · model ${ai.spec?.label ?? ai.target.label}\n${table}\nhistory scope: this session only · ${messages.length} messages stored\n(! = section truncated/shed; memory is the only cross-session section)`,
+          text: `last prompt ${lastT}t of ${alloc.inputBudget}t input budget · ctx ${alloc.contextWindow} · output reserve ${alloc.outputReserve}t (+${alloc.safetyMargin}t margin) · model ${ai.spec?.label ?? ai.target.label}\n${table}\nhistory scope: this session only · ${messages.length} messages stored\n(! = section truncated/shed; memory is the only cross-session section)`,
         });
         return;
       }
@@ -2049,7 +2050,7 @@ function ChatConsole({
             budgetLine,
             genLine,
             usageLine ?? "no model answer yet this session",
-            `last prompt ${lastT != null && lastT > 0 ? `${lastT}t` : "n/a"} · ctx budget ${Math.floor(ai.ctx * 0.85)}`,
+            `last prompt ${lastT != null && lastT > 0 ? `${lastT}t` : "n/a"} · input budget ${(() => { const a = allocateContext(ai.ctx, ai.maxTokens); return `${a.inputBudget}t · output reserve ${a.outputReserve}t of ctx ${a.contextWindow}`; })()}`,
             `memory ${memCtx.chars}/${memCtx.limit} chars · ${memCtx.entries} notes`,
             session ? `${session.turns} turns in this session` : "no active session",
           ].join("\n"),

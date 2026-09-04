@@ -111,7 +111,13 @@ export function useAi() {
     () => persistedCtx(settings.aiModelId) ?? Math.min(DEFAULT_CTX, MODEL_BY_ID[settings.aiModelId]?.maxCtx ?? DEFAULT_CTX),
   );
   const setCtx = useCallback(
-    (n: number) => setLocalCtxState(persistCtx(settings.aiModelId, n)),
+    (n: number) => {
+      setLocalCtxState(persistCtx(settings.aiModelId, n));
+      // The output reserve lives inside the window: shrinking the window
+      // shrinks the reserve with it, or the slider would offer a max_tokens
+      // the context cannot hold.
+      setMaxTokens((t) => Math.min(t, n));
+    },
     [settings.aiModelId],
   );
   const [loadedCtx, setLoadedCtx] = useState(DEFAULT_CTX);

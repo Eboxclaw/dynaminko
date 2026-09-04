@@ -4,7 +4,22 @@
 
 import { beforeEach, describe, expect, it } from "vitest";
 import { addEntry, ingestSignals, wipe, type Signal } from "@/lib/store";
-import { digest, factLines } from "./context";
+import { allocateContext, digest, factLines } from "./context";
+
+describe("allocateContext", () => {
+  it("splits the window into input budget, output reserve and margin", () => {
+    const a = allocateContext(32128, 8192);
+    expect(a.outputReserve).toBe(8192);
+    expect(a.safetyMargin).toBe(Math.floor(32128 * 0.05));
+    expect(a.inputBudget).toBe(32128 - 8192 - a.safetyMargin);
+  });
+
+  it("clamps an impossible reserve to the window and never goes negative", () => {
+    const a = allocateContext(4096, 8192);
+    expect(a.outputReserve).toBe(4096);
+    expect(a.inputBudget).toBe(0);
+  });
+});
 
 function sig(over: Partial<Signal>): Signal {
   return {
