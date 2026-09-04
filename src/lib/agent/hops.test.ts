@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { hopEvidence, hopKey, isRepeatHop } from "./hops";
+import { DECIDE_SYSTEM, decideUserContent, hopEvidence, hopKey, isRepeatHop } from "./hops";
 
 describe("hopEvidence", () => {
   it("is empty before any hop ran", () => {
@@ -38,5 +38,39 @@ describe("hop keys", () => {
     expect(isRepeatHop(key, [hopKey("portfolio.read", {}), key])).toBe(true);
     expect(isRepeatHop(key, [hopKey("portfolio.read", {})])).toBe(false);
     expect(isRepeatHop(hopKey("journal.search", { query: "inko", limit: 3 }), [key])).toBe(false);
+  });
+});
+
+describe("decide prompt prefix stability", () => {
+  const base = {
+    question: "what patterns do you see in my recent trades",
+    menuText: "journal.filter: filter entries by ticker (inputs: ticker)",
+    facts: "wallet: none watched\nentries: 12",
+    web: false,
+  };
+
+  it("keeps the system prompt free of per-hop state", () => {
+    // The slot cache reuses the longest common token prefix of consecutive
+    // completions; a per-hop byte anywhere in the head kills the reuse.
+    expect(DECIDE_SYSTEM).not.toMatch(/At most \d+ more tool picks/);
+  });
+
+  it("appends the remaining count after evidence, at the tail", () => {
+    const content = decideUserContent({ ...base, evidence: "journal.filter (ok): 2 entries", remaining: 1 });
+    expect(content.indexOf("EARLIER RESULTS THIS TURN")).toBeLessThan(
+      content.indexOf("At most 1 more tool picks"),
+    );
+    expect(content.endsWith("At most 1 more tool picks this turn.")).toBe(true);
+  });
+
+  it("makes hop 1 a strict prefix of hop 2 so only new evidence prefills", () => {
+    const head = decideUserContent(base);
+    const hop2 = decideUserContent({
+      ...base,
+      evidence: 'journal.filter (ok): 2 entries\nlatest result data: [{"ticker":"INKO"}]',
+      remaining: 1,
+    });
+    expect(hop2.startsWith(head)).toBe(true);
+    expect(hop2.length).toBeGreaterThan(head.length);
   });
 });

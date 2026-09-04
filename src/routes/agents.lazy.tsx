@@ -29,7 +29,7 @@ import {
   skillObservation,
   type ToolObservation,
 } from "@/lib/agent/context";
-import { hopEvidence, hopKey, isRepeatHop } from "@/lib/agent/hops";
+import { DECIDE_SYSTEM, decideUserContent, hopEvidence, hopKey, isRepeatHop } from "@/lib/agent/hops";
 import { captureResult, readOffloaded, type CapturedResult } from "@/lib/agent/offload";
 import {
   capabilityCatalogue,
@@ -481,29 +481,30 @@ function ChatConsole({
     // stays the GBNF JSON pick either way.
     const nativeMenu = ai.spec?.decideMenu === "native";
     const tools = nativeMenu ? decideTools(allowed) : undefined;
+    // Shared builders in hops.ts keep the decide head byte-identical across
+    // hops (the remaining count appends at the tail), so the KV slot cache
+    // prefills only each hop's new evidence instead of the whole prompt.
     const messages: TurnMessage[] = [
-      {
-        role: "system",
-        content:
-          "You select one tool to answer the user's question, or none. Answer with the JSON the schema allows. The query is the search term for the tool, at most 6 words, or empty; pass limit only when the tool paginates. Only pick a tool when you can fill its required inputs; otherwise pick another tool or none. Pick none when the answer is already in FACTS or in earlier results. Entries marked [write] change the journal: when QUESTION explicitly asks for that action, pick the matching [write] entry on this hop instead of asking in prose. Proposing is safe: the app always shows an approval card and the user confirms before anything runs." +
-          (opts.remaining != null ? ` At most ${opts.remaining} more tool picks this turn.` : ""),
-      },
+      { role: "system", content: DECIDE_SYSTEM },
       {
         role: "user",
-        content: `QUESTION\n${user}${
-          nativeMenu
-            ? ""
-            : `\n\nTOOLS\n${allowed
+        content: decideUserContent({
+          question: user,
+          menuText: nativeMenu
+            ? undefined
+            : allowed
                 .map(
                   (d) =>
                     `${d.id}: ${d.purpose} (inputs: ${d.inputs})${
                       d.exec === "write-approval" ? " [write]" : ""
                     }`,
                 )
-                .join("\n")}`
-        }\n\nFACTS\n${facts}${
-          web ? "\nweb_search: active, prefer web.search for news and external facts" : ""
-        }${opts.evidence ? `\n\nEARLIER RESULTS THIS TURN\n${opts.evidence}` : ""}`,
+                .join("\n"),
+          facts,
+          web,
+          evidence: opts.evidence,
+          remaining: opts.remaining,
+        }),
       },
     ];
     let raw: string;

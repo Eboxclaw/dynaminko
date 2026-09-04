@@ -39,3 +39,47 @@ export function isRepeatHop(pickKey: string, executedKeys: string[]): boolean {
 export function hopKey(id: string, input: Record<string, unknown>): string {
   return `${id}:${JSON.stringify(input)}`;
 }
+
+/**
+ * The decide system prompt is a constant, never interpolated with per-hop
+ * state: the KV slot cache reuses the longest common token prefix of
+ * consecutive completions, so any byte that moves between hops (a remaining
+ * count, a timestamp) invalidates everything after it and the next decide
+ * re-prefills from that point.
+ */
+export const DECIDE_SYSTEM =
+  "You select one tool to answer the user's question, or none. Answer with the JSON the schema allows. The query is the search term for the tool, at most 6 words, or empty; pass limit only when the tool paginates. Only pick a tool when you can fill its required inputs; otherwise pick another tool or none. Pick none when the answer is already in FACTS or in earlier results. Entries marked [write] change the journal: when QUESTION explicitly asks for that action, pick the matching [write] entry on this hop instead of asking in prose. Proposing is safe: the app always shows an approval card and the user confirms before anything runs.";
+
+export type DecidePromptParts = {
+  question: string;
+  /** Plain-text capability book; undefined when the menu rides the template's
+   *  native tools render instead. */
+  menuText?: string;
+  facts: string;
+  web?: boolean;
+  evidence?: string;
+  /** Hops left this turn. Appended LAST: hop 1's user content then stays a
+   *  strict prefix of hop 2's, which is what makes the slot cache hit. */
+  remaining?: number;
+};
+
+/**
+ * The decide user turn. Every variable block appends at the tail in a fixed
+ * order (evidence, then the remaining count), so prompt_n is prompt_1 plus
+ * suffixes and consecutive decide hops only prefill their new evidence.
+ */
+export function decideUserContent(parts: DecidePromptParts): string {
+  return `QUESTION
+${parts.question}${parts.menuText ? `
+
+TOOLS
+${parts.menuText}` : ""}
+
+FACTS
+${parts.facts}${parts.web ? "\nweb_search: active, prefer web.search for news and external facts" : ""}${parts.evidence ? `
+
+EARLIER RESULTS THIS TURN
+${parts.evidence}` : ""}${parts.remaining != null ? `
+
+At most ${parts.remaining} more tool picks this turn.` : ""}`;
+}

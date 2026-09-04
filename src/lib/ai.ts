@@ -40,6 +40,20 @@ const FORCED_FA: boolean | null = (() => {
   }
 })();
 
+/** Dev-only prompt-cache pin for the KV-reuse A/B: ?forceCache=0|1 overrides
+ *  slot reuse (cache_prompt) so a comparison run can measure prefill with the
+ *  cache on and off instead of trusting a remembered build. */
+const FORCED_CACHE: boolean | null = (() => {
+  try {
+    const v = new URLSearchParams(
+      typeof location !== "undefined" ? location.search : "",
+    ).get("forceCache");
+    return v === "0" ? false : v === "1" ? true : null;
+  } catch {
+    return null;
+  }
+})();
+
 // ── static config (stays on main thread) ─────────────────────────────
 // This registry is the single source of truth; the AI worker imports it from
 // here instead of keeping its own copy (this module has no runtime imports,
@@ -837,6 +851,7 @@ export async function downloadModel(
       nCtx: options.nCtx,
       forcedBackend: FORCED_BACKEND ?? undefined,
       forcedFlashAttn: FORCED_FA,
+      forcedCache: FORCED_CACHE,
       reasoning: options.reasoning,
     });
     onStatus({ phase: "ready", modelId });
@@ -950,6 +965,7 @@ export async function loadDownloadedModel(
       nCtx: options.nCtx,
       forcedBackend: FORCED_BACKEND ?? undefined,
       forcedFlashAttn: FORCED_FA,
+      forcedCache: FORCED_CACHE,
       reasoning: options.reasoning,
     });
     onStatus({ phase: "ready", modelId });

@@ -45,6 +45,8 @@ export type AiWorkerRequest =
       forcedBackend?: "webgpu" | "wasm";
       /** dev-only flash-attn override for the prefill A/B */
       forcedFlashAttn?: boolean | null;
+      /** dev-only prompt-cache (cache_prompt) override for the KV-reuse A/B */
+      forcedCache?: boolean | null;
       /** override the spec's reasoning default (FAST vs REASONED reload) */
       reasoning?: boolean;
     }
@@ -131,6 +133,13 @@ let currentModel: string | null = null;
 let currentCtx = DEFAULT_CTX;
 let activeBackend = "unavailable";
 let abortRun = false;
+/**
+ * llama-server slot reuse for the common prompt prefix (cache_prompt), set at
+ * load time. The wrapper keeps one server context whose slot persists across
+ * completion tasks, so each call re-prefills only the prompt suffix past the
+ * longest shared token prefix instead of the whole prompt every hop.
+ */
+let cachePrompt = true;
 /** The reqId of the load/download in flight, or null. Guards against
  * concurrent loads desyncing the single wllama instance. The worker cannot
  * observe the main thread's deadline, so a "cancel-load" message arrives when
@@ -434,6 +443,7 @@ async function loadModelInternal(
   opts: {
     forcedBackend?: "webgpu" | "wasm";
     forcedFlashAttn?: boolean | null;
+    forcedCache?: boolean | null;
     reasoning?: boolean;
   } = {},
 ): Promise<
@@ -442,6 +452,8 @@ async function loadModelInternal(
 > {
   const forcedBackend = opts.forcedBackend;
   const reasoningOverride = opts.reasoning;
+  // Dev-only A/B pin (?forceCache= on the page): reuse stays on unless pinned.
+  cachePrompt = opts.forcedCache ?? true;
   const spec = modelSpec(modelId) ?? modelSpec(DEFAULT_MODEL_ID)!;
   if (spec.runtime !== "gguf" || !spec.generative) {
     return {
@@ -530,6 +542,10 @@ async function loadModelInternal(
           cache_type_k: p.cache_type_k as never,
           cache_type_v: p.cache_type_v as never,
           flash_attn: p.flash_attn,
+          // llama-server's chunk retention for non-prefix cache reuse. The
+          // KV-shift machinery it drives is only sound with flash attention,
+          // which small ctx buckets load without, so it rides FA only.
+          ...(p.flash_attn ? { n_cache_reuse: 256 } : {}),
           offload_kqv: p.offload_kqv,
           warmup: p.warmup,
           no_kv_offload: p.no_kv_offload,
@@ -666,6 +682,7 @@ async function chatMessages(
   await instance.createChatCompletion({
     messages: composed as never,
     stream: true,
+    cache_prompt: cachePrompt,
     max_tokens: options.maxTokens ?? 8192,
     temperature: options.temperature ?? sampling?.temperature ?? 0.4,
     top_p: sampling?.topP ?? 0.9,
@@ -798,6 +815,7 @@ ctx.addEventListener(
           result = await loadModelInternal(msg.modelId, msg.allowDownload, msg.nCtx, reqId, {
             forcedBackend: msg.forcedBackend,
             forcedFlashAttn: msg.forcedFlashAttn ?? null,
+            forcedCache: msg.forcedCache ?? null,
             reasoning: msg.reasoning,
           });
         } finally {
