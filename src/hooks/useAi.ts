@@ -17,6 +17,7 @@ import {
   MODELS,
   MODEL_BY_ID,
   DEFAULT_CTX,
+  DEFAULT_MODEL_ID,
   persistedCtx,
   persistCtx,
   stopGeneration,
@@ -121,6 +122,14 @@ export function useAi() {
     [settings.aiModelId],
   );
   const [loadedCtx, setLoadedCtx] = useState(DEFAULT_CTX);
+  // Roster migration: a persisted model id the registry no longer carries
+  // (a removed card, like the Thinking fine-tune) falls back to the default
+  // instead of stranding the chip on "no model".
+  useEffect(() => {
+    if (settings.aiModelId && !MODEL_BY_ID[settings.aiModelId]) {
+      setSettings({ aiModelId: DEFAULT_MODEL_ID });
+    }
+  }, [settings.aiModelId, setSettings]);
   // Co-residency: a heavy chat model (the 2.6B) cannot share the machine
   // with a second wllama handle, so routing must use the transformers.js
   // encoder while it is selected. Pure main-thread bookkeeping.

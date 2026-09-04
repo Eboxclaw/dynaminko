@@ -46,18 +46,23 @@ describe("model registry", () => {
   it("the formerly gated models fit an 8GB-class phone envelope at 8K", () => {
     // deviceMemory 8 x 0.8 = the 6.4 GB envelope a Pixel-class phone reports.
     expect(budgetOutcome(MODEL_BY_ID["lfm2-2_6"], 8192, 6.4).verdict).toBe("SAFE");
-    expect(budgetOutcome(MODEL_BY_ID["lfm2-350-thinking"], 8192, 6.4).verdict).toBe("SAFE");
+    expect(budgetOutcome(MODEL_BY_ID["lfm2-230"], 8192, 6.4).verdict).toBe("SAFE");
   });
 
-  it("the roster is the approved LFM2.5 + Qwen set: the 1.2B pair is gone", () => {
+  it("the roster is the approved LFM2.5 + Qwen set: 1.2B pair and Thinking card are gone", () => {
     const ids = MODELS.map((m) => m.id);
     expect(ids).not.toContain("lfm2-1_2-instruct");
     expect(ids).not.toContain("lfm2-1_2-thinking");
+    expect(ids).not.toContain("lfm2-350-thinking");
     expect(ids).toContain("lfm2-350");
-    expect(ids).toContain("lfm2-350-thinking");
+    expect(ids).toContain("lfm2-230");
     expect(ids).toContain("lfm2-450-vl");
     expect(ids).toContain("lfm2-2_6");
     expect(ids).toContain("qwen38-2b-distill");
+    // Thinking ABILITY stays with the reasoning models, never the roster card.
+    expect(MODEL_BY_ID["lfm2-2_6"].reasoning).toBe(true);
+    expect(MODEL_BY_ID["qwen38-2b-distill"].reasoning).toBe(true);
+    expect(MODEL_BY_ID["lfm2-2_6"].reasoningBudget).toBeGreaterThanOrEqual(2048);
   });
 
   it("the encoder is a non-generative GGUF with the MiniLM fallback beside it", () => {
@@ -75,9 +80,8 @@ describe("model registry", () => {
     expect(MODEL_BY_ID["lfm2-350"].sampling?.temperature).toBe(0.2);
     expect(MODEL_BY_ID["lfm2-2_6"].sampling?.temperature).toBe(0.2);
     expect(MODEL_BY_ID["lfm2-450-vl"].sampling?.temperature).toBe(0.2);
-    // Card-explicit exceptions: the Thinking tune starts at the standard, the
-    // Qwen distill keeps its card's 0.6.
-    expect(MODEL_BY_ID["lfm2-350-thinking"].sampling?.temperature).toBe(0.2);
+    // Card-explicit exceptions: the Qwen distill keeps its card's 0.6.
+    expect(MODEL_BY_ID["lfm2-230"].sampling?.temperature).toBe(0.2);
     expect(MODEL_BY_ID["qwen38-2b-distill"].sampling?.temperature).toBe(0.6);
     expect(MODEL_BY_ID["qwen38-2b-distill"].sampling?.topP).toBe(0.95);
   });
@@ -87,8 +91,8 @@ describe("model registry", () => {
     // misprice the budget, so the model degrades to UNCERTAIN instead.
     expect(MODEL_BY_ID["qwen38-2b-distill"].kv).toBeUndefined();
     expect(budgetOutcome(MODEL_BY_ID["qwen38-2b-distill"], 8192, 8).verdict).toBe("UNCERTAIN");
-    // The Thinking 350M shares the base backbone geometry.
-    expect(kvCacheGb(MODEL_BY_ID["lfm2-350-thinking"], 8192, "q8_0")).toBeCloseTo(0.0498, 3);
+    // The 230M shares the LFM2.5 hybrid backbone geometry (6 of 14 layers).
+    expect(kvCacheGb(MODEL_BY_ID["lfm2-230"], 8192, "q8_0")).toBeCloseTo(0.0498, 3);
   });
 
   it("only the 2.6B forces the separate-runtime encoder (co-residency limit)", () => {
@@ -188,13 +192,13 @@ describe("model registry", () => {
     expect(expectedGgufFilename("LiquidAI/LFM2.5-2.6B-GGUF", "QAD-Q4_0")).toBe(
       "lfm2.5-2.6b-qad-q4_0.gguf",
     );
-    // The Thinking card's quant is F16 while the published file is lowercase.
-    expect(expectedGgufFilename("KoarAI/LFM2.5-350M-Thinking-0004-GGUF", "F16")).toBe(
-      "lfm2.5-350m-thinking-0004-f16.gguf",
+    // The 230M: same family pattern, distinct file.
+    expect(expectedGgufFilename("LiquidAI/LFM2.5-230M-GGUF", "QAD-Q4_0")).toBe(
+      "lfm2.5-230m-qad-q4_0.gguf",
     );
-    // 350M and Thinking must NOT collide on one filename.
+    // 350M and 230M must NOT collide on one filename.
     expect(expectedGgufFilename("LiquidAI/LFM2.5-350M-GGUF", "QAD-Q4_0")).not.toBe(
-      expectedGgufFilename("KoarAI/LFM2.5-350M-Thinking-0004-GGUF", "F16"),
+      expectedGgufFilename("LiquidAI/LFM2.5-230M-GGUF", "QAD-Q4_0"),
     );
   });
 

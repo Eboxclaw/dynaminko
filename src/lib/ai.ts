@@ -228,28 +228,27 @@ const MODEL_LIST: Omit<ModelSpec, "backend">[] = [
     sampling: { temperature: 0.2, minP: 0.15, repeatPenalty: 1.05, penaltyLastN: 64, topK: 50 },
   },
   {
-    id: "lfm2-350-thinking",
-    label: "LFM 2.5 350M Thinking",
-    repo: "KoarAI/LFM2.5-350M-Thinking-0004-GGUF",
-    quant: "F16",
+    id: "lfm2-230",
+    label: "LFM 2.5 230M",
+    repo: "LiquidAI/LFM2.5-230M-GGUF",
+    quant: "QAD-Q4_0",
     runtime: "gguf",
-    serve: "llama serve -hf KoarAI/LFM2.5-350M-Thinking-0004-GGUF:F16",
-    blurb: "Thinking fine-tune of the 350M backbone. Emits <think> traces; ChatML template with native tool-call tokens.",
-    role: "Reasoning executor on the junior backbone, for in-app testing",
-    capabilities: ["assist", "reason", "extract"],
-    weightsGb: 0.71,
-    minRamGb: 3,
+    serve: "llama serve -hf LiquidAI/LFM2.5-230M-GGUF:QAD-Q4_0",
+    blurb: "The featherweight: fastest answers, same family grounding.",
+    role: "Ultra-light assistant for tiny devices and quick chats",
+    capabilities: ["assist", "extract"],
+    // QAD file 149,081,056 bytes (verified upstream 09-04).
+    weightsGb: 0.15,
+    minRamGb: 1,
     vision: false,
-    reasoning: true,
+    reasoning: false,
     generative: true,
-    // The F16 file is the only quant published. Same LFM2.5-350M attention
-    // geometry as the base executor.
+    // Same family ladder as the 350M; card limit 32768.
     maxCtx: 32768,
-    nLayers: 28,
+    // config.json: 14 layers, 6 full_attention, 8 KV heads, hidden 1024 / 16
+    // heads = head dim 64. Same hybrid KV geometry basis as the 350M.
+    nLayers: 14,
     kv: { attnLayers: 6, kvHeads: 8, headDim: 64 },
-    reasoningBudget: 2048,
-    // Card quick-start says --temp 0.6; the in-app standard is 0.2, adjusted
-    // after live runs if thinking traces loop or stall.
     sampling: { temperature: 0.2, minP: 0.15, repeatPenalty: 1.05, penaltyLastN: 64, topK: 50 },
   },
   {
@@ -348,10 +347,10 @@ export function orphanRecoveryDecision(
 
 export const CAPABILITY_MODELS: Record<Capability, string[]> = {
   encode: [ENCODER_ID, FALLBACK_ENCODER_ID],
-  extract: ["lfm2-350", "lfm2-350-thinking", "qwen38-2b-distill", "lfm2-2_6"],
+  extract: ["lfm2-350", "lfm2-230", "qwen38-2b-distill", "lfm2-2_6"],
   vision: ["lfm2-450-vl"],
-  assist: ["lfm2-350", "lfm2-350-thinking", "qwen38-2b-distill", "lfm2-2_6"],
-  reason: ["lfm2-350-thinking", "qwen38-2b-distill", "lfm2-2_6"],
+  assist: ["lfm2-350", "lfm2-230", "qwen38-2b-distill", "lfm2-2_6"],
+  reason: ["qwen38-2b-distill", "lfm2-2_6"],
 };
 
 export function modelFor(cap: Capability, downloaded?: Set<string>): ModelSpec | undefined {
@@ -434,7 +433,7 @@ export function deviceProfile(): DeviceProfile {
 
 const RECOMMEND_ORDER = [
   "lfm2-350",
-  "lfm2-350-thinking",
+  "lfm2-230",
   "qwen38-2b-distill",
   "lfm2-450-vl",
   "lfm2-2_6",
