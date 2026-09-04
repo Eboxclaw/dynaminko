@@ -43,6 +43,8 @@ export type AiWorkerRequest =
       allowDownload: boolean;
       /** dev-only backend pin for the comparison protocol */
       forcedBackend?: "webgpu" | "wasm";
+      /** dev-only flash-attn override for the prefill A/B */
+      forcedFlashAttn?: boolean | null;
       /** override the spec's reasoning default (FAST vs REASONED reload) */
       reasoning?: boolean;
     }
@@ -429,7 +431,11 @@ async function loadModelInternal(
   allowDownload: boolean,
   requestCtx?: number,
   reqId?: number,
-  opts: { forcedBackend?: "webgpu" | "wasm"; reasoning?: boolean } = {},
+  opts: {
+    forcedBackend?: "webgpu" | "wasm";
+    forcedFlashAttn?: boolean | null;
+    reasoning?: boolean;
+  } = {},
 ): Promise<
   | { ok: true; backend: string; ctx: number; threadsRequested: number; threadsEffective: number; gpuLayers: number }
   | { ok: false; error: string }
@@ -462,9 +468,14 @@ async function loadModelInternal(
   // f16 certainly does not). This decides the escape hatch only.
   const fullGpuFits =
     budgetOutcome(spec, nCtx, caps.memoryClassGb, "q8_0").verdict !== "UNSAFE";
-  const profile = buildInferenceProfile(caps, spec.weightsGb, spec.nLayers, nCtx, {
-    fullGpuFits,
-  });
+  const profile = (() => {
+    const base = buildInferenceProfile(caps, spec.weightsGb, spec.nLayers, nCtx, {
+      fullGpuFits,
+    });
+    // dev-only prefill A/B pin (?forceFa=0|1)
+    if (opts.forcedFlashAttn == null) return base;
+    return { ...base, flash_attn: opts.forcedFlashAttn };
+  })();
 
   // Backend candidates, equals: webgpu-full preferred when viable, wasm-simd
   // always available. `forcedBackend` (dev-only, ?forceBackend= on the page)
@@ -786,6 +797,7 @@ ctx.addEventListener(
         try {
           result = await loadModelInternal(msg.modelId, msg.allowDownload, msg.nCtx, reqId, {
             forcedBackend: msg.forcedBackend,
+            forcedFlashAttn: msg.forcedFlashAttn ?? null,
             reasoning: msg.reasoning,
           });
         } finally {
