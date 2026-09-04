@@ -14,6 +14,8 @@ import {
   budgetOutcome,
   budgetBreakdown,
   deviceProfile,
+  expectedGgufFilename,
+  orphanRecoveryDecision,
   kvCacheGb,
   memoryBudgetGb,
   memoryEstimateGb,
@@ -180,6 +182,32 @@ describe("model registry", () => {
     expect(recommendModel({ ramGb: null, cores: null, mobile: false, probed: false }).id).toBe(
       DEFAULT_MODEL_ID,
     );
+  });
+
+  it("expectedGgufFilename names the on-disk artifact for every roster shape", () => {
+    expect(expectedGgufFilename("LiquidAI/LFM2.5-2.6B-GGUF", "QAD-Q4_0")).toBe(
+      "lfm2.5-2.6b-qad-q4_0.gguf",
+    );
+    // The Thinking card's quant is F16 while the published file is lowercase.
+    expect(expectedGgufFilename("KoarAI/LFM2.5-350M-Thinking-0004-GGUF", "F16")).toBe(
+      "lfm2.5-350m-thinking-0004-f16.gguf",
+    );
+    // 350M and Thinking must NOT collide on one filename.
+    expect(expectedGgufFilename("LiquidAI/LFM2.5-350M-GGUF", "QAD-Q4_0")).not.toBe(
+      expectedGgufFilename("KoarAI/LFM2.5-350M-Thinking-0004-GGUF", "F16"),
+    );
+  });
+
+  it("orphan recovery repairs only what it can prove, never guesses", () => {
+    // Exact upstream size: the artifact is complete, rewrite the sidecar.
+    expect(orphanRecoveryDecision(1593894944, 1593894944)).toBe("repair");
+    // Any other size: provably wrong, deletable.
+    expect(orphanRecoveryDecision(500_000_000, 1593894944)).toBe("purge");
+    // Upstream unreachable (null): preserve the file, never re-download on a
+    // guess.
+    expect(orphanRecoveryDecision(1593894944, null)).toBe("preserve");
+    expect(orphanRecoveryDecision(null, 1593894944)).toBe("preserve");
+    expect(orphanRecoveryDecision(1593894944, 0)).toBe("preserve");
   });
 
   it("recommendModel suggests the 350M on a tight 2GB phone", () => {

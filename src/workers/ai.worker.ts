@@ -14,7 +14,7 @@ import { buildInferenceProfile, detectRuntime } from "@/lib/ai/runtime";
 import { readDelta } from "@/lib/ai/stream";
 // The registry lives once, on the main thread (lib/ai.ts). This module has no
 // runtime imports of its own, so it bundles into the worker cleanly.
-import { DEFAULT_CTX, DEFAULT_MODEL_ID, MODEL_BY_ID, MODELS, budgetOutcome, type ModelSpec } from "@/lib/ai";
+import { DEFAULT_CTX, DEFAULT_MODEL_ID, MODEL_BY_ID, MODELS, budgetOutcome, expectedGgufFilename, orphanRecoveryDecision, type ModelSpec } from "@/lib/ai";
 import { renderInterceptedCalls, withNativeToolTurns } from "@/lib/ai/nativeTools";
 
 // ── worker global shims ───────────────────────────────────────────────
@@ -437,6 +437,73 @@ async function purgeStaleEntries(spec: ModelSpec): Promise<string[]> {
   }
 }
 
+/** Orphaned-cache-entry recovery. An orphan is a cached GGUF whose metadata
+ * sidecar is missing or unparseable, so wllama's list sees it with an empty
+ * stored URL: the "already downloaded" short-circuit then never rewrites the
+ * sidecar and the exact-URL assembly throws "Model file not found" forever,
+ * even though the weights sit complete on disk. Locate the artifact by its
+ * expected filename, prove identity against the upstream content-length, and
+ * reconstruct the sidecar; an artifact we cannot prove stays on disk. */
+async function recoverOrphanedEntry(
+  url: string,
+  spec: ModelSpec,
+): Promise<{ action: "repaired" | "purged" | "preserve" | "absent"; name?: string }> {
+  const filename = url.split("/").pop();
+  if (!filename) return { action: "absent" };
+  // Identity gate: the artifact must be the file this exact URL names, and
+  // the spec must agree (guards against healing a same-stem sibling like the
+  // 350M onto the Thinking model's orphan).
+  if (expectedGgufFilename(spec.repo, spec.quant) !== filename.toLowerCase()) {
+    return { action: "absent" };
+  }
+  const entries = (await listCacheEntries()) ?? [];
+  const orphan = entries.find((e) => {
+    const rec = e as { name?: string; metadata?: { originalURL?: string } };
+    return (
+      !!rec.name &&
+      rec.name.toLowerCase().endsWith(`_${filename.toLowerCase()}`) &&
+      !rec.metadata?.originalURL
+    );
+  }) as { name: string; size: number } | undefined;
+  if (!orphan) return { action: "absent" };
+
+  let upstreamLength: number | null = null;
+  try {
+    const head = await fetch(url, { method: "HEAD" });
+    upstreamLength = Number(head.headers.get("content-length") ?? "0") || null;
+  } catch {
+    /* offline: decision falls to "preserve" below */
+  }
+  const decision = orphanRecoveryDecision(orphan.size, upstreamLength);
+  if (decision === "repair") {
+    try {
+      const cache = await getSharedCache();
+      // writeMetadata is public on the pinned 3.5.1 CacheManager but absent
+      // from its d.ts; this bridge is the whole reason for the cast.
+      await (
+        cache as unknown as { writeMetadata: (name: string, metadata: unknown) => Promise<void> }
+      ).writeMetadata(orphan.name, {
+        originalURL: url,
+        originalSize: orphan.size,
+        etag: "",
+      });
+      return { action: "repaired", name: orphan.name };
+    } catch {
+      return { action: "preserve", name: orphan.name };
+    }
+  }
+  if (decision === "purge") {
+    try {
+      const cache = await getSharedCache();
+      await cache.delete(orphan.name);
+      return { action: "purged", name: orphan.name };
+    } catch {
+      return { action: "preserve", name: orphan.name };
+    }
+  }
+  return { action: "preserve", name: orphan.name };
+}
+
 async function computeCachedModels(): Promise<Set<string>> {
   const out = new Set<string>();
   const gguf = MODELS.filter((m) => m.runtime === "gguf");
@@ -639,17 +706,32 @@ async function loadModelInternal(
     currentModel = null;
     activeBackend = "unavailable";
 
-    // Stale-entry self-heal. wllama's "Model file not found" means its
-    // exact-URL cache assembly missed while our needle gate (above) passed:
-    // the cache holds an entry for this repo whose stored address no longer
-    // matches the spec (an old quant, a half-migrated entry). That state
-    // never recovered on its own: the row kept saying "on device" so no
-    // Download button appeared, and every Load re-threw. Purge the stale
-    // entries; with downloads allowed (the Download button) retry the load,
-    // which now re-fetches with progress; otherwise hand back the honest
-    // one-click recovery error (the row flips to Download once the UI
-    // refreshes its cache listing).
+    // Cache recovery ladder for "Model file not found". wllama's exact-URL
+    // cache assembly missed. First try orphaned-cache-entry recovery: the
+    // weights may be complete on disk with only their metadata sidecar gone
+    // (repair beats a 1.59GB re-download). Only entries whose staleness is
+    // provable get purged; an unverifiable artifact is preserved and the
+    // error says so. The healRetry flag keeps the ladder from looping.
     if (/^Model file not found:/.test(message) && !opts.healRetry) {
+      const url = message.match(/^Model file not found: (\S+)/)?.[1];
+      if (url) {
+        const recovery = await recoverOrphanedEntry(url, spec);
+        if (recovery.action === "repaired") {
+          return loadModelInternal(modelId, allowDownload, requestCtx, reqId, {
+            ...opts,
+            healRetry: true,
+          });
+        }
+        if (recovery.action !== "absent") {
+          return {
+            ok: false,
+            error:
+              recovery.action === "purged"
+                ? `${spec.label}: a corrupted cached copy was removed; press Download to fetch it again`
+                : `${spec.label}: cached weights are present but could not be verified (upstream unreachable); try again online, or Delete and re-download`,
+          };
+        }
+      }
       const purged = await purgeStaleEntries(spec);
       if (purged.length > 0) {
         if (allowDownload) {

@@ -298,6 +298,32 @@ export const DEFAULT_MODEL_ID = "lfm2-350";
 export const ENCODER_ID = "lfm2-5-embed-350m";
 export const FALLBACK_ENCODER_ID = "minilm-6-v2";
 
+/**
+ * The GGUF filename wllama derives from a repo + quant, e.g.
+ * "LiquidAI/LFM2.5-2.6B-GGUF" + "QAD-Q4_0" gives "lfm2.5-2.6b-qad-q4_0.gguf".
+ * Cache data files are keyed "<sha1(url)>_<this name>", so this identifies a
+ * model's weights on disk even when the metadata sidecar is gone. Lowercase:
+ * callers compare case-insensitively.
+ */
+export function expectedGgufFilename(repo: string, quant: string): string {
+  const stem = (repo.split("/")[1] ?? repo).replace(/-gguf$/i, "");
+  return `${stem}-${quant}.gguf`.toLowerCase();
+}
+
+/** Orphaned-cache-entry recovery decision (pure, unit-pinned). An orphan is a
+ * data file whose metadata sidecar is missing or unreadable, so its stored
+ * URL is unknown. Repair (rewrite the sidecar) only when the artifact's size
+ * proves it complete against upstream; a provable mismatch is deletable; an
+ * unverifiable file is preserved, never re-downloaded on a guess. */
+export type OrphanRecovery = "repair" | "purge" | "preserve";
+export function orphanRecoveryDecision(
+  orphanSize: number | null,
+  upstreamLength: number | null,
+): OrphanRecovery {
+  if (orphanSize == null || upstreamLength == null || upstreamLength <= 0) return "preserve";
+  return orphanSize === upstreamLength ? "repair" : "purge";
+}
+
 export const CAPABILITY_MODELS: Record<Capability, string[]> = {
   encode: [ENCODER_ID, FALLBACK_ENCODER_ID],
   extract: ["lfm2-350", "lfm2-350-thinking", "qwen38-2b-distill", "lfm2-2_6"],
