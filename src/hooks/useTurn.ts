@@ -6,6 +6,7 @@ import { useCallback, useRef, useState } from "react";
 import { track } from "@/lib/stats/client";
 
 import { isFailurePhase, type Stage, type StageNode, type TurnPhase } from "@/lib/chat/pipeline";
+import { markTurnFailed } from "@/lib/ai/trace";
 
 export type TurnError = { message: string; phase: TurnPhase; at: number } | null;
 
@@ -60,6 +61,10 @@ export function useTurn() {
     setNodes((prev) =>
       prev.map((n) => (n.state === "running" ? { ...n, state: "error" as const } : n)),
     );
+    // Freeze the failed turn into the perf trace: without this /usage kept
+    // printing the previous finished turn and a failure looked like a
+    // stale-metrics bug instead of what it was.
+    markTurnFailed(message);
   }, []);
 
   const complete = useCallback(() => {

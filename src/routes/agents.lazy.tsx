@@ -78,6 +78,7 @@ import { estimateTokens, factLines, portfolioFactLines } from "@/lib/chat/contex
 import {
   beginTurn,
   completedTurn,
+  markTurnFailed,
   markAnswerDone,
   markFirstUsefulAction,
   measure,
@@ -716,10 +717,15 @@ function ChatConsole({
     // submit(). Pure bookkeeping.
     tagModel(ai.target.label, ai.backend);
     // Chat never downloads weights, but a model already on this device is
-    // woken up here so the first message does not need a manual Load.
+    // woken up here so the first message does not need a manual Load. The
+    // loaded check is against the TARGET, not "anything loaded": the model
+    // panel's "Use X" chip flips the preference without loading, and a send
+    // with the wrong model loaded failed with no answer at all (the turn
+    // died in the runtime while /usage kept printing the older turn).
+    // wake() no-ops when the target is already the loaded model.
     const wakeStart = Date.now();
     turn.stage("model", ai.target.label);
-    if (ai.target.kind === "local" && !ai.loadedModelId) {
+    if (ai.target.kind === "local" && ai.loadedModelId !== ai.modelId) {
       setSwitchBusy(true);
       const woke = await ai.wake(
         // Keep the wake consistent with the Thinking toggle for
@@ -737,6 +743,9 @@ function ChatConsole({
               ? `${ai.spec?.label ?? "This model"} is not downloaded yet. Download it once from the model menu and it will stay on this device.`
               : (woke.error ?? "the model failed to load"),
         });
+        // The turn produced no answer; mark the trace so /usage reports the
+        // failure instead of the previous finished turn.
+        markTurnFailed(woke.error === "not_downloaded" ? "model not downloaded" : (woke.error ?? "model failed to load"));
         turn.complete();
         return null;
       }
@@ -1958,13 +1967,21 @@ function ChatConsole({
         const memCtx = memoryStats();
         const session = sessions.find((s) => s.id === activeId);
         // completedTurn, not the active trace: this command's own beginTurn
-        // has already reset the in-flight turn by the time we read it.
+        // has already reset the in-flight turn by the time we read it. A
+        // failed turn freezes itself here with a reason, so the report says
+        // so instead of dressing up the previous finished turn.
         const perf = completedTurn();
+        const failedNote = perf?.failed ? `LAST TURN FAILED: ${perf.failed}` : null;
         const perfLine = perf
-          ? `time-to-useful ${perf.timeToUsefulActionMs}ms · total ${perf.totalMs}ms · ` +
-            Object.entries(perf.phases)
-              .map(([k, v]) => `${k} ${v.ms}ms`)
-              .join(", ")
+          ? perf.failed
+            ? `failed after ${perf.totalMs ?? "?"}ms · ` +
+              Object.entries(perf.phases)
+                .map(([k, v]) => `${k} ${v.ms}ms`)
+                .join(", ")
+            : `time-to-useful ${perf.timeToUsefulActionMs}ms · total ${perf.totalMs}ms · ` +
+              Object.entries(perf.phases)
+                .map(([k, v]) => `${k} ${v.ms}ms`)
+                .join(", ")
           : "no measured turn yet (ask a question)";
         // What the load actually engaged + the answer generation's own split:
         // threadsEffective 1 = non-isolated context (the IAB), decodeTps is
@@ -1974,8 +1991,22 @@ function ChatConsole({
         const runtimeLine = rt
           ? `runtime ${rt.backend ?? "?"} · threads ${rt.threadsEffective ?? "?"}/${rt.threadsRequested ?? "?"} · gpu layers ${rt.gpuLayers ?? "?"} · ctx ${rt.nCtx ?? "?"}`
           : "runtime not recorded this turn";
+        // Prefix-reuse estimate (heuristic): the measured full-prefill rate
+        // times the prompt predicts ttft without slot reuse; a ttft far
+        // under that means the KV prefix was reused. Never a decision input.
+        const rate = prefillRate();
+        const reuse =
+          gen && rate != null && gen.ttftMs != null && gen.promptTokens
+            ? (() => {
+                const expected = rate * gen.promptTokens;
+                const ratio = gen.ttftMs! / expected;
+                return ratio < 0.5
+                  ? `prefix reuse: HIT (~${Math.min(99, Math.round((1 - ratio) * 100))}% prefill skipped)`
+                  : "prefix reuse: miss (full prefill)";
+              })()
+            : null;
         const genLine = gen
-          ? `gen: prompt ${gen.promptTokens ?? "?"}${gen.promptTokensEstimated ? "≈" : ""}t · ttft ${gen.ttftMs ?? "?"}ms · decode ${gen.decodeTps ?? "?"} tok/s · out ${gen.outputTokens}t · ${gen.totalMs}ms`
+          ? `gen: prompt ${gen.promptTokens ?? "?"}${gen.promptTokensEstimated ? "≈" : ""}t · ttft ${gen.ttftMs ?? "?"}ms · decode ${gen.decodeTps ?? "?"} tok/s · out ${gen.outputTokens}t · ${gen.totalMs}ms${reuse ? ` · ${reuse}` : ""}`
           : "no model generation this turn";
         // The last effective-settings line, logged by the answer turn.
         const usageLine = getDoc().logs?.find(
@@ -1984,11 +2015,12 @@ function ChatConsole({
         push({
           role: "note",
           text: [
+            ...(failedNote ? [failedNote] : []),
             perfLine,
             runtimeLine,
             genLine,
             usageLine ?? "no model answer yet this session",
-            `last prompt ${lastT != null && lastT > 0 ? `${lastT}t` : "—"} · ctx budget ${Math.floor(ai.ctx * 0.75)}`,
+            `last prompt ${lastT != null && lastT > 0 ? `${lastT}t` : "—"} · ctx budget ${Math.floor(ai.ctx * 0.85)}`,
             `memory ${memCtx.chars}/${memCtx.limit} chars · ${memCtx.entries} notes`,
             session ? `${session.turns} turns in this session` : "no active session",
           ].join("\n"),

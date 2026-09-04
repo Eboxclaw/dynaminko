@@ -54,6 +54,8 @@ export type PerfTrace = {
     timeToUsefulActionMs?: number;
     /** total ms from turn start to answered */
     totalMs?: number;
+    /** set when the turn failed before an answer landed; carries the reason */
+    failed?: string;
     /** internal turn-start clock, not part of the public trace shape */
     _t0?: number;
   };
@@ -167,6 +169,21 @@ export function markAnswerDone() {
   perf.turn.totalMs = ms;
   // KPI defaults to the answer moment if no deterministic action fired first.
   if (perf.turn.timeToUsefulActionMs == null) perf.turn.timeToUsefulActionMs = ms;
+  perf.completed = perf.turn;
+  mirror();
+}
+
+/**
+ * The active turn failed before an answer landed (runtime error, empty
+ * output, model that never loaded). Freeze it as the completed snapshot
+ * with the reason, so /usage reports the failure instead of silently
+ * printing whatever older turn completed last. No useful-action KPI is
+ * recorded: a failed turn never produced one.
+ */
+export function markTurnFailed(reason: string) {
+  if (!perf.turn) return;
+  perf.turn.failed = reason;
+  if (perf.turn.totalMs == null) perf.turn.totalMs = elapsed();
   perf.completed = perf.turn;
   mirror();
 }

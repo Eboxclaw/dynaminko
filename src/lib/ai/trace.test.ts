@@ -8,6 +8,7 @@ import {
   completedTurn,
   markAnswerDone,
   markFirstUsefulAction,
+  markTurnFailed,
   measure,
   tagGeneration,
   tagModel,
@@ -68,5 +69,22 @@ describe("perf trace", () => {
     });
     expect(t?.generation?.decodeTps).toBe(5.2);
     expect(t?.generation?.promptTokensEstimated).toBe(true);
+  });
+
+  it("a failed turn freezes itself as the completed snapshot with the reason", () => {
+    beginTurn();
+    tagTurn("doomed question");
+    measure("decide", 43500, "hop 1");
+    // The answer never landed: no markAnswerDone, straight to the failure.
+    markTurnFailed("chat timed out");
+    const t = completedTurn();
+    expect(t?.failed).toBe("chat timed out");
+    expect(t?.question).toBe("doomed question");
+    expect(t?.phases.decide?.ms).toBe(43500);
+    // No useful-action KPI: a failed turn never produced one.
+    expect(t?.timeToUsefulActionMs).toBeUndefined();
+    // And the next beginTurn does not erase it (same guarantee as success).
+    beginTurn();
+    expect(completedTurn()?.failed).toBe("chat timed out");
   });
 });
