@@ -35,9 +35,13 @@ export function isRepeatHop(pickKey: string, executedKeys: string[]): boolean {
   return executedKeys.includes(pickKey);
 }
 
-/** Stable identity of one hop: tool id plus the arguments it would run with. */
+/**
+ * Stable identity of one hop: tool id plus the arguments it would run with.
+ * The `|` delimiter is shared with the same-tool run cap in the orchestrator,
+ * which reads the id to the left without parsing the JSON payload.
+ */
 export function hopKey(id: string, input: Record<string, unknown>): string {
-  return `${id}:${JSON.stringify(input)}`;
+  return `${id}|${JSON.stringify(input)}`;
 }
 
 /**
