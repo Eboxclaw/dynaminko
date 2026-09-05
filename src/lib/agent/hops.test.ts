@@ -18,7 +18,6 @@ describe("hopEvidence", () => {
     expect(evidence).toContain("portfolio.read (ok): wallet ~$1907");
     expect(evidence).toContain("journal.search (ok): matched");
     expect(evidence).toContain("latest result data:");
-    // only the latest observation's data rides along
     expect(evidence).not.toContain("777");
     const dataLine = evidence.split("\n").find((l) => l.startsWith("latest result data:")) ?? "";
     expect(dataLine.length).toBeLessThan(3000);
@@ -39,6 +38,12 @@ describe("hop keys", () => {
     expect(isRepeatHop(key, [hopKey("portfolio.read", {})])).toBe(false);
     expect(isRepeatHop(hopKey("journal.search", { query: "inko", limit: 3 }), [key])).toBe(false);
   });
+
+  it("keeps the tool id before the orchestrator delimiter", () => {
+    const key = hopKey("journal.search", { query: "inko" });
+    expect(key.split("|")[0]).toBe("journal.search");
+    expect(key).toContain('|{"query":"inko"}');
+  });
 });
 
 describe("decide prompt prefix stability", () => {
@@ -48,14 +53,10 @@ describe("decide prompt prefix stability", () => {
   };
 
   it("keeps the system prompt free of per-hop state", () => {
-    // The slot cache reuses the longest common token prefix of consecutive
-    // completions; a per-hop byte anywhere in the head kills the reuse.
     expect(DECIDE_SYSTEM).not.toMatch(/At most \d+ more tool picks/);
   });
 
   it("carries no FACTS block: facts ride in the compiled shared head", () => {
-    // Facts render once, in the head every call of the turn shares. A FACTS
-    // section in the user content would break decide/answer byte sharing.
     const content = decideUserContent(base);
     expect(content).not.toContain("FACTS");
     expect(content.startsWith("QUESTION\n")).toBe(true);
