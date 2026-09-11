@@ -1720,7 +1720,11 @@ function ChatConsole({
     });
   };
 
-  const runCommandTurn = async (id: string, rest: string) => {
+  const runCommandTurn = async (
+    id: string,
+    rest: string,
+    opts: { question?: string } = {},
+  ) => {
     const def = COMMAND_BY_ID[id];
     if (!def) {
       return push({
@@ -1758,9 +1762,24 @@ function ChatConsole({
     observationsRef.current.push(obs);
     turn.settle("command", res.status === "ok" ? "ok" : "error", res.summary ?? res.status);
     showCommandResult(res, capture);
-    // Command turns are terminal (both submit paths return after them), so
-    // the deterministic result is also the turn's completion.
-    markAnswerDone();
+    // Invariant 1 (AGENTS.md): routers do not replace assistant answers. A
+    // routed command only ACQUIRED the evidence; the question still reaches
+    // the answering model, which speaks from the turn observation instead
+    // of leaving the user to parse the card. skipHop: the evidence is
+    // already collected, so the baseline holds at one answer model call.
+    if (opts.question) {
+      await speak(
+        "You are a trading-journal analyst. Answer the user's question in 2 to 4 sentences from TURN OBSERVATIONS and FACTS. Do not restate every fact line. Do not narrate your process.",
+        opts.question,
+        true,
+        { skipHop: true },
+      );
+    } else {
+      // Command turns without a question (explicit /run) are terminal (both
+      // submit paths return after them), so the deterministic result is
+      // also the turn's completion.
+      markAnswerDone();
+    }
   };
 
   const approve = async (id: string, ok: boolean) => {
@@ -2306,7 +2325,11 @@ function ChatConsole({
     const routed = routeMessage(text);
     if (routed.kind === "command") {
       turn.settle("route", "ok", routed.why);
-      return void runCommandTurn(routed.commandId, routed.args ? JSON.stringify(routed.args) : "");
+      return void runCommandTurn(
+        routed.commandId,
+        routed.args ? JSON.stringify(routed.args) : "",
+        { question: text },
+      );
     }
     if (routed.kind === "skill") {
       turn.settle("route", "ok", routed.why);
@@ -2347,6 +2370,7 @@ function ChatConsole({
         return void runCommandTurn(
           semantic.commandId,
           semantic.args ? JSON.stringify(semantic.args) : "",
+          { question: text },
         );
       }
       if (semantic.kind === "skill") {
