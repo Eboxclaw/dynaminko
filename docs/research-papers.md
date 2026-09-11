@@ -80,3 +80,36 @@ YaRN arXiv 2309.00071; Base of RoPE Bounds Context Length (NeurIPS
 - Base of RoPE Bounds Context Length:
   https://neurips.cc/virtual/2024/poster/96017
 - EleutherAI on extending RoPE: https://blog.eleuther.ai/yarn/
+
+## Hybrid-model learning material (Claude Code, 2026-09-11) · counter-research
+
+Learning material from a parallel assistant, counter-researched against
+this repo. Boundary first: the Petologic handover inside the same
+material belongs to a DIFFERENT project (Koog plus LFM2.5 on Android
+via llama.cpp bindings); none of its tasks enter dynaminko's plan.
+
+1. Decoupled top-K distillation, cross-layer PEFT (LoRA on conv plus
+   attention projections), difficulty-ordered curriculum, GRPO/DPO
+   post-training: all training-time, offline, shipped as a GGUF.
+   dynaminko runs inference only. Verdict: reference for a future
+   offline effort.
+2. RoPE isolated to attention layers, pre-RoPE statistics for token
+   pruning, dynamic frequency scaling during a training tail:
+   architecture-level or training-time. The frequency-scaling item
+   independently confirms the RoPE 5000 inference-time verdict in
+   docs/rope-ab.md. Verdict: reference.
+3. Hybrid-layer KV asymmetry (70 to 80 percent recurrent or
+   convolution layers, KV only on the GQA subset): ALREADY modeled
+   here. ModelSpec carries kv.attnLayers per card (2.6B: 8 of 32;
+   350M and 230M: 6 of 16) and kvCacheGb counts only those layers.
+   Verdict: validated, no change.
+4. q8_0 KV quantization of the residual cache: the one directly
+   implementable item. kvCacheGb already documents q8_0 as the mobile
+   preference, but recommendedCacheType hands 8GB integrated machines
+   f16, so the runtime never engages it. Verdict: implement and A/B
+   (see docs/kv-ab.md).
+5. Training-free eviction (kvpress style) and recurrent-state
+   streaming across chunks: the same runtime-hook class as the F1
+   wllama limitation in docs/speed-research.md. Verdict: defer
+   upstream alongside it. The modality-decoupling item validates the
+   existing separate encoder lane.
