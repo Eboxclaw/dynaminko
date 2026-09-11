@@ -216,11 +216,13 @@ function optimalBatch(tier: GpuTier, memoryClassGb: number | null): number {
 
 /**
  * KV cache quantization: f16 halves memory vs f32 with no quality loss.
- * q8_0 cuts it by 75% at tiny quality cost — use when RAM is tight.
+ * q8_0 cuts it in half vs f16 at tiny quality cost (the hybrid-model
+ * literature's negligible-perplexity claim, A/B'd per docs/kv-ab.md).
+ * Only genuinely roomy discrete GPUs keep f16; integrated and mobile
+ * classes take the memory win.
  */
 function recommendedCacheType(tier: GpuTier, deviceMemoryGb: number | null): "q8_0" | "f16" {
   if (tier === "discrete" && (deviceMemoryGb ?? 0) >= 16) return "f16";
-  if (tier === "integrated" && (deviceMemoryGb ?? 0) >= 8) return "f16";
   // Everything else: save memory with q8_0
   return "q8_0";
 }

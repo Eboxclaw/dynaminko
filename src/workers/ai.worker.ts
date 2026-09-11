@@ -51,6 +51,8 @@ export type AiWorkerRequest =
       forcedBudget?: number;
       /** dev-only RoPE base override for the position-encoding A/B */
       forcedRopeBase?: number;
+      /** dev-only KV dtype override for the cache-quantization A/B */
+      forcedKvType?: "q8_0" | "f16";
       /** override the spec's reasoning default (FAST vs REASONED reload) */
       reasoning?: boolean;
     }
@@ -554,6 +556,8 @@ async function loadModelInternal(
     forcedBudget?: number;
     /** dev-only RoPE base override for the position-encoding A/B */
     forcedRopeBase?: number;
+    /** dev-only KV dtype override for the cache-quantization A/B */
+    forcedKvType?: "q8_0" | "f16";
     reasoning?: boolean;
     /** set by the stale-entry self-heal retry so it never recurses twice */
     healRetry?: boolean;
@@ -603,8 +607,16 @@ async function loadModelInternal(
       fullGpuFits,
     });
     // dev-only prefill A/B pin (?forceFa=0|1)
-    if (opts.forcedFlashAttn == null) return base;
-    return { ...base, flash_attn: opts.forcedFlashAttn };
+    if (opts.forcedFlashAttn == null && opts.forcedKvType == null) return base;
+    return {
+      ...base,
+      ...(opts.forcedFlashAttn != null ? { flash_attn: opts.forcedFlashAttn } : {}),
+      // Quantized KV rides flash attention; forcing f16 with FA off is the
+      // honest fallback the A/B may ask for.
+      ...(opts.forcedKvType != null
+        ? { cache_type_k: opts.forcedKvType, cache_type_v: opts.forcedKvType }
+        : {}),
+    };
   })();
 
   // Backend candidates, equals: webgpu-full preferred when viable, wasm-simd
@@ -1008,6 +1020,7 @@ ctx.addEventListener(
             forcedCache: msg.forcedCache ?? null,
             forcedBudget: msg.forcedBudget,
             forcedRopeBase: msg.forcedRopeBase,
+            forcedKvType: msg.forcedKvType,
             reasoning: msg.reasoning,
           });
         } finally {

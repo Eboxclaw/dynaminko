@@ -105,6 +105,24 @@ export function effectiveRopeBase(modelId?: string): number | null {
   return FORCED_ROPE;
 }
 
+/** Dev-only KV dtype pin for the cache-quantization A/B (?kvType=q8_0|f16):
+ *  overrides the device recommendation so a comparison run is honest. */
+const FORCED_KV: "q8_0" | "f16" | null = (() => {
+  try {
+    const v = new URLSearchParams(
+      typeof location !== "undefined" ? location.search : "",
+    ).get("kvType");
+    return v === "q8_0" || v === "f16" ? v : null;
+  } catch {
+    return null;
+  }
+})();
+
+/** The dev pin's value, or null for the device recommendation. */
+export function forcedKvType(): "q8_0" | "f16" | null {
+  return FORCED_KV;
+}
+
 // ── static config (stays on main thread) ─────────────────────────────
 // This registry is the single source of truth; the AI worker imports it from
 // here instead of keeping its own copy (this module has no runtime imports,
@@ -1017,6 +1035,7 @@ export async function downloadModel(
       forcedCache: FORCED_CACHE,
       forcedBudget: FORCED_BUDGET ?? undefined,
       forcedRopeBase: FORCED_ROPE ?? undefined,
+      forcedKvType: FORCED_KV ?? undefined,
       reasoning: options.reasoning,
     });
     onStatus({ phase: "ready", modelId });
@@ -1158,6 +1177,7 @@ export async function loadDownloadedModel(
       forcedCache: FORCED_CACHE,
       forcedBudget: FORCED_BUDGET ?? undefined,
       forcedRopeBase: FORCED_ROPE ?? undefined,
+      forcedKvType: FORCED_KV ?? undefined,
       reasoning: options.reasoning,
     });
     onStatus({ phase: "ready", modelId });
