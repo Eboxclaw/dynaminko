@@ -19,20 +19,27 @@ the PWA constraints (no new dependencies, browser-safe code only).
 
 ## S8b encode/decode speed
 
-F1 · Cross-turn KV reuse never hits because the volatile sections sit
-early in the prompt. The compiled head order is CORE, MEMORY,
-CAPABILITIES, FACTS, PORTFOLIO (context.ts HEAD_SECTION_NAMES) plus
-HISTORY, RECORDS, INSTRUCTIONS in buildTurn. FACTS and PORTFOLIO change
-every turn (prices, net worth), so the KV prefix diverges at section 4
-of 8 and llama.cpp's cache_prompt falls back to a full prefill of ~3900t
-(measured `prefix reuse: miss` each turn). Candidate fix: reorder so
-everything stable (CORE, MEMORY, CAPABILITIES, INSTRUCTIONS) precedes
-everything volatile (FACTS, PORTFOLIO, HISTORY, RECORDS), or move
-FACTS/PORTFOLIO into the user turn. The decide-to-answer byte-exact
-prefix (e6c1ff3) must stay intact. Expected win: turn 2 prefill drops
-from ~3900t to the volatile tail only; handover records 563ms turn-2
-ttft when reuse hits. Effort: medium; touch prompt assembly + the
-decide prefix tests.
+F1 · Cross-completion KV reuse is INERT in the current wllama build,
+measured 2026-09-11. A back-to-back identical prompt (common prefix
+near 100 percent by construction: same head, same history, same
+question) still ran full prefill: ttft 3573ms on a 3336t prompt,
+1.07ms per token, exactly the full-prefill rate; the /usage heuristic
+reported `prefix reuse: miss`. Theory said otherwise: the compiled
+head is prefix-ordered by design (CORE, MEMORY, CAPABILITIES stable;
+PORTFOLIO volatile at the tail), prewarm parks a strict byte prefix,
+and cache_prompt plus n_cache_reuse ride every completion. Static
+interrogation of the wllama package ended at the prebuilt wasm (the
+npm cpp sources contain no cache_prompt or n_past handling), and no
+KV-state API is exposed on the Wllama class. Consequences: the
+decide-to-answer shared-head prefix buys nothing today, the idle
+prewarm's KV park does not materialize (its recorded 3.4x on the 2.6B
+was model-load warm-up, not cache), and the F1 reorder idea is moot
+until reuse works at all. The fix lives upstream or below wllama's
+OAI-compat layer: instrument the worker's completion path with token
+counts from the native side (llama.cpp reports n_past per decode), or
+patch the wasm glue, or move the answer path to a lower-level
+completion API that retains n_past. Flagged for a dedicated session;
+not guess-patchable from the app.
 
 F2 · RESOLVED as a harness property, not an app gap. Interrogation
 (2026-09-11): vite.config.ts already serves `Cross-Origin-Opener-Policy:
@@ -65,6 +72,12 @@ F5 · Open question: the 230M answered slower than the 350M (20.2s vs
 8.1s). Suspects: gpu layer count per card, batch size, quant. Measure
 per-card layers and decode on identical prompts before touching
 anything (Phase 2's A/B harness can carry this).
+
+F10 · Encoder lane stall caught once: a turn logged `semantic
+29420ms` against the usual 8 to 350ms. The embed RPC's 25s race plus
+handle drop and reload is the suspected path (the encoder was idle
+through several model switches that turn). Resilience telemetry for
+the embed lane belongs in S8d.
 
 ## S8c device speed (Android and Mac laptop)
 
@@ -117,8 +130,9 @@ current bottleneck.
 
 ## Ranked next steps
 
-1. F1 volatile-sections-last prompt order (medium, biggest measured
-   lever: cross-turn reuse).
+1. F1 upstream-bound: instrument or patch wllama's completion path for
+   real n_past reuse (dedicated session; biggest lever once it lands).
 2. F5 230M anomaly measurement (rides Phase 2).
 3. F3 q8 KV option with the quality suite (medium).
 4. F6/F7 semantic caching and the domain grammar table (small, accuracy).
+5. F10 embed-lane resilience telemetry (small).
