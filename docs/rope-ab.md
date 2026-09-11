@@ -57,3 +57,11 @@ for such near-base experiments. The Qwen exclusion stands.
 Inference-only note: rope base shapes position encoding at inference.
 This app fine-tunes nothing, so there is no learning curve to affect;
 we scored generation behavior instead.
+
+## Removed 2026-09-11
+
+The ?ropeBase= pin is removed from the tree after no-answer turns were
+reported with it in play. The verdict above stands (reject base 5000
+for the LFM2.5 family, trained at theta 1000000); the pin can return
+from git history if a near-base experiment (500000 class) is ever
+warranted.

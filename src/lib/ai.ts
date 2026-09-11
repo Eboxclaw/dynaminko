@@ -75,36 +75,6 @@ const FORCED_BUDGET: number | null = (() => {
 export function forcedReasoningBudget(): number | null {
   return FORCED_BUDGET;
 }
-
-/** Dev-only RoPE base pin for the position-encoding A/B (?ropeBase=N):
- *  overrides the GGUF's own rope base at load. "Base of RoPE Bounds
- *  Context Length" (NeurIPS 2024) predicts a lower base bounds the usable
- *  window, so 5000 is a lighter-footprint bet to verify per model. The
- *  Qwen distill never takes the pin: its rope scheme is its own. */
-const FORCED_ROPE: number | null = (() => {
-  try {
-    const v = new URLSearchParams(
-      typeof location !== "undefined" ? location.search : "",
-    ).get("ropeBase");
-    const n = v ? Number(v) : NaN;
-    return Number.isFinite(n) && n >= 1000 && n <= 500000 ? Math.floor(n) : null;
-  } catch {
-    return null;
-  }
-})();
-
-/** The dev pin's value: a rope_freq_base override, or null for card metadata. */
-export function forcedRopeBase(): number | null {
-  return FORCED_ROPE;
-}
-
-/** The rope base the worker would actually apply for this model: the pin,
- *  except the Qwen distill, which never takes it. Null = card metadata. */
-export function effectiveRopeBase(modelId?: string): number | null {
-  if (FORCED_ROPE == null || modelId === "qwen38-2b-distill") return null;
-  return FORCED_ROPE;
-}
-
 /** Dev-only KV dtype pin for the cache-quantization A/B (?kvType=q8_0|f16):
  *  overrides the device recommendation so a comparison run is honest. */
 const FORCED_KV: "q8_0" | "f16" | null = (() => {
@@ -1034,7 +1004,6 @@ export async function downloadModel(
       forcedFlashAttn: FORCED_FA,
       forcedCache: FORCED_CACHE,
       forcedBudget: FORCED_BUDGET ?? undefined,
-      forcedRopeBase: FORCED_ROPE ?? undefined,
       forcedKvType: FORCED_KV ?? undefined,
       reasoning: options.reasoning,
     });
@@ -1176,7 +1145,6 @@ export async function loadDownloadedModel(
       forcedFlashAttn: FORCED_FA,
       forcedCache: FORCED_CACHE,
       forcedBudget: FORCED_BUDGET ?? undefined,
-      forcedRopeBase: FORCED_ROPE ?? undefined,
       forcedKvType: FORCED_KV ?? undefined,
       reasoning: options.reasoning,
     });

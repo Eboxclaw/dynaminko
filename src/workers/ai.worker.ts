@@ -49,8 +49,6 @@ export type AiWorkerRequest =
       forcedCache?: boolean | null;
       /** dev-only reasoning-budget override for the budget benchmark sweep */
       forcedBudget?: number;
-      /** dev-only RoPE base override for the position-encoding A/B */
-      forcedRopeBase?: number;
       /** dev-only KV dtype override for the cache-quantization A/B */
       forcedKvType?: "q8_0" | "f16";
       /** override the spec's reasoning default (FAST vs REASONED reload) */
@@ -554,8 +552,6 @@ async function loadModelInternal(
     forcedCache?: boolean | null;
     /** dev-only reasoning-budget override for the per-model benchmark sweep */
     forcedBudget?: number;
-    /** dev-only RoPE base override for the position-encoding A/B */
-    forcedRopeBase?: number;
     /** dev-only KV dtype override for the cache-quantization A/B */
     forcedKvType?: "q8_0" | "f16";
     reasoning?: boolean;
@@ -674,13 +670,6 @@ async function loadModelInternal(
           cache_type_k: p.cache_type_k as never,
           cache_type_v: p.cache_type_v as never,
           flash_attn: p.flash_attn,
-          // dev-only position-encoding A/B pin (?ropeBase=N): overrides the
-          // GGUF's own rope base at load. The Qwen distill keeps its own
-          // scheme (its rope config is part of its distillation; user rule:
-          // never pinned).
-          ...(opts.forcedRopeBase != null && spec.id !== "qwen38-2b-distill"
-            ? { rope_freq_base: opts.forcedRopeBase }
-            : {}),
           // llama-server's chunk retention for non-prefix cache reuse. The
           // KV-shift machinery it drives is only sound with flash attention,
           // which small ctx buckets load without, so it rides FA only.
@@ -1019,7 +1008,6 @@ ctx.addEventListener(
             forcedFlashAttn: msg.forcedFlashAttn ?? null,
             forcedCache: msg.forcedCache ?? null,
             forcedBudget: msg.forcedBudget,
-            forcedRopeBase: msg.forcedRopeBase,
             forcedKvType: msg.forcedKvType,
             reasoning: msg.reasoning,
           });
