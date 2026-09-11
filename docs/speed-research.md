@@ -34,12 +34,19 @@ from ~3900t to the volatile tail only; handover records 563ms turn-2
 ttft when reuse hits. Effort: medium; touch prompt assembly + the
 decide prefix tests.
 
-F2 · Dev server is single-threaded because it is not crossOrigin
-isolated. `/usage` prints `crossOriginIsolated no` on localhost while
-the Vercel deploy serves COOP/COEP via vercel.json. wllama's pthread
-build needs SharedArrayBuffer; without isolation every wasm path (and
-any CPU escape) runs 1 of 10 cores. Candidate fix: add the two headers
-to the vite dev server config so dev matches production. Effort: small.
+F2 · RESOLVED as a harness property, not an app gap. Interrogation
+(2026-09-11): vite.config.ts already serves `Cross-Origin-Opener-Policy:
+same-origin` and `Cross-Origin-Embedder-Policy: require-corp`, confirmed
+on the wire with curl (both the 307 and the 200 carry them), and the
+config dates back to commit 564aec6. The ZCode in-app browser is an
+Electron 146 guest that still reports `crossOriginIsolated: false` with
+no SharedArrayBuffer, so the dev IAB cannot exercise wllama's pthread
+path regardless of our headers. Consequence: thread-count claims must be
+measured on the deployed Vercel origin (which serves the same headers)
+in a real Chrome, riding the Phase 6 phone-pass protocol. The 10ms/t
+prefill numbers from the handover notes were taken in this non-isolated
+harness, so multi-thread wasm remains an unmeasured lever, not a spent
+one.
 
 F3 · KV dtype. The ledger shows `cache f16/f16`; q8_0 KV halves the
 cache (64K about 0.57GB per the ai.ts ladder comment) with a small
@@ -62,8 +69,10 @@ anything (Phase 2's A/B harness can carry this).
 ## S8c device speed (Android and Mac laptop)
 
 Mac laptop:
-- F2's headers unlock multi-thread wasm for CPU escapes; WebGPU (metal-3)
-  already carries the hot path at 32k.
+- Cross-origin isolation is already configured app-side; whether the
+  multi-thread wasm path engages must be measured on the deployed
+  origin in real Chrome (see F2). WebGPU (metal-3) already carries the
+  hot path at 32k.
 - The budget escape ordering matters more than raw speed: SAFE windows
   keep full WebGPU residency (proven by the 2.6B numbers above); the
   panel's window picker should show the budget verdict live so users
@@ -108,9 +117,8 @@ current bottleneck.
 
 ## Ranked next steps
 
-1. F2 dev COOP/COEP headers (small, unlocks real thread counts in dev).
-2. F1 volatile-sections-last prompt order (medium, biggest measured
+1. F1 volatile-sections-last prompt order (medium, biggest measured
    lever: cross-turn reuse).
-3. F5 230M anomaly measurement (rides Phase 2).
-4. F3 q8 KV option with the quality suite (medium).
-5. F6/F7 semantic caching and the domain grammar table (small, accuracy).
+2. F5 230M anomaly measurement (rides Phase 2).
+3. F3 q8 KV option with the quality suite (medium).
+4. F6/F7 semantic caching and the domain grammar table (small, accuracy).
