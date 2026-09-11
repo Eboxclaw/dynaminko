@@ -76,6 +76,28 @@ export function forcedReasoningBudget(): number | null {
   return FORCED_BUDGET;
 }
 
+/** Dev-only RoPE base pin for the position-encoding A/B (?ropeBase=N):
+ *  overrides the GGUF's own rope base at load. "Base of RoPE Bounds
+ *  Context Length" (NeurIPS 2024) predicts a lower base bounds the usable
+ *  window, so 5000 is a lighter-footprint bet to verify per model. The
+ *  Qwen distill never takes the pin: its rope scheme is its own. */
+const FORCED_ROPE: number | null = (() => {
+  try {
+    const v = new URLSearchParams(
+      typeof location !== "undefined" ? location.search : "",
+    ).get("ropeBase");
+    const n = v ? Number(v) : NaN;
+    return Number.isFinite(n) && n >= 1000 && n <= 500000 ? Math.floor(n) : null;
+  } catch {
+    return null;
+  }
+})();
+
+/** The dev pin's value: a rope_freq_base override, or null for card metadata. */
+export function forcedRopeBase(): number | null {
+  return FORCED_ROPE;
+}
+
 // ── static config (stays on main thread) ─────────────────────────────
 // This registry is the single source of truth; the AI worker imports it from
 // here instead of keeping its own copy (this module has no runtime imports,
@@ -987,6 +1009,7 @@ export async function downloadModel(
       forcedFlashAttn: FORCED_FA,
       forcedCache: FORCED_CACHE,
       forcedBudget: FORCED_BUDGET ?? undefined,
+      forcedRopeBase: FORCED_ROPE ?? undefined,
       reasoning: options.reasoning,
     });
     onStatus({ phase: "ready", modelId });
@@ -1127,6 +1150,7 @@ export async function loadDownloadedModel(
       forcedFlashAttn: FORCED_FA,
       forcedCache: FORCED_CACHE,
       forcedBudget: FORCED_BUDGET ?? undefined,
+      forcedRopeBase: FORCED_ROPE ?? undefined,
       reasoning: options.reasoning,
     });
     onStatus({ phase: "ready", modelId });
