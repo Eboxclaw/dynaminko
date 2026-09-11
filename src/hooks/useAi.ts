@@ -46,6 +46,7 @@ import {
   activateSemantic,
   downloadSemanticProvider,
   onEncoderChange,
+  enforceEncoderResidency,
   unloadEncoder,
   type EncoderState,
 } from "@/lib/ai/encoder";
@@ -134,7 +135,11 @@ export function useAi() {
   // with a second wllama handle, so routing must use the transformers.js
   // encoder while it is selected. Pure main-thread bookkeeping.
   useEffect(() => {
-    setEncoderConstraint(MODEL_BY_ID[settings.aiModelId]?.encoderFallback === true);
+    const heavy = MODEL_BY_ID[settings.aiModelId]?.encoderFallback === true;
+    setEncoderConstraint(heavy);
+    // The single-resident-provider invariant: a heavy chat target must not
+    // keep the stale LFM embedder's weights allocated next to it.
+    void enforceEncoderResidency(heavy).catch(() => undefined);
   }, [settings.aiModelId]);
   // Cloud context is tuned manually (the provider card decides the real
   // ceiling); persisted under a synthetic id so it survives reloads.

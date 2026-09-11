@@ -82,6 +82,63 @@ function includesAlias(q: string, aliases: string[]) {
   return aliases.find((alias) => q.includes(alias.toLowerCase()));
 }
 
+// ── deterministic-text normalization ───────────────────────────────────
+//
+// Substring aliases are only as good as the bytes they see, and users typo
+// ("portefolio") and drop apostrophes ("how s"). The deterministic layer
+// normalizes BEFORE matching so a wording slip cannot disable both the
+// router read and the receipt filter (observed 09-04: "hello agent how s my
+// portefolio doing ?" matched nothing and fell to semantic retrieval).
+// Deliberately tiny and append-only; it never invents domain words.
+
+const NORM_MISSPELLINGS: [RegExp, string][] = [
+  [/\bportefolio\b/g, "portfolio"],
+  [/\bporfolio\b/g, "portfolio"],
+  [/\bpotfolio\b/g, "portfolio"],
+  [/\bprotfolio\b/g, "portfolio"],
+  [/\bportfoilo\b/g, "portfolio"],
+  [/\bpotrfolio\b/g, "portfolio"],
+  [/\bholldings\b/g, "holdings"],
+  [/\baloccation\b/g, "allocation"],
+];
+
+/** Normalize user prose for deterministic intent checks. Idempotent. */
+export function normalizeRoutingText(text: string): string {
+  let out = ` ${text.toLowerCase()} `
+    .replace(/\s+/g, " ")
+    // dropped-apostrophe contractions: "how s" / "hows" → "how is"
+    .replace(/\b(how|what|where|when|who)(?:\s|')?s\b/g, "$1 is");
+  for (const [re, fix] of NORM_MISSPELLINGS) out = out.replace(re, fix);
+  return out.trim();
+}
+
+// ── portfolio-status as a first-class domain ────────────────────────────
+//
+// A current-holdings/exposure/net-worth question must never depend on
+// semantic retrieval to discover its data source: the domain is recognized
+// deterministically (with normalized text), the live snapshot is read
+// directly, and the model's job is presentation. Word shapes, not exact
+// alias phrasings, so any wording of the question lands here.
+
+const PORTFOLIO_DOMAIN_WORD =
+  /\b(portfolio|holdings|exposure|allocation|positions|net\s?worth|wallet)\b/;
+const PORTFOLIO_STATUS_SHAPE =
+  /\b(how|what|status|doing|look(?:ing|s)?|state|check|overview|summary|update|value|worth|am i|did i|perform)\b/;
+const PORTFOLIO_WRITE_SHAPE = /\b(move|sell|buy|swap|transfer|deposit|withdraw|rebalance|close|open)\b/;
+
+/**
+ * Whether the (already normalized) text asks about CURRENT portfolio state.
+ * False for advice (the ADVICE_MARKER gate keeps the model in the loop) and
+ * for write intents (those are approval flows, never a status read).
+ */
+export function isPortfolioStatusQuery(norm: string): boolean {
+  if (!PORTFOLIO_DOMAIN_WORD.test(norm)) return false;
+  if (!PORTFOLIO_STATUS_SHAPE.test(norm)) return false;
+  if (PORTFOLIO_WRITE_SHAPE.test(norm)) return false;
+  if (ADVICE_MARKER.test(norm)) return false;
+  return true;
+}
+
 /**
  * The READ the deterministic router recognized but deliberately withheld:
  * a status phrase embedded in an advice question ("how is my portfolio
@@ -94,13 +151,18 @@ function includesAlias(q: string, aliases: string[]) {
  * PRE_EXECUTE entry is returned, and that entry is a READ capture.
  */
 export function suppressedAdviceRead(text: string): { id: string; why: string } | null {
-  const q = text.toLowerCase();
+  const q = normalizeRoutingText(text);
   for (const route of PRE_EXECUTE) {
     if (!route.adviceGated) continue;
     const hit = includesAlias(q, route.aliases);
     if (hit && ADVICE_MARKER.test(q)) {
       return { id: route.commandId, why: `matched "${hit}" behind the advice gate` };
     }
+  }
+  // First-class domain: an advice question about current portfolio state
+  // still owes the user the status half deterministically.
+  if (isPortfolioStatusQuery(q) && ADVICE_MARKER.test(q)) {
+    return { id: "portfolio.snapshot", why: "portfolio-status domain behind the advice gate" };
   }
   return null;
 }
@@ -120,7 +182,7 @@ function tickerArg(text: string): string | undefined {
 }
 
 export function routeMessage(text: string): Routed {
-  const q = text.toLowerCase();
+  const q = normalizeRoutingText(text);
   const thesis = getDoc().theses.find((t) => t.title && q.includes(t.title.toLowerCase()));
 
   // Longest alias wins across commands and skills: "what do you hold on your
@@ -165,13 +227,24 @@ export function routeMessage(text: string): Routed {
     }
     return { kind: "skill", skillId: best.id, why: `matched "${best.hit}"` };
   }
-
   if (thesis) {
     return {
       kind: "skill",
       skillId: "thesis.review",
       thesisId: thesis.id,
       why: `matched the thesis "${thesis.title}"`,
+    };
+  }
+
+  // First-class domain floor: a current-portfolio question that missed every
+  // alias phrasing still routes to the snapshot deterministically; semantic
+  // retrieval is never required to discover the portfolio data source.
+  if (isPortfolioStatusQuery(q)) {
+    return {
+      kind: "command",
+      commandId: "portfolio.snapshot",
+      args: {},
+      why: "portfolio-status domain",
     };
   }
 

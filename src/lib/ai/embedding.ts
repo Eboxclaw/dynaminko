@@ -142,6 +142,41 @@ export function providerReady(id: EmbeddingProviderId): boolean {
   return slot(id).pipe != null;
 }
 
+/** Who is actually resident, for diagnostics (/usage, the encoder line):
+ * every provider slot with its live state, backend and memory weight.
+ * "resident" means weights are allocated right now, not merely cached. */
+export type EncoderProviderDiag = {
+  id: EmbeddingProviderId;
+  tier: string;
+  state: ProviderState;
+  backend: "webgpu" | "wasm" | null;
+  resident: boolean;
+  sizeMb: number;
+  dimensions: number;
+  /** rough residency weight: x2 under WebGPU (weights + GPU buffers) */
+  residentMb: number;
+};
+
+export function encoderDiagnostics(): { constrained: boolean; providers: EncoderProviderDiag[] } {
+  return {
+    constrained: encoderConstrained,
+    providers: EMBEDDING_PROVIDERS.map((p) => {
+      const s = slot(p.id);
+      const resident = s.pipe != null;
+      return {
+        id: p.id,
+        tier: p.tier,
+        state: s.state,
+        backend: s.backend,
+        resident,
+        sizeMb: p.sizeMb,
+        dimensions: p.dimensions,
+        residentMb: resident ? p.sizeMb * (s.backend === "webgpu" ? 2 : 1) : 0,
+      };
+    }),
+  };
+}
+
 /** Already in the browser cache? Never downloads. */
 export async function providerCached(id: EmbeddingProviderId): Promise<boolean> {
   if (slot(id).pipe) return true;

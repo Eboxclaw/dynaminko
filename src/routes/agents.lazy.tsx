@@ -44,7 +44,18 @@ const PREWARM_PIN = (() => {
   const p = hash.get("prewarm") ?? search.get("prewarm");
   return (p ?? "index") as PrewarmLevel | "none";
 })();
-import { DECIDE_SYSTEM, decideUserContent, hopEvidence, hopKey, isRepeatHop } from "@/lib/agent/hops";
+
+// Decide A/B pin, same hash rule: #decideView=head (default, the compiled
+// shared head) or lean (facts+portfolio ride the user turn beside the menu,
+// the pre-e6c1ff3 placement). Instrumentation only: the default does not
+// change until the A/B says so.
+const DECIDE_VIEW: "head" | "lean" = (() => {
+  if (typeof window === "undefined") return "head";
+  const hash = new URLSearchParams(window.location.hash.replace(/^#/, ""));
+  const p = hash.get("decideView") ?? new URLSearchParams(window.location.search).get("decideView");
+  return p === "lean" ? "lean" : "head";
+})();
+import { DECIDE_SYSTEM, decideUserContent, hopEvidence, hopKey, hopToolId, isRepeatHop } from "@/lib/agent/hops";
 import { captureResult, readOffloaded, type CapturedResult } from "@/lib/agent/offload";
 import {
   capabilityCatalogue,
@@ -54,7 +65,7 @@ import {
   selectCapabilities,
   type CapabilityDefinition,
 } from "@/lib/capabilities/catalogue";
-import { routeMessage, routeSemantic, classifyIntent, suppressedAdviceRead } from "@/lib/chat/route";
+import { routeMessage, routeSemantic, classifyIntent, normalizeRoutingText, suppressedAdviceRead } from "@/lib/chat/route";
 import { PHASE_LABEL } from "@/lib/chat/pipeline";
 import { useDoc } from "@/hooks/useDoc";
 import { relativeTime } from "@/lib/format";
@@ -71,6 +82,7 @@ import {
   stripToolCallMarkup,
 } from "@/lib/ai";
 import { runtimeSnapshot, scaledHopDeadlineMs, webgpuWeightsFactor } from "@/lib/ai/runtime";
+import { encoderDiagnostics, FALLBACK_EMBEDDING_ID } from "@/lib/ai/embedding";
 import type { TurnMessage } from "@/lib/ai";
 import {
   prewarmRetrieval,
@@ -121,7 +133,7 @@ import type { CommandResult } from "@/lib/commands/types";
 import { searchCards } from "@/lib/tools/journal";
 import * as ind from "@/lib/tools/indicators";
 import { TOOLS, TOOL_BY_ID, TOOL_GROUPS } from "@/lib/tools/registry";
-import { POLICY, needsApproval, runTool } from "@/lib/tools/types";
+import { POLICY, isSearchTool, needsApproval, runTool, searchQueryProblem } from "@/lib/tools/types";
 import {
   addMemory,
   clearLogs,
@@ -541,34 +553,52 @@ function ChatConsole({
     // stays the GBNF JSON pick either way.
     const nativeMenu = ai.spec?.decideMenu === "native";
     const tools = nativeMenu ? decideTools(allowed) : undefined;
-    // The decide view opens with the turn's compiled shared head, so hop
-    // prompts share every head byte (CORE, MEMORY, book, FACTS, PORTFOLIO)
-    // with the answer prompt and with each other; the DECIDE role body
-    // appends after it. Shared builders in hops.ts keep the rest
-    // byte-identical across hops (the remaining count appends at the tail),
-    // so the KV slot cache prefills only each hop's new evidence instead of
-    // the whole prompt.
-    const messages: TurnMessage[] = [
-      { role: "system", content: `${renderHead(opts.head)}\n\nDECIDE\n${DECIDE_SYSTEM}` },
-      {
-        role: "user",
-        content: decideUserContent({
-          question: user,
-          menuText: nativeMenu
-            ? undefined
-            : allowed
-                .map(
-                  (d) =>
-                    `${d.id}: ${d.purpose} (inputs: ${d.inputs})${
-                      d.exec === "write-approval" ? " [write]" : ""
-                    }`,
-                )
-                .join("\n"),
-          evidence: opts.evidence,
-          remaining: opts.remaining,
-        }),
-      },
-    ];
+    // The decide view is A/B-instrumented (#decideView=head|lean, default
+    // head). HEAD: the turn's compiled shared head opens the system prompt,
+    // so decide hops share every head byte with the answer and the KV slot
+    // cache prefills only each hop's new evidence. LEAN: DECIDE_SYSTEM alone
+    // in the system turn, facts+portfolio riding the user turn right beside
+    // the menu (the pre-e6c1ff3 placement), maximal salience for small
+    // models at the cost of prefix sharing. Same information both ways;
+    // per-hop picks are logged so the arms compare tool selection and
+    // arguments, not vibes.
+    const lean = DECIDE_VIEW === "lean";
+    const menuLines = nativeMenu
+      ? undefined
+      : allowed
+          .map(
+            (d) =>
+              `${d.id}: ${d.purpose} (inputs: ${d.inputs})${
+                d.exec === "write-approval" ? " [write]" : ""
+              }`,
+          )
+          .join("\n");
+    const messages: TurnMessage[] = lean
+      ? [
+          { role: "system", content: DECIDE_SYSTEM },
+          {
+            role: "user",
+            content: decideUserContent({
+              question: user,
+              menuText: menuLines,
+              facts: [opts.head.facts, opts.head.portfolio].filter(Boolean).join("\n\n"),
+              evidence: opts.evidence,
+              remaining: opts.remaining,
+            }),
+          },
+        ]
+      : [
+          { role: "system", content: `${renderHead(opts.head)}\n\nDECIDE\n${DECIDE_SYSTEM}` },
+          {
+            role: "user",
+            content: decideUserContent({
+              question: user,
+              menuText: menuLines,
+              evidence: opts.evidence,
+              remaining: opts.remaining,
+            }),
+          },
+        ];
     let raw: string;
     try {
       raw = await ai.askMessages(messages, {
@@ -631,14 +661,21 @@ function ChatConsole({
     }
     // Decide diagnostics, same pattern as __lastRaw: the raw pick output on
     // the window so a degrading decide (wrong pick, empty menu) can be
-    // interrogated without guessing.
+    // interrogated without guessing. The per-hop pick log (view + raw
+    // output) appends across the turn so an A/B compares selection and
+    // arguments, not just answer quality.
     if (typeof window !== "undefined") {
-      (window as unknown as { __lastDecide?: unknown }).__lastDecide = {
+      const w = window as unknown as {
+        __lastDecide?: { view?: string; picks?: unknown[] } & Record<string, unknown>;
+      };
+      w.__lastDecide = {
         at: new Date().toISOString(),
         model: ai.target.label,
+        view: DECIDE_VIEW,
         nativeMenu,
         menuTools: nativeMenu ? ids.length : 0,
         chars: raw.length,
+        picks: [...(w.__lastDecide?.picks ?? []).slice(-9), { raw: raw.slice(0, 300) }],
         // Complete raw when short (grammar picks usually are): fixtures and
         // wire audits want the exact output, not a head excerpt.
         ...(raw.length <= 600 ? { raw } : { head: raw.slice(0, 200) }),
@@ -1078,7 +1115,7 @@ function ChatConsole({
             // inputs (the Qwen distill's journal.search meta-queries) dodges
             // the exact-repeat guard below forever. Two runs of any single
             // tool per turn is enough; the hop budget stays as the outer rail.
-            const toolRuns = executedKeys.filter((k) => k.split("|")[0] === pick.def.id).length;
+            const toolRuns = executedKeys.filter((k) => hopToolId(k) === pick.def.id).length;
             if (toolRuns >= 2) {
               turn.settle("tool", "skipped", `${pick.def.id} already ran twice this turn`);
               break;
@@ -2066,6 +2103,26 @@ function ChatConsole({
         // What the load actually engaged + the answer generation's own split:
         // threadsEffective 1 = non-isolated context (the IAB), decodeTps is
         // steady-state AFTER the first token, ttft carries the prefill.
+        // Encoder truth: which semantic provider is active and which are
+        // resident, with the memory each resident one holds. The chat
+        // runtime holder rides along so co-residency is auditable from one
+        // line (the 2.6B forces the MiniLM fallback and must never keep the
+        // LFM embedder allocated next to it).
+        const encDiag = encoderDiagnostics();
+        const encResident = encDiag.providers.filter((p) => p.resident);
+        const semanticLine =
+          `semantic: ${
+            encDiag.constrained
+              ? (encResident.find((p) => p.id === FALLBACK_EMBEDDING_ID)?.id ??
+                "minilm (not loaded; 2.6B co-residency)")
+              : (encResident[0]?.id ?? "none resident (opportunistic warm)")
+          }` +
+          (encResident.length
+            ? ` · resident ${encResident
+                .map((p) => `${p.id} ${p.backend ?? "?"} ~${Math.round(p.residentMb)}MB`)
+                .join(", ")}`
+            : "") +
+          ` · chat ${ai.spec?.label ?? ai.target.label} (${ai.backend})`;
         const rt = perf?.runtime;
         const gen = perf?.generation;
         const runtimeLine = rt
@@ -2138,6 +2195,7 @@ function ChatConsole({
             runtimeLine,
             deviceLine,
             budgetLine,
+            semanticLine,
             ...(prewarmInfoRef.current ? [prewarmInfoRef.current] : []),
             genLine,
             usageLine ?? "no model answer yet this session",

@@ -138,6 +138,28 @@ export function unloadEncoder() {
   unloadProvider(FALLBACK_EMBEDDING_ID);
 }
 
+/**
+ * The single-resident-provider invariant. Selecting a heavy chat model (the
+ * 2.6B, the one that cannot share the machine with a second wllama handle)
+ * must not leave the LFM embedder's weights allocated next to it: the flag
+ * alone only re-routed NEW work to MiniLM while the stale LFM handle kept
+ * its ~229MB (x2 under WebGPU) resident. Enforced here, on the constraint
+ * flip, by dropping the LFM slot AND its worker handle. Flipping the
+ * constraint OFF loads nothing: the existing opportunistic warm handles it.
+ */
+export async function enforceEncoderResidency(heavy: boolean): Promise<void> {
+  if (!heavy) return;
+  if (providerReady(DEFAULT_EMBEDDING_ID)) {
+    unloadProvider(DEFAULT_EMBEDDING_ID);
+    try {
+      const ai = await import("@/lib/ai");
+      await ai.embedUnload();
+    } catch {
+      /* the slot is already dropped; the worker handle exits on its next idle */
+    }
+  }
+}
+
 export const cosine = cosineOf;
 
 /** Mean-pooled, L2-normalised embeddings. Null when nothing is available. */

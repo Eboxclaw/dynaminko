@@ -37,11 +37,21 @@ export function isRepeatHop(pickKey: string, executedKeys: string[]): boolean {
 
 /**
  * Stable identity of one hop: tool id plus the arguments it would run with.
- * The `|` delimiter is shared with the same-tool run cap in the orchestrator,
- * which reads the id to the left without parsing the JSON payload.
+ * The `|` delimiter is shared with hopToolId() — the single parser the
+ * orchestrator's same-tool run cap counts through — so keying and counting
+ * can never drift apart again (the 09-04 journal.search loop ran to the
+ * hop budget exactly because the cap once parsed a different separator).
  */
 export function hopKey(id: string, input: Record<string, unknown>): string {
   return `${id}|${JSON.stringify(input)}`;
+}
+
+/** The tool-id half of a hopKey. Tool ids never contain "|", so the first
+ * pipe is always the join point. Parse hopKeys through this function only:
+ * a hand-rolled split with any other separator silently returns the whole
+ * key and disarms the same-tool cap. */
+export function hopToolId(key: string): string {
+  return key.slice(0, key.indexOf("|"));
 }
 
 /**
@@ -61,6 +71,10 @@ export type DecidePromptParts = {
   /** Plain-text capability book; undefined when the menu rides the template's
    *  native tools render instead. */
   menuText?: string;
+  /** LEAN VIEW ONLY (decide A/B): FACTS+PORTFOLIO lines riding the user turn
+   *  right beside the menu, the pre-e6c1ff3 placement. The head view leaves
+   *  this undefined: facts live in the system head there. */
+  facts?: string;
   evidence?: string;
   /** Hops left this turn. Appended LAST: hop 1's user content then stays a
    *  strict prefix of hop 2's, which is what makes the slot cache hit. */
@@ -68,17 +82,22 @@ export type DecidePromptParts = {
 };
 
 /**
- * The decide user turn. Facts live in the shared head (system side), so
- * every variable block here appends at the tail in a fixed order (evidence,
- * then the remaining count): prompt_n is prompt_1 plus suffixes and
- * consecutive decide hops only prefill their new evidence.
+ * The decide user turn. In the HEAD view facts live in the shared system
+ * head, so every variable block here appends at the tail in a fixed order
+ * (evidence, then the remaining count): prompt_n is prompt_1 plus suffixes
+ * and consecutive decide hops only prefill their new evidence. In the LEAN
+ * view (A/B arm) facts ride the user turn between the menu and the
+ * evidence, exactly where they sat before e6c1ff3.
  */
 export function decideUserContent(parts: DecidePromptParts): string {
   return `QUESTION
 ${parts.question}${parts.menuText ? `
 
 TOOLS
-${parts.menuText}` : ""}${parts.evidence ? `
+${parts.menuText}` : ""}${parts.facts ? `
+
+FACTS
+${parts.facts}` : ""}${parts.evidence ? `
 
 EARLIER RESULTS THIS TURN
 ${parts.evidence}` : ""}${parts.remaining != null ? `

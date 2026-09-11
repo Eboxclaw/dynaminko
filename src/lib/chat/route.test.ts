@@ -3,7 +3,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { routeMessage, suppressedAdviceRead } from "./route";
+import { normalizeRoutingText, routeMessage, suppressedAdviceRead } from "./route";
 
 describe("routeMessage", () => {
   it("routes portfolio status phrasings to portfolio.snapshot", () => {
@@ -136,5 +136,52 @@ describe("suppressedAdviceRead", () => {
     expect(suppressedAdviceRead("what should I improve about my process?")).toBeNull();
     expect(suppressedAdviceRead("resolve my pending trades")).toBeNull();
     expect(suppressedAdviceRead("what patterns do you see in my recent trades")).toBeNull();
+  });
+});
+
+describe("deterministic normalization + first-class portfolio domain", () => {
+  // The exact failing query from 09-04: a typo ("portefolio") and a dropped
+  // apostrophe ("how s") defeated every alias and the wallet-shape filter,
+  // dropping the question to semantic retrieval and the journal.search loop.
+  const FAILING = "hello agent how s my portefolio doing ?";
+
+  it("normalizes typos and dropped-apostrophe contractions, idempotently", () => {
+    const n1 = normalizeRoutingText(FAILING);
+    expect(n1).toContain("how is my portfolio doing");
+    expect(normalizeRoutingText(n1)).toBe(n1);
+    expect(normalizeRoutingText("hows my holdings")).toContain("how is my holdings");
+    expect(normalizeRoutingText("my potfolio and protfolio")).not.toMatch(/potfolio|protfolio/);
+  });
+
+  it("routes the exact failing query to portfolio.snapshot deterministically", () => {
+    const r = routeMessage(FAILING);
+    expect(r.kind).toBe("command");
+    if (r.kind === "command") {
+      expect(r.commandId).toBe("portfolio.snapshot");
+      expect(r.why).toMatch(/portfolio-status domain|how is my portfolio/);
+    }
+  });
+
+  it("recognizes unlisted portfolio-status phrasings via the domain floor", () => {
+    for (const text of [
+      "give me a quick overview of my exposure please",
+      "what is the state of my holdings right now",
+      "check my net worth",
+    ]) {
+      const r = routeMessage(text);
+      expect(r.kind, `expected a command for "${text}"`).toBe("command");
+      if (r.kind === "command") expect(r.commandId).toBe("portfolio.snapshot");
+    }
+  });
+
+  it("the domain floor refuses advice and write intents", () => {
+    expect(routeMessage("how is my portfolio doing and what should i improve").kind).not.toBe(
+      "command",
+    );
+    expect(routeMessage("move my portfolio to stables").kind).not.toBe("command");
+    // The advice variant still withholds the status read for hop 1.
+    const pick = suppressedAdviceRead("how s my portefolio doing, any ideas to improve?");
+    expect(pick).not.toBeNull();
+    expect(pick!.id).toBe("portfolio.snapshot");
   });
 });

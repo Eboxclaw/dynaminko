@@ -1,6 +1,29 @@
 import { describe, expect, it } from "vitest";
 
-import { DECIDE_SYSTEM, decideUserContent, hopEvidence, hopKey, isRepeatHop } from "./hops";
+import { DECIDE_SYSTEM, decideUserContent, hopEvidence, hopKey, hopToolId, isRepeatHop } from "./hops";
+
+describe("hopKey shape (same-tool cap regression)", () => {
+  it("keys join on '|' and hopToolId recovers the bare tool id", () => {
+    const key = hopKey("journal.search", { query: "portfolio" });
+    // The exact shape the cap parses: id, '|', then the JSON arguments.
+    expect(key).toBe('journal.search|{"query":"portfolio"}');
+    expect(hopToolId(key)).toBe("journal.search");
+  });
+
+  it("counts per-tool runs across VARYING inputs (the 09-04 loop shape)", () => {
+    const executed = [
+      hopKey("journal.search", { query: "portfolio" }),
+      hopKey("journal.search", { query: "holdings" }),
+      hopKey("portfolio.read", {}),
+    ];
+    // A mismatched separator (the historical ':' vs '|' bug class) returns
+    // the whole key and counts zero — the loop shape the cap must survive.
+    expect(executed.filter((k) => k.split(":")[0] === "journal.search")).toHaveLength(0);
+    // hopToolId counts every run of the tool regardless of arguments.
+    expect(executed.filter((k) => hopToolId(k) === "journal.search")).toHaveLength(2);
+    expect(executed.filter((k) => hopToolId(k) === "portfolio.read")).toHaveLength(1);
+  });
+});
 
 describe("hopEvidence", () => {
   it("is empty before any hop ran", () => {
