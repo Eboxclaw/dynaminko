@@ -379,7 +379,13 @@ export const DEFAULT_CTX = 32128;
 
 // Per-model context persistence: a /context choice survives reloads, keyed
 // by model, clamped to that model's real maximum.
-const CTX_KEY_PREFIX = "inko.ctx.";
+//
+// Start-at-32k policy: every local model's STARTING window is DEFAULT_CTX
+// (32128) and users raise it from the model panel. The v2 prefix retires
+// overrides persisted before this policy — the earlier era seeded some
+// models at their card maximum, and a 2.6B left at 131072 carries 2.0GB of
+// KV and an UNSAFE ledger on an 8GB machine for no accuracy gain.
+const CTX_KEY_PREFIX = "inko.ctx.v2.";
 export function persistCtx(modelId: string, n: number): number {
   const spec = MODEL_BY_ID[modelId];
   const clamped = spec ? Math.min(Math.max(256, Math.round(n)), spec.maxCtx) : Math.round(n);

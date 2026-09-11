@@ -455,13 +455,15 @@ function ChatConsole({
   const canSee = Boolean(ai.spec?.vision);
   const canReason = Boolean(ai.spec?.reasoning);
 
-  // Whatever the active model supports is on by default, and resets to that
-  // default whenever the active model changes. No click needed for normal use.
+  // Start cold (2026-09-11 user rule): no reasoning preamble and no
+  // model-speaks-extra until the user asks for it, on every model change.
+  // Thinking stays available for reasoning-capable models via the toggle;
+  // Vision still follows the model's capability.
   const activeSpecId = ai.spec?.id;
   useEffect(() => {
     setVision(canSee);
-    setReasoning(true);
-    setThinking(canReason);
+    setReasoning(false);
+    setThinking(false);
   }, [activeSpecId, canReason, canSee]);
 
   const push = (m: Omit<ChatMessage, "id" | "ts">) => {
