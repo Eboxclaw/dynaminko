@@ -173,3 +173,22 @@ Research before code; document in docs/mcp-research.md.
 - window.__lastDecide: last decide pick(s) with raw outputs; window.__perf.
 - Pins: ?forceDecide=1, ?forceBackend=webgpu|wasm, ?forceFa=0|1,
   ?forceCache=0|1, ?forceBudget=N, #prewarm=..., #decideView=head|lean.
+
+## Added 2026-09-11 · speed and footprint workstream (user request)
+
+Standing additions to the plan, research first, PWA and infra constraints
+apply to every change. First pass findings: docs/speed-research.md.
+
+- S8a lighter loads: SHIPPED in 278e05f. Every local model starts at a
+  32k window (inko.ctx.v2 retires stale maxima; users raise from the
+  panel), Reason and Thinking cold-start OFF. Measured: the 2.6B went
+  from UNSAFE 6.46GB, 43s ttft, 20.1 tok/s to 4.73GB, 4.3s ttft,
+  88.2 tok/s on the same prompt.
+- S8b encode/decode speed: study and improve prefill, decode, KV reuse
+  (the cross-turn prefix miss is the first suspect).
+- S8c device speed: Android and Mac laptop paths (threads, COOP/COEP,
+  KV dtype, gpu layers, thermal).
+- S8d semantic memory and deterministic paths: faster and more accurate
+  routing, parsing and indexing for the registries we have.
+- Test order stays 350M first; answers tested with Reason and Thinking
+  off (the new default).
