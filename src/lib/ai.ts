@@ -98,6 +98,13 @@ export function forcedRopeBase(): number | null {
   return FORCED_ROPE;
 }
 
+/** The rope base the worker would actually apply for this model: the pin,
+ *  except the Qwen distill, which never takes it. Null = card metadata. */
+export function effectiveRopeBase(modelId?: string): number | null {
+  if (FORCED_ROPE == null || modelId === "qwen38-2b-distill") return null;
+  return FORCED_ROPE;
+}
+
 // ── static config (stays on main thread) ─────────────────────────────
 // This registry is the single source of truth; the AI worker imports it from
 // here instead of keeping its own copy (this module has no runtime imports,
