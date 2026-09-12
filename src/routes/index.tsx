@@ -1,12 +1,12 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { ArrowUpRight, Eye, EyeOff, Plus, RefreshCw } from "lucide-react";
+import { Eye, EyeOff, Plus, RefreshCw } from "lucide-react";
 import { useState } from "react";
 
-import { BasketOrb } from "@/components/pot/BasketOrb";
 import { Reconcile } from "@/components/pot/Reconcile";
 import { Panel, Shell } from "@/components/pot/Shell";
 import { VenueIcon } from "@/components/pot/VenueIcon";
 import { WalletPanel } from "@/components/pot/WalletChip";
+import { Ext, NullMark } from "@/components/pot/symbols";
 import { useAgent } from "@/hooks/useAgent";
 import { useBaskets } from "@/hooks/useBaskets";
 import { useDoc } from "@/hooks/useDoc";
@@ -61,7 +61,7 @@ function Dashboard() {
       <Shell title="Dashboard" subtitle="no wallet yet">
         <Panel eyebrow="Step 01 // Context" title="Point it at a wallet">
           <div className="p-4">
-            <p className="max-w-lg text-[14px] text-ink-soft">
+            <p className="max-w-lg text-head text-ink-soft">
               Watch any address read-only, or connect one you control. From that moment the agent
               extracts every swap, send and receive into your inbox, you only answer why.
             </p>
@@ -119,24 +119,26 @@ function Dashboard() {
                 {hidden ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
               </button>
             </div>
-            <p className="eyebrow mt-3">
-              {usd(netWorth.wallet, hidden)} on Ink
-              {venueTotals.map((v) => ` · ${usd(v.equity, hidden)} on ${v.label}`).join("")}
-              {` · ${baskets.holdings.length} assets · ${baskets.slices.length} baskets`}
-            </p>
-            <p className="eyebrow mt-1">
-              {top && `${SECTOR_BY_ID[top.sector]?.label} leads at ${Math.round(top.share * 100)}%`}
-            </p>
-            {baskets.slices.length > 0 && (
-              <div className="mt-2">
-                <BasketOrb
-                  slices={baskets.slices.map((s) => ({
-                    label: SECTOR_BY_ID[s.sector]?.label ?? s.sector,
-                    share: s.share,
-                  }))}
-                />
+            {/* Where the money sits: one readable row per venue instead of a
+                wrapped caps line. The basket bars live in the Exposure panel
+                beside this one; drawing them twice here clipped their labels. */}
+            <div className="mt-3 space-y-1.5">
+              <div className="flex items-baseline justify-between gap-3">
+                <span className="eyebrow">on Ink</span>
+                <span className="num text-soft">{usd(netWorth.wallet, hidden)}</span>
               </div>
-            )}
+              {venueTotals.map((v) => (
+                <div key={v.label} className="flex items-baseline justify-between gap-3">
+                  <span className="eyebrow">on {v.label}</span>
+                  <span className="num text-soft">{usd(v.equity, hidden)}</span>
+                </div>
+              ))}
+            </div>
+            <p className="eyebrow mt-3">
+              {baskets.holdings.length} assets · {baskets.slices.length} baskets
+              {top &&
+                ` · ${SECTOR_BY_ID[top.sector]?.label ?? top.sector} leads at ${Math.round(top.share * 100)}%`}
+            </p>
           </div>
         </Panel>
 
@@ -150,11 +152,11 @@ function Dashboard() {
                 return (
                   <li key={s.sector} className="border-b border-stroke px-4 py-3 last:border-0">
                     <div className="flex items-baseline gap-3">
-                      <span className="flex-1 text-[13px] font-medium">
+                      <span className="flex-1 text-body font-medium">
                         {sector?.label ?? s.sector}
                       </span>
-                      <span className="num text-[13px]">{usd(s.value, hidden)}</span>
-                      <span className="num w-10 text-right text-[12px] text-ink-faint">
+                      <span className="num text-body">{usd(s.value, hidden)}</span>
+                      <span className="num w-10 text-right text-soft text-ink-faint">
                         {Math.round(s.share * 100)}%
                       </span>
                     </div>
@@ -182,9 +184,9 @@ function Dashboard() {
             <Link
               to="/journal"
               search={{ tab: "inbox" as const, filter: "all", venue: "all" as const }}
-              className="doodle-pill inline-flex items-center gap-1 px-3 py-1 text-[12px] hover:border-ink"
+              className="doodle-pill inline-flex items-center gap-1 px-3 py-1 text-soft hover:border-ink"
             >
-              Open <ArrowUpRight className="h-3 w-3" />
+              Open <Ext />
             </Link>
           }
         >
@@ -197,14 +199,14 @@ function Dashboard() {
                 {s.venue && s.venue !== "evm" ? (
                   <VenueIcon id={s.venue} className="h-3.5 w-3.5 shrink-0 text-ink-faint" />
                 ) : (
-                  <span className="num text-[11px] text-ink-faint">
+                  <span className="num text-caption text-ink-faint">
                     {s.side === "in" ? "IN" : "OUT"}
                   </span>
                 )}
-                <span className="min-w-0 flex-1 truncate text-[13px]">
+                <span className="min-w-0 flex-1 truncate text-body">
                   {s.symbol}
                   <span className="num ml-2 text-ink-faint">
-                    {s.value != null ? usd(s.value, hidden) : "—"}
+                    {s.value != null ? usd(s.value, hidden) : <NullMark label="no value yet" />}
                   </span>
                 </span>
                 <span className="eyebrow">{relativeTime(s.ts)}</span>
@@ -224,7 +226,7 @@ function Dashboard() {
                 className="flex items-center gap-3 border-b border-stroke px-4 py-3 last:border-0"
               >
                 <span className="min-w-0 flex-1">
-                  <span className="flex items-center gap-1.5 text-[13px] font-medium">
+                  <span className="flex items-center gap-1.5 text-body font-medium">
                     <span className="truncate">{h.symbol}</span>
                     {h.sources
                       .filter((src) => src !== "wallet")
@@ -234,9 +236,9 @@ function Dashboard() {
                   </span>
                   <span className="eyebrow">{SECTOR_BY_ID[h.sector]?.label}</span>
                 </span>
-                <span className="num text-right text-[13px]">
-                  {h.value != null ? usd(h.value, hidden) : "—"}
-                  <span className="block text-[11px] text-ink-faint">
+                <span className="num text-right text-body">
+                  {h.value != null ? usd(h.value, hidden) : <NullMark label="unpriced" />}
+                  <span className="block text-caption text-ink-faint">
                     {hidden
                       ? "•••"
                       : h.amount.toLocaleString(undefined, { maximumFractionDigits: 4 })}
@@ -252,7 +254,7 @@ function Dashboard() {
       <button
         type="button"
         onClick={() => setComposing(true)}
-        className="fixed bottom-[calc(env(safe-area-inset-bottom)+72px)] right-4 z-30 rounded-full inline-flex items-center gap-2 bg-ink px-4 py-3 text-[13px] font-medium text-paper shadow-lg active:scale-95 transition hover:opacity-90 lg:bottom-6 lg:right-6"
+        className="fixed bottom-[calc(env(safe-area-inset-bottom)+72px)] right-4 z-30 rounded-full inline-flex items-center gap-2 bg-ink px-4 py-3 text-body font-medium text-paper shadow-lg active:scale-95 transition hover:opacity-90 lg:bottom-6 lg:right-6"
       >
         <Plus className="h-4 w-4" /> New entry
       </button>
