@@ -136,6 +136,10 @@ function summary(
   parentAddress: string,
   accountId: string,
   label: string,
+  /** Spot stables (USDC) held on the same account, added to available:
+   *  withdrawable covers perp margin only, so a wallet fully in margin
+   *  plus a spot USDC balance otherwise reads as nothing spendable. */
+  spotStables = 0,
 ): AccountSummary | null {
   const equity = num(state?.marginSummary?.accountValue);
   if (equity == null) return null;
@@ -146,11 +150,19 @@ function summary(
     label,
     parentAddress,
     equity,
-    available: num(state?.withdrawable),
+    available: (num(state?.withdrawable) ?? 0) + spotStables,
     marginUsed: num(state?.marginSummary?.totalMarginUsed),
     health: null,
-    detail: "cross margin",
+    detail: spotStables > 0 ? "cross margin + spot USDC" : "cross margin",
   };
+}
+
+/** Stable tokens on the HL spot book, valued at a dollar each. */
+function spotStables(state: SpotState | undefined): number {
+  const STABLES = new Set(["USDC", "USDT0", "USH"]);
+  return (state?.balances ?? [])
+    .filter((b) => b.coin != null && STABLES.has(b.coin))
+    .reduce((sum, b) => sum + (num(b.total) ?? 0), 0);
 }
 
 export async function readHyperliquid(
@@ -176,7 +188,13 @@ export async function readHyperliquid(
 
   if (perp.status === "fulfilled") {
     positions.push(...perpPositions(perp.value, address, "main", "", now));
-    const s = summary(perp.value, address, "main", "Hyperliquid · main");
+    const s = summary(
+      perp.value,
+      address,
+      "main",
+      "Hyperliquid · main",
+      spot.status === "fulfilled" ? spotStables(spot.value) : 0,
+    );
     if (s && (s.equity ?? 0) !== 0) accounts.push(s);
   }
   if (spot.status === "fulfilled") {
@@ -188,7 +206,13 @@ export async function readHyperliquid(
       const label = sub.name ?? id.slice(0, 8);
       positions.push(...perpPositions(sub.clearinghouseState, address, id, label, now));
       positions.push(...spotPositions(sub.spotState, address, id, label, now));
-      const s = summary(sub.clearinghouseState, address, id, `Hyperliquid · ${label}`);
+      const s = summary(
+        sub.clearinghouseState,
+        address,
+        id,
+        `Hyperliquid · ${label}`,
+        spotStables(sub.spotState),
+      );
       if (s && (s.equity ?? 0) !== 0) accounts.push(s);
     }
   }
