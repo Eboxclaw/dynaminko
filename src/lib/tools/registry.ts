@@ -23,6 +23,7 @@ import { currentAccounts, personalSign } from "@/lib/chain/injected";
 import { verifyAttestation } from "@/lib/store";
 import { track } from "@/lib/stats/client";
 import { readOffloaded } from "@/lib/agent/offload";
+import { normalizeTradeProposal } from "@/lib/trade/propose";
 
 import * as ind from "./indicators";
 import * as journal from "./journal";
@@ -510,6 +511,43 @@ export const TOOLS: ToolDef[] = [
       const wallet = getDoc().activeWallet;
       if (!wallet) return [];
       return readLedgerTrades(wallet, typeof input?.limit === "number" ? input.limit : 100);
+    },
+  }),
+  def({
+    id: "trade.propose",
+    group: "trade",
+    action: "propose",
+    label: "Propose a trade",
+    purpose:
+      "Compose an order proposal for hyperliquid or nado from live venue state: venue, symbol, side (long or short), size, optional limit price. Proposals are paper only: nothing executes or signs.",
+    access: "COMPUTE",
+    inputs:
+      "{ venue: string, symbol: string, side: string, size: number, price?: number, rationale?: string }",
+    output: "TradeProposal (executable: false)",
+    live: true,
+    run: async (i: {
+      venue?: string;
+      symbol?: string;
+      side?: string;
+      size?: number | string;
+      price?: number | string;
+      rationale?: string;
+    }) => {
+      const r = normalizeTradeProposal(i);
+      if ("problem" in r) return { ok: false, problem: r.problem };
+      // Enrich with the latest known mark from the venue cache when the
+      // symbol is already open: grounds the proposal without a new fetch.
+      let currentMark: number | null = null;
+      try {
+        const reports = await readCachedVenueReports();
+        const pos = reports
+          .find((rep) => rep.venueId === r.proposal.venue)
+          ?.positions?.find((p) => p.symbol.replace("-PERP", "") === r.proposal.symbol);
+        if (pos?.markPrice != null) currentMark = pos.markPrice;
+      } catch {
+        // enrichment is best-effort; the proposal stands without a mark
+      }
+      return { ok: true, proposal: { ...r.proposal, currentMark } };
     },
   }),
   def({

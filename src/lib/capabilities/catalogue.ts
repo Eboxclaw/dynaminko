@@ -309,6 +309,7 @@ export const DEFAULT_HOP_IDS = [
   "portfolio.read",
   "portfolio.netWorth",
   "portfolio.positions-perps",
+  "trade.propose",
 ] as const;
 
 /**

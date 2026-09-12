@@ -69,6 +69,28 @@ describe("capabilityCatalogue", () => {
     expect(hopAllowed.map((d) => d.id)).toContain("journal.search");
   });
 
+  it("execute capabilities never enter the hop menu: propose-only policy", () => {
+    // The user's standing policy (2026-09-12): the agent reads, sees and
+    // proposes; it never trades or executes a financial call. The venue
+    // .execute stubs exist on purpose, unwired, and the catalogue drops
+    // non-live tools entirely: execution is doubly absent from the model's
+    // menu. Journal write-approvals are a different category (journaling,
+    // not finance) and ride the explicit-action gate by design.
+    const toolExec = TOOLS.filter((t) => t.id.endsWith(".execute"));
+    expect(toolExec.length).toBeGreaterThanOrEqual(5); // one per venue
+    for (const t of toolExec) {
+      expect(t.access, `${t.id} must carry EXECUTE access`).toBe("EXECUTE");
+      expect(t.live, `${t.id} must stay unwired until the execution wallet exists`).toBe(false);
+    }
+    const catalogue = capabilityCatalogue();
+    expect(catalogue.some((d) => d.id.endsWith(".execute"))).toBe(false);
+    // Proposing is the sanctioned surface: COMPUTE access, paper by design.
+    const propose = catalogue.find((d) => d.id === "trade.propose");
+    expect(propose?.access).toBe("COMPUTE");
+    expect(propose?.output).toContain("executable: false");
+    expect(DEFAULT_HOP_IDS).toContain("trade.propose");
+  });
+
   it("digest carries every non-concept capability once, and excludes concepts", () => {
     const defs = capabilityCatalogue().filter((d) => d.kind !== "concept");
     const lines = capabilityDigest().split("\n");
