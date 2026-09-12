@@ -4,7 +4,7 @@
    No colour. Hierarchy comes from value, weight, hairlines and space. */
 
 @theme {
-  --font-sans: "IBM Plex Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
   --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
 
   --color-paper: var(--paper);
@@ -19,6 +19,23 @@
   --color-accent-soft: var(--sunken);
   --color-gain: var(--gain);
   --color-loss: var(--loss);
+
+  /* Named type scale. The app previously shipped 300+ arbitrary text-[Npx]
+     values; new and migrated code picks from these seven instead. */
+  --text-micro: 10px;
+  --text-micro--line-height: 1.3;
+  --text-caption: 11px;
+  --text-caption--line-height: 1.35;
+  --text-soft: 12px;
+  --text-soft--line-height: 1.4;
+  --text-body: 13px;
+  --text-body--line-height: 1.5;
+  --text-head: 14px;
+  --text-head--line-height: 1.4;
+  --text-title: 17px;
+  --text-title--line-height: 1.25;
+  --text-display: 44px;
+  --text-display--line-height: 1;
 }
 
 :root {
@@ -111,7 +128,8 @@ body {
 
 @utility eyebrow {
   font-family: var(--font-mono);
-  font-size: 9.5px;
+  /* 10px floor: nothing in the app renders below 10px */
+  font-size: 10px;
   line-height: 1.2;
   letter-spacing: 0.14em;
   text-transform: uppercase;
@@ -120,7 +138,6 @@ body {
 
 @media (min-width: 640px) {
   .eyebrow {
-    font-size: 10px;
     letter-spacing: 0.16em;
   }
 }

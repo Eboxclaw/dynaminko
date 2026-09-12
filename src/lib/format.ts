@@ -1,4 +1,6 @@
 // Formatting helpers. All numbers are rendered with tabular figures.
+// Money always goes through usd(): components never format currency inline,
+// so $96.41 and $0.0000 can never sit in the same list again.
 
 export function usd(n: number | null | undefined, hidden = false): string {
   if (hidden) return "••••••";

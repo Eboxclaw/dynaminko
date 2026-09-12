@@ -88,7 +88,7 @@ export function Shell({
       <aside className="group fixed inset-y-0 left-0 z-30 hidden w-[68px] flex-col border-r border-stroke bg-surface py-4 transition-[width,box-shadow] duration-200 hover:w-[212px] hover:shadow-[8px_0_24px_-16px_rgba(0,0,0,0.35)] lg:flex">
         <Link to="/" className="mb-6 flex h-8 items-center overflow-hidden px-[21px]">
           <Mark className="h-[26px] w-[26px] shrink-0" />
-          <span className="ml-3 whitespace-nowrap text-[14px] font-semibold tracking-tight opacity-0 transition-opacity duration-150 group-hover:opacity-100">
+          <span className="ml-3 whitespace-nowrap text-head font-semibold tracking-tight opacity-0 transition-opacity duration-150 group-hover:opacity-100">
             Proof of Thesis
           </span>
         </Link>
@@ -106,11 +106,11 @@ export function Shell({
               >
                 {active && <span className="absolute inset-y-1 left-0 w-[2px] bg-ink" />}
                 <item.icon className="h-[18px] w-[18px] shrink-0" strokeWidth={1.7} />
-                <span className="ml-3 whitespace-nowrap text-[13px] opacity-0 transition-opacity duration-150 group-hover:opacity-100">
+                <span className="ml-3 whitespace-nowrap text-body opacity-0 transition-opacity duration-150 group-hover:opacity-100">
                   {item.label}
                 </span>
                 {item.to === "/journal" && inbox > 0 && (
-                  <span className="num absolute right-1.5 top-1 rounded-[999px] bg-sunken px-1.5 text-[10px] leading-4 text-ink-soft tabular-nums group-hover:static group-hover:ml-auto">
+                  <span className="num absolute right-1.5 top-1 rounded-[999px] bg-sunken px-1.5 text-micro leading-4 text-ink-soft tabular-nums group-hover:static group-hover:ml-auto">
                     {inbox > 999 ? "999+" : inbox}
                   </span>
                 )}
@@ -127,7 +127,7 @@ export function Shell({
             )}
           >
             <SettingsIcon className="h-[18px] w-[18px] shrink-0" strokeWidth={1.7} />
-            <span className="ml-3 whitespace-nowrap text-[13px] opacity-0 transition-opacity duration-150 group-hover:opacity-100">
+            <span className="ml-3 whitespace-nowrap text-body opacity-0 transition-opacity duration-150 group-hover:opacity-100">
               Settings
             </span>
           </Link>
@@ -141,7 +141,7 @@ export function Shell({
           </Link>
           <div className="min-w-0 flex-1">
             {title && (
-              <h1 className="truncate text-[15px] font-semibold leading-tight tracking-tight sm:text-[17px]">
+              <h1 className="truncate text-title font-semibold leading-tight tracking-tight">
                 {title}
               </h1>
             )}
@@ -174,7 +174,7 @@ export function Shell({
                 )}
               >
                 <item.icon className="h-[18px] w-[18px]" strokeWidth={active ? 2 : 1.6} />
-                <span className="eyebrow w-full truncate text-center text-[8.5px] tracking-[0.08em] [color:inherit]">
+                <span className="eyebrow w-full truncate text-center tracking-[0.08em] [color:inherit]">
                   {item.short}
                 </span>
                 {item.to === "/journal" && inbox > 0 && (
@@ -193,6 +193,7 @@ export function Panel({
   eyebrow,
   title,
   action,
+  foot,
   children,
   className,
   delay = 0,
@@ -200,6 +201,9 @@ export function Panel({
   eyebrow?: string;
   title?: string;
   action?: ReactNode;
+  /** Hairline footer strip for the standing caveat a panel always carries
+      (paper-only notes, data-source lines) instead of a bare last child. */
+  foot?: ReactNode;
   children: ReactNode;
   className?: string;
   delay?: number;
@@ -215,7 +219,7 @@ export function Panel({
             {eyebrow && <p className="eyebrow truncate">{eyebrow}</p>}
 
             {title && (
-              <h2 className="mt-1 text-[14px] font-semibold leading-snug tracking-tight">
+              <h2 className="mt-1 text-head font-semibold leading-snug tracking-tight">
                 {title}
               </h2>
             )}
@@ -224,6 +228,7 @@ export function Panel({
         </header>
       )}
       {children}
+      {foot && <footer className="border-t border-stroke px-4 py-2.5">{foot}</footer>}
     </section>
   );
 }

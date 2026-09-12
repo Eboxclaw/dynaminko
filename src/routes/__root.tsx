@@ -158,7 +158,10 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
         // crossorigin makes the request CORS-mode: without it COEP
         // require-corp (needed for SharedArrayBuffer) blocks Google Fonts.
         crossOrigin: "anonymous",
-        href: "https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=Caveat:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap",
+        // Sans is the system stack (styles.css --font-sans); only the mono
+        // identity font is fetched. Outfit and Caveat were downloaded for
+        // years without a single consumer.
+        href: "https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&display=swap",
       },
     ],
     scripts: [{ children: THEME_SCRIPT }, { children: BOOT_WATCHDOG_SCRIPT }],
