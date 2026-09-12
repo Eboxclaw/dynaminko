@@ -18,14 +18,35 @@ function cachedActionsFor(key: string): Promise<VenueAction[]> {
   return storeByIndex<CachedAction>("actions", "wallet", key);
 }
 
+/** A stalled venue read must never pin "reading venues..." on the header:
+ *  the watchdog rejects so the query's catch serves cached data flagged
+ *  stale and isFetching clears. */
+const VENUE_READ_TIMEOUT_MS = 45_000;
+
+function withTimeout<T>(p: Promise<T>, ms = VENUE_READ_TIMEOUT_MS): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error("venue read timed out")), ms);
+    p.then(
+      (v) => {
+        clearTimeout(timer);
+        resolve(v);
+      },
+      (e: unknown) => {
+        clearTimeout(timer);
+        reject(e instanceof Error ? e : new Error(String(e)));
+      },
+    );
+  });
+}
+
 /** Runs venue reads through the persistent reader service; falls back to the
  * main thread where Worker is unavailable. */
 function readInWorker(address: string, chainId: number): Promise<VenueData> {
   if (typeof Worker === "undefined") {
     // main-thread fallback: positions only, actions stay the worker's job
-    return readVenues(address, chainId).then((reports) => ({ reports, actions: [] }));
+    return withTimeout(readVenues(address, chainId).then((reports) => ({ reports, actions: [] })));
   }
-  return readVenuesInWorker(address, chainId).then((r) => r as VenueData);
+  return withTimeout(readVenuesInWorker(address, chainId).then((r) => r as VenueData));
 }
 
 /**
