@@ -14,6 +14,7 @@ import {
 } from "@/lib/store";
 import { request as requestNotifications } from "@/lib/notify";
 import { buildPortfolio } from "@/lib/portfolio";
+import { fetchQuotes } from "@/lib/prices";
 import { readLedgerTrades } from "@/lib/ledger";
 import { composeNetWorth, openPerps } from "@/lib/exposure";
 import { readVelodrome } from "@/lib/venues/velodrome";
@@ -555,11 +556,12 @@ export const TOOLS: ToolDef[] = [
     group: "market",
     action: "quote",
     label: "Quote",
-    purpose: "Spot price and 24h change for a symbol.",
-    access: "EXTERNAL",
+    purpose: "Spot price and 24h change for a symbol: cached quotes, Hyperliquid mids, CoinGecko, explorers and DEX screener as fallbacks.",
+    access: "READ",
     inputs: "{ symbols: string[] }",
-    output: "Quote[]",
-    live: false,
+    output: "Quote[] { symbol, usd, change24h }",
+    live: true,
+    run: (i: { symbols?: string[] }) => fetchQuotes(i?.symbols ?? []),
   }),
   def({
     id: "log.read",

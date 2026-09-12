@@ -5,7 +5,7 @@ import { Panel, Shell } from "@/components/pot/Shell";
 import { VenueIcon } from "@/components/pot/VenueIcon";
 import { useVenues } from "@/hooks/useVenues";
 import { relativeTime } from "@/lib/format";
-import { fetchHLQuotes, type Quote } from "@/lib/prices";
+import { fetchHLQuotes, fetchQuotes, type Quote } from "@/lib/prices";
 import { feeBreakdown, swapReceiveEstimate } from "@/lib/trade/fees";
 import { symbols as nadoSymbols } from "@/lib/venues/nado";
 
@@ -327,7 +327,23 @@ function TradeTicket({
   const [limitPx, setLimitPx] = useState("");
   const [size, setSize] = useState("");
   const mark = positions.find((p) => p.symbol.replace("-PERP", "") === symbol)?.markPrice ?? null;
-  const refPx = mode === "limit" && Number(limitPx) > 0 ? Number(limitPx) : mark;
+  // Venue marks ride the wallet read; until it lands, the quote layer arms
+  // the ticket from public mids so the slip never waits on the account.
+  const [midPx, setMidPx] = useState<number | null>(null);
+  useEffect(() => {
+    if (mark != null) return;
+    let live = true;
+    fetchQuotes([symbol])
+      .then((qs) => {
+        const q = qs.find((x) => x.symbol === symbol) ?? qs[0];
+        if (live && q?.usd) setMidPx(q.usd);
+      })
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, [symbol, mark]);
+  const refPx = mode === "limit" && Number(limitPx) > 0 ? Number(limitPx) : (mark ?? midPx);
   const notional = Number(size) > 0 && refPx ? Number(size) * refPx : 0;
   const fees = notional > 0 ? feeBreakdown({ venue, kind: "perp", notionalUsd: notional }) : null;
   const [slip, setSlip] = useState(false);
@@ -487,6 +503,21 @@ function SwapTicket({ venue }: { venue: TradeVenue }) {
       live = false;
     };
   }, [venue]);
+
+  // Prefill the price from the quote layer; the field stays editable.
+  useEffect(() => {
+    if (!to || venue !== "nado") return;
+    let live = true;
+    fetchQuotes([to])
+      .then((qs) => {
+        const q = qs.find((x) => x.symbol === to) ?? qs[0];
+        if (live && q?.usd) setPrice((prev) => (prev ? prev : String(q.usd)));
+      })
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, [to, venue]);
 
   const notional = Number(amount) > 0 ? Number(amount) : 0;
   const fees = notional > 0 ? feeBreakdown({ venue, kind: "spot", notionalUsd: notional }) : null;

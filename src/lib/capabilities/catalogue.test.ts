@@ -22,9 +22,9 @@ describe("capabilityCatalogue", () => {
     for (const id of toolIds) {
       expect(liveIds().has(id), `${id} is not a live tool`).toBe(true);
     }
-    // chain.transfers became real: it reads the persistent transfer ledger.
-    // Still-dead phantoms must stay absent.
-    for (const dead of ["market.quote", "inkyswap.read", "velodrome.execute"]) {
+    // chain.transfers and market.quote became real: they read the persistent
+    // ledger and the quote layer. Still-dead phantoms must stay absent.
+    for (const dead of ["inkyswap.read", "velodrome.execute"]) {
       expect(toolIds, `${dead} should be absent`).not.toContain(dead);
     }
   });
