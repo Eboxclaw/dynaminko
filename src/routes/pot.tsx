@@ -29,7 +29,7 @@ export const Route = createFileRoute("/pot")({
 });
 
 function pct(v: number | null) {
-  return v == null ? "—" : `${Math.round(v * 100)}%`;
+  return v == null ? "-" : `${Math.round(v * 100)}%`;
 }
 
 function AxisRow({ axis }: { axis: Axis }) {
@@ -42,14 +42,14 @@ function AxisRow({ axis }: { axis: Axis }) {
         className="w-full px-4 py-3 text-left transition hover:bg-sunken"
       >
         <div className="flex items-baseline gap-3">
-          <span className="flex-1 text-[13px] font-medium">{axis.label}</span>
+          <span className="flex-1 text-body font-medium">{axis.label}</span>
           {axis.delta != null && axis.delta !== 0 && (
-            <span className={cn("num text-[11px]", axis.delta > 0 ? "text-gain" : "text-loss")}>
+            <span className={cn("num text-caption", axis.delta > 0 ? "text-gain" : "text-loss")}>
               {axis.delta > 0 ? "+" : ""}
               {Math.round(axis.delta * 100)} pts / 30d
             </span>
           )}
-          <span className="num text-[13px]">{pct(axis.score)}</span>
+          <span className="num text-body">{pct(axis.score)}</span>
           <ChevronDown
             className={cn("h-3.5 w-3.5 text-ink-faint transition-transform", open && "rotate-180")}
           />
@@ -68,13 +68,13 @@ function AxisRow({ axis }: { axis: Axis }) {
       {open && (
         <div className="border-t border-stroke bg-sunken/40 px-4 py-3">
           <p className="eyebrow">Formula</p>
-          <p className="mt-1 text-[12px] text-ink-soft">{axis.formula}</p>
-          <p className="num mt-1 text-[12px]">
+          <p className="mt-1 text-soft text-ink-soft">{axis.formula}</p>
+          <p className="num mt-1 text-soft">
             {Math.round(axis.numerator * 10) / 10} ÷ {axis.denominator}
           </p>
 
           <p className="eyebrow mt-3">Weight</p>
-          <p className="mt-1 text-[12px] text-ink-soft">
+          <p className="mt-1 text-soft text-ink-soft">
             {Math.round(axis.weight * 100)}% of the composite · renormalised over measured axes
           </p>
 
@@ -83,7 +83,7 @@ function AxisRow({ axis }: { axis: Axis }) {
               <p className="eyebrow mt-3">Breakdown</p>
               <ul className="mt-1 space-y-1">
                 {axis.parts.map((p) => (
-                  <li key={p.label} className="flex items-baseline gap-2 text-[12px]">
+                  <li key={p.label} className="flex items-baseline gap-2 text-soft">
                     <span className="flex-1">{p.label}</span>
                     <span className="num text-ink-faint">
                       {p.value} · {p.of ? Math.round((p.value / p.of) * 100) : 0}%
@@ -95,7 +95,7 @@ function AxisRow({ axis }: { axis: Axis }) {
           )}
 
           <p className="eyebrow mt-3">Last 30 days</p>
-          <p className="num mt-1 text-[12px]">
+          <p className="num mt-1 text-soft">
             {pct(axis.recent)}
             {axis.delta != null && (
               <span className="text-ink-faint">
@@ -123,16 +123,16 @@ function MotiveRow({ m, hidden }: { m: MotivePnl; hidden: boolean }) {
   const label = m.motive ? (MOTIVE_LABELS[m.motive] ?? m.motive) : "Unlabelled";
   return (
     <li className="flex items-baseline gap-3 border-b border-stroke px-4 py-3 last:border-0">
-      <span className="w-24 shrink-0 text-[13px] font-medium">{label}</span>
-      <span className="num flex-1 text-[12px] text-ink-soft">
+      <span className="w-24 shrink-0 text-body font-medium">{label}</span>
+      <span className="num flex-1 text-soft text-ink-soft">
         {m.trades} {m.trades === 1 ? "trade" : "trades"} · {m.wins}W/{m.trades - m.wins}L
       </span>
       <span
-        className={cn("num text-[13px]", m.net > 0 ? "text-gain" : m.net < 0 ? "text-loss" : "")}
+        className={cn("num text-body", m.net > 0 ? "text-gain" : m.net < 0 ? "text-loss" : "")}
       >
         net {usd(m.net, hidden)}
       </span>
-      <span className="num w-24 text-right text-[11px] text-ink-faint">
+      <span className="num w-24 text-right text-caption text-ink-faint">
         avg {usd(m.avg, hidden)}
       </span>
     </li>
@@ -153,10 +153,10 @@ function PotPage() {
     >
       <div className="grid gap-4 lg:grid-cols-[1fr_1.2fr]">
         <Panel eyebrow="Index // Composite">
-          <div className="grid gap-4 p-4 sm:grid-cols-2 sm:items-center">
-            <div className="text-center sm:text-left">
+          <div className="grid gap-2 p-4">
+            <div>
               <p className="num text-[56px] font-semibold leading-none tracking-tight sm:text-[64px]">
-                {index.score ?? "—"}
+                {index.score ?? "-"}
               </p>
               <p className="eyebrow mt-3">
                 {index.score == null
@@ -172,26 +172,28 @@ function PotPage() {
               <dl className="mt-4 grid grid-cols-3 gap-2 text-left">
                 <div>
                   <dt className="eyebrow">Last 30d</dt>
-                  <dd className="num text-[15px]">{index.recentScore ?? "—"}</dd>
+                  <dd className="num text-head">{index.recentScore ?? "-"}</dd>
                 </div>
                 <div>
                   <dt className="eyebrow">Trend</dt>
                   <dd
                     className={cn(
-                      "num text-[15px]",
+                      "num text-head",
                       index.delta != null && index.delta > 0 && "text-gain",
                       index.delta != null && index.delta < 0 && "text-loss",
                     )}
                   >
-                    {index.delta == null ? "—" : `${index.delta > 0 ? "+" : ""}${index.delta}`}
+                    {index.delta == null ? "-" : `${index.delta > 0 ? "+" : ""}${index.delta}`}
                   </dd>
                 </div>
                 <div>
                   <dt className="eyebrow">Axes measured</dt>
-                  <dd className="num text-[15px]">{index.measured}/6</dd>
+                  <dd className="num text-head">{index.measured}/6</dd>
                 </div>
               </dl>
             </div>
+            {/* The star owns the panel width: beside the numeral it was pinned
+                to a half column and its labels rendered at two-thirds size. */}
             <PotIndexOrb axes={index.axes} />
           </div>
         </Panel>
@@ -211,7 +213,7 @@ function PotPage() {
             <MotiveRow key={m.motive ?? "unlabelled"} m={m} hidden={hidden} />
           ))}
           {index.payoff.byMotive.length === 0 && (
-            <li className="px-4 py-6 text-center text-[13px] text-ink-faint">
+            <li className="px-4 py-6 text-center text-body text-ink-faint">
               No closed trades with a venue-reported PnL yet. Reconciled Nado and Hyperliquid closes
               feed this panel.
             </li>
@@ -239,7 +241,7 @@ function PotPage() {
           <Link
             to="/journal"
             search={{ tab: "ghosts" as const, filter: "all", venue: "all" as const }}
-            className="doodle-pill px-3 py-1 text-[12px] hover:border-ink"
+            className="doodle-pill px-3 py-1 text-soft hover:border-ink"
           >
             View all
           </Link>
@@ -251,12 +253,12 @@ function PotPage() {
               key={t.id}
               className="flex items-baseline gap-3 border-b border-stroke px-4 py-3 last:border-0"
             >
-              <span className="min-w-0 flex-1 truncate text-[13px]">{t.title}</span>
+              <span className="min-w-0 flex-1 truncate text-body">{t.title}</span>
               <span className="eyebrow">{relativeTime(t.createdAt)}</span>
             </li>
           ))}
           {index.ghosts.length === 0 && (
-            <li className="px-4 py-6 text-center text-[13px] text-ink-faint">
+            <li className="px-4 py-6 text-center text-body text-ink-faint">
               No open thesis is missing a trade.
             </li>
           )}

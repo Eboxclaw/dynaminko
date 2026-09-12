@@ -8,12 +8,15 @@ import type { Axis } from "@/lib/pot-index";
  * Pure SVG, no WebGL, no per-frame work.
  */
 
-const SIZE = 260;
-const CX = SIZE / 2;
-const CY = SIZE / 2;
-const R = 78;
-const LABEL_R = R + 22;
+const SIZE_W = 360;
+const SIZE_H = 280;
+const CX = SIZE_W / 2;
+const CY = SIZE_H / 2;
+const R = 88;
+const LABEL_R = R + 20;
 const RINGS = [0.25, 0.5, 0.75, 1];
+// Longest axis label that fits before the anchor runs it out of the viewBox.
+const MAX_LABEL = 10;
 
 function pointAt(angle: number, radius: number) {
   return [CX + Math.cos(angle) * radius, CY + Math.sin(angle) * radius] as const;
@@ -34,7 +37,7 @@ export function PotIndexOrb({ axes }: { axes: Axis[] }) {
 
   if (star.length === 0) {
     return (
-      <div className="grid h-[140px] place-items-center text-[12px] text-ink-faint">
+      <div className="grid h-[140px] place-items-center text-soft text-ink-faint">
         No axes measured yet.
       </div>
     );
@@ -59,8 +62,8 @@ export function PotIndexOrb({ axes }: { axes: Axis[] }) {
   return (
     <div className="animate-fade">
       <svg
-        viewBox={`0 0 ${SIZE} ${SIZE}`}
-        className="mx-auto block h-auto w-full max-w-[280px]"
+        viewBox={`0 0 ${SIZE_W} ${SIZE_H}`}
+        className="mx-auto block h-auto w-full max-w-[360px]"
         role="img"
         aria-label={`POT Index skill star: ${star
           .map((a) => `${a.label} ${a.measured ? `${Math.round((a.score ?? 0) * 100)}%` : "unmeasured"}`)
@@ -109,6 +112,7 @@ export function PotIndexOrb({ axes }: { axes: Axis[] }) {
           const [x, y] = pointAt(a.angle, LABEL_R);
           const anchor = Math.abs(x - CX) < 8 ? "middle" : x > CX ? "start" : "end";
           const fill = a.measured ? "var(--ink-soft)" : "var(--ink-faint)";
+          const label = a.label.length > MAX_LABEL ? `${a.label.slice(0, MAX_LABEL)}…` : a.label;
           return (
             <g key={`label-${a.id}`} opacity={a.measured ? 1 : 0.55}>
               <text
@@ -116,20 +120,20 @@ export function PotIndexOrb({ axes }: { axes: Axis[] }) {
                 y={y}
                 textAnchor={anchor}
                 fill={fill}
-                style={{ fontSize: 8.5, letterSpacing: "0.08em", textTransform: "uppercase" }}
+                style={{ fontSize: 11, letterSpacing: "0.08em", textTransform: "uppercase" }}
                 fontFamily="var(--font-mono)"
               >
-                {a.label}
+                {label}
               </text>
               <text
                 x={x}
-                y={y + 10}
+                y={y + 12}
                 textAnchor={anchor}
                 fill="var(--ink-faint)"
-                style={{ fontSize: 9 }}
+                style={{ fontSize: 10 }}
                 fontFamily="var(--font-mono)"
               >
-                {a.measured ? `${Math.round((a.score ?? 0) * 100)}%` : "—"}
+                {a.measured ? `${Math.round((a.score ?? 0) * 100)}%` : "-"}
               </text>
             </g>
           );
