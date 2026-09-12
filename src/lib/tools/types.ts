@@ -58,13 +58,36 @@ export function isLogged(access: Access): boolean {
  * counts toward the same-tool cap, so junk picks burn budget visibly
  * instead of executing and returning empty results the model retries on.
  */
-export function searchQueryProblem(query: unknown): string | null {
+export function searchQueryProblem(
+  query: unknown,
+  against: { userText?: string; description?: string } = {},
+): string | null {
   if (typeof query !== "string") return "query must be a string";
   const trimmed = query.trim();
   if (trimmed.length === 0) return "query is empty";
   if (trimmed.length < 2) return `query "${trimmed}" is too short (need at least 2 characters)`;
   if (!/[a-zA-Z\u00C0-\u024F\u4E00-\u9FFF]/.test(trimmed))
     return `query "${trimmed}" has no search term (letters required, not just numbers or punctuation)`;
+  // Small models paste context instead of composing a search term (measured
+  // 2026-09-11: the 230M copied the tool's purpose text verbatim in both A/B
+  // arms; the 350M echoed the whole question). Normalize and compare against
+  // what the model could see.
+  const norm = (s: string) =>
+    s
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+  const q = norm(trimmed);
+  if (!q) return `query "${trimmed}" has no search term`;
+  if (against.description && q === norm(against.description))
+    return "query is the tool's own description, not a search term";
+  if (
+    against.userText &&
+    q === norm(against.userText) &&
+    against.userText.trim().split(/\s+/).filter(Boolean).length > 6
+  )
+    return "query echoes the full question; pass a short search term instead";
   return null;
 }
 

@@ -1112,6 +1112,32 @@ function ChatConsole({
               const fallbackUrl = searchResultUrl(lastSearchObs.data);
               if (fallbackUrl) input.url = fallbackUrl;
             }
+            // The shared search-input rule: a search pick whose query is
+            // junk, a pasted tool description, or an echoed question is
+            // rejected BEFORE it runs. The rejection becomes a structured
+            // observation naming the right capability (the next decide reads
+            // it and redirects), and the rejected pick still occupies the
+            // same-tool cap so junk burns budget visibly.
+            if (typeof input.query === "string") {
+              const qProblem = searchQueryProblem(input.query, {
+                userText: user,
+                description: pick.def.purpose,
+              });
+              if (qProblem) {
+                turn.settle("tool", "skipped", `${pick.def.id} query rejected: ${qProblem}`);
+                observationsRef.current.push({
+                  id: pick.def.id,
+                  kind: "tool",
+                  source: pick.def.id,
+                  status: "rejected",
+                  summary: `${pick.def.id} needs a real search term: ${qProblem}. Pass 2 to 6 words naming what to look for, or pick none.`,
+                  data: { rejectedQuery: input.query },
+                  args: input,
+                });
+                executedKeys.push(hopKey(pick.def.id, input));
+                continue;
+              }
+            }
             const key = hopKey(pick.def.id, input);
             // Same-tool cap: a model that loops one tool with VARYING invented
             // inputs (the Qwen distill's journal.search meta-queries) dodges

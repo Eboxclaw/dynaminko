@@ -25,6 +25,28 @@ describe("searchQueryProblem", () => {
     expect(searchQueryProblem(undefined)).toContain("must be a string");
     expect(searchQueryProblem(42)).toContain("must be a string");
   });
+
+  it("rejects the pasted-context shapes measured in the decide A/B", () => {
+    // 230M, both arms, twice: the tool's purpose text pasted as the query.
+    const description =
+      "Free-text match over records and tickers, including venue and pnl filtering";
+    expect(
+      searchQueryProblem(description, { description }),
+    ).toContain("tool's own description");
+    // Punctuation and case drift do not dodge the comparison.
+    expect(
+      searchQueryProblem("Free-text match over records and tickers, including venue and pnl filtering.", {
+        description,
+      }),
+    ).toContain("tool's own description");
+    // 350M, head arm: the whole question echoed back as the query.
+    const question = "What do you think about my current setup?";
+    expect(searchQueryProblem(question, { userText: question })).toContain("echoes the full question");
+    // A short question used verbatim stays legal: it can be a real term.
+    expect(searchQueryProblem("inko price?", { userText: "inko price?" })).toBeNull();
+    // A genuine term still passes with the context present.
+    expect(searchQueryProblem("meme exposure", { description, userText: question })).toBeNull();
+  });
 });
 
 describe("isSearchTool", () => {
