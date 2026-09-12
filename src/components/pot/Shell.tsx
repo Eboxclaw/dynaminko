@@ -155,7 +155,7 @@ export function Shell({
 
       {/* The rail offset lives on the outer element so the cards stay centred
           inside the remaining width instead of drifting right of centre. */}
-      <main className="pb-28 pt-4 sm:pt-5 lg:pb-14 lg:pl-[68px]">
+      <main className="pb-32 pt-4 sm:pt-5 lg:pb-14 lg:pl-[68px]">
         <div className="mx-auto w-full max-w-5xl px-4 md:px-8">{children}</div>
       </main>
 
@@ -174,12 +174,17 @@ export function Shell({
                 )}
               >
                 <item.icon className="h-[18px] w-[18px]" strokeWidth={active ? 2 : 1.6} />
-                <span className="eyebrow w-full truncate text-center tracking-[0.08em] [color:inherit]">
+                <span className="eyebrow w-full truncate text-center tracking-[0.04em] [color:inherit]">
                   {item.short}
                 </span>
-                {item.to === "/journal" && inbox > 0 && (
-                  <span className="absolute right-2 top-0.5 h-1.5 w-1.5 rounded-full bg-ink" />
-                )}
+                {item.to === "/journal" && inbox > 0 &&
+                  (active ? (
+                    <span className="num absolute right-0.5 top-0 rounded-full bg-ink px-1 text-micro leading-[13px] text-paper tabular-nums">
+                      {inbox > 999 ? "999+" : inbox}
+                    </span>
+                  ) : (
+                    <span className="absolute right-2 top-0.5 h-1.5 w-1.5 rounded-full bg-ink" />
+                  ))}
               </Link>
             );
           })}
