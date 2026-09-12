@@ -5,6 +5,7 @@ import {
 import { useEffect, useMemo, useState } from "react";
 
 import { Panel, Shell } from "@/components/pot/Shell";
+import { Ext } from "@/components/pot/symbols";
 import { useDoc } from "@/hooks/useDoc";
 import { useInjectedWallet } from "@/hooks/useInjectedWallet";
 import {
@@ -84,7 +85,7 @@ function CampaignCard({
   return (
     <div className="doodle-inset px-3 py-2.5">
       <div className="flex flex-wrap items-baseline gap-2">
-        <span className="text-[13px] font-medium">{d.asset}</span>
+        <span className="text-body font-medium">{d.asset}</span>
         {d.dex && <span className="eyebrow">{d.dex}</span>}
         <span className={cnBadge(live ? "live" : upcoming ? "soon" : "done")}>
           {live ? "live" : upcoming ? "upcoming" : "ended"}
@@ -93,12 +94,12 @@ function CampaignCard({
           href={metromAppUrl()}
           target="_blank"
           rel="noopener noreferrer"
-          className="doodle-pill ml-auto px-2.5 py-0.5 text-[11px]"
+          className="doodle-pill ml-auto px-2.5 py-0.5 text-caption"
         >
           open in metrom ↗
         </a>
       </div>
-      <p className="mt-1 text-[12px] text-ink-soft">
+      <p className="mt-1 text-soft text-ink-soft">
         {period(d.from, d.to)}
         {total > 0 && (
           <>
@@ -109,13 +110,13 @@ function CampaignCard({
       </p>
       <ul className="mt-1 flex flex-wrap gap-1.5">
         {c.rewards.assets.map((a) => (
-          <li key={a.address} className="doodle-pill num px-2 py-0.5 text-[11px]">
+          <li key={a.address} className="doodle-pill num px-2 py-0.5 text-caption">
             pool: {a.symbol} {(Number(a.amount) / 10 ** (a.decimals ?? 18)).toLocaleString("en-US", { maximumFractionDigits: 2 })}
           </li>
         ))}
       </ul>
       {(earned || pending) && (
-        <p className="mt-1.5 text-[12px] font-medium">
+        <p className="mt-1.5 text-soft font-medium">
           you: {earned ? `claimed ${earned.text}${earned.usd != null ? ` (${usd(earned.usd)})` : ""}` : ""}
           {earned && pending ? " · " : ""}
           {pending ? `pending claim ${pending.amount.formatted} ${pending.token.symbol}${pending.usd != null ? ` (${usd(pending.usd)})` : ""}` : ""}
@@ -131,7 +132,7 @@ function CampaignCard({
 }
 
 function cnBadge(kind: "live" | "soon" | "done"): string {
-  return `doodle-pill px-2 py-0.5 text-[11px] ${kind === "live" ? "bg-ink text-paper" : ""}`;
+  return `doodle-pill px-2 py-0.5 text-caption ${kind === "live" ? "bg-ink text-paper" : ""}`;
 }
 
 function EarnPage() {
@@ -283,7 +284,7 @@ function EarnPage() {
     <Shell title="Earn" subtitle="metrom incentive campaigns on ink · hold or provide, get rewarded">
       <Panel>
         {error && (
-          <p className="border-b border-stroke px-4 py-2.5 text-[12px] text-loss">
+          <p className="border-b border-stroke px-4 py-2.5 text-soft text-loss">
             Campaign fetch failed: {error}
           </p>
         )}
@@ -319,17 +320,25 @@ function EarnPage() {
         >
           {(claims ?? []).map((cl) => (
             <div key={cl.id} className="doodle-inset flex items-center gap-2 px-3 py-2">
-              <span className="num text-[13px]">{cl.token.symbol}</span>
-              <span className="num text-[13px]">{cl.amount.formatted}</span>
+              <span className="num text-body">{cl.token.symbol}</span>
+              <span className="num text-body">{cl.amount.formatted}</span>
               {cl.usd != null && <span className="eyebrow">{usd(cl.usd)}</span>}
+              {/* normal-case: campaign ids can be hex addresses and 0X reads wrong */}
               {campaignNames[cl.campaignId] && (
-                <span className="eyebrow">from {campaignNames[cl.campaignId]}</span>
+                <span className="eyebrow normal-case">
+                  from {campaignNames[cl.campaignId]}
+                </span>
               )}
               <button
                 type="button"
                 disabled={claiming != null || !injected.available}
                 onClick={() => void claimNow(cl)}
-                className="doodle-pill ml-auto bg-ink px-3 py-1 text-[11px] text-paper disabled:opacity-40"
+                title={injected.available ? undefined : "Connect a browser wallet to claim"}
+                className={`doodle-pill ml-auto px-3 py-1 text-caption ${
+                  claiming === cl.id || injected.available
+                    ? "bg-ink text-paper disabled:opacity-40"
+                    : "text-ink-faint"
+                }`}
               >
                 {claiming === cl.id ? "claiming…" : injected.available ? "claim" : "wallet needed"}
               </button>
@@ -337,13 +346,14 @@ function EarnPage() {
                 href={metromAppUrl()}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="doodle-pill px-2 py-1 text-[11px]"
+                aria-label="Open in Metrom"
+                className="doodle-pill px-2 py-1 text-caption"
               >
-                ↗
+                <Ext />
               </a>
             </div>
           ))}
-          {claimError && <p className="px-4 pb-2 text-[12px] text-loss">{claimError}</p>}
+          {claimError && <p className="px-4 pb-2 text-soft text-loss">{claimError}</p>}
         </Section>
 
         {ended.length > 0 && (
@@ -354,7 +364,7 @@ function EarnPage() {
           </Section>
         )}
 
-        <p className="px-4 py-3 text-[12px] text-ink-soft">
+        <p className="px-4 py-3 text-soft text-ink-soft">
           Campaign data comes straight from Metrom's public API. Claiming sends a transaction from
           your connected wallet (you sign it in your wallet); the ↗ link opens the campaign in the
           Metrom app instead.
@@ -377,7 +387,7 @@ function Section({
     <div className="border-b border-stroke last:border-b-0">
       <p className="eyebrow px-4 pt-3">{title}</p>
       {empty ? (
-        <p className="px-4 py-3 text-[12px] text-ink-soft">{empty}</p>
+        <p className="px-4 py-3 text-soft text-ink-soft">{empty}</p>
       ) : (
         <ul className="grid gap-2 px-4 py-2">{children}</ul>
       )}
