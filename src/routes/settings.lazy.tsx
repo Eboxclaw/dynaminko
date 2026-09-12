@@ -1,4 +1,4 @@
-import { createLazyFileRoute, Link, type LazyRouteOptions } from "@tanstack/react-router";
+import { createLazyFileRoute, Link } from "@tanstack/react-router";
 import { useState } from "react";
 
 import { Shell } from "@/components/pot/Shell";
@@ -15,26 +15,13 @@ import { useHyperliquidReferral } from "@/hooks/useHyperliquidReferral";
 import { useNadoReferral } from "@/hooks/useNadoReferral";
 import { useActiveWallet } from "@/hooks/usePortfolio";
 
-// Lazy route: this page is not the app's first stop, so its module graph
-// (wallet panels, referral deep links, data export) loads on demand instead
-// of riding the shared entry chunk. This release's LazyRouteOptions type
-// only models the component props, but the runtime merges every lazy option
-// into route.options when the chunk loads, so head behaves as on the eager
-// route. The cast documents that type gap, not a runtime difference.
+// Lazy component only: head lives in settings.tsx so a hard load serves the
+// real title on first paint (the router merges the two definitions of
+// /settings). This page is not the app's first stop, so its module graph
+// (wallet panels, referral deep links, data export) loads on demand.
 export const Route = createLazyFileRoute("/settings")({
-  head: () => ({
-    meta: [
-      { title: "Settings · Proof of Thesis" },
-      {
-        name: "description",
-        content: "Wallets, privacy, on-device assistant and your local data.",
-      },
-      { property: "og:title", content: "Settings · Proof of Thesis" },
-      { property: "og:description", content: "Wallets, privacy and your local data." },
-    ],
-  }),
   component: SettingsPage,
-} as LazyRouteOptions);
+});
 
 function buildSigner(address: string): TypedDataSigner | null {
   const provider = getInjected();

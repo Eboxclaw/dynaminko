@@ -1,7 +1,4 @@
-import {
-  createLazyFileRoute,
-  type LazyRouteOptions,
-} from "@tanstack/react-router";
+import { createLazyFileRoute } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 
 import { Panel, Shell } from "@/components/pot/Shell";
@@ -26,23 +23,11 @@ import { getInjected } from "@/lib/chain/injected";
 // Lazy route: Metrom incentive campaigns (active + upcoming) and the wallet's
 // claimable rewards. Reads the public Metrom REST API directly; the official
 // React package drags wagmi/viem in, which this PWA does not carry.
-export const Route = createLazyFileRoute("/earn")(
-  {
-    head: () => ({
-      meta: [
-        { title: "Earn · Proof of Thesis" },
-        {
-          name: "description",
-          content:
-            "Metrom incentive campaigns on Ink: live and upcoming pools, your claimable rewards and campaign leaderboards.",
-        },
-        { property: "og:title", content: "Earn · Proof of Thesis" },
-        { property: "og:description", content: "Metrom campaigns and claimable rewards on Ink." },
-      ],
-    }),
-    component: EarnPage,
-  } as LazyRouteOptions,
-);
+// Lazy component only: head lives in earn.tsx so a hard load serves the real
+// title on first paint (the router merges the two definitions of /earn).
+export const Route = createLazyFileRoute("/earn")({
+  component: EarnPage,
+});
 
 function usd(n: number | null): string {
   if (n == null) return "";
