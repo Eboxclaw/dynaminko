@@ -26,7 +26,7 @@ the implementation plan at the end is the proposal to review.
   `https://api.hyperliquid.xyz/info` (public, browser-fetchable, no
   key) plus `exchange` endpoints that require Hyperliquid-specific
   signed actions (secp256k1 private key, EIP-712-like but HL's own
-  scheme — not our injected EIP-1193 wallet path).
+  scheme, not our injected EIP-1193 wallet path).
 - MCP servers exist in number: 6rz6/HYPERLIQUID-MCP-Server (8 trading
   tools), dakkshin/hyperliquid-mcp (official Python SDK, local
   signing), Chainstack's server, junct-bot (risk-managed trading),
@@ -41,7 +41,7 @@ the implementation plan at the end is the proposal to review.
   off-chain sequencer, on-chain settlement, unified margin, up to 20x
   leverage (docs.nado.xyz, DeFiLlama, Alear Research).
 - Signing is EVM-native: orders are EIP-712 structures signed by the
-  trader's wallet ON INK — exactly the wallet path this app already
+  trader's wallet ON INK, exactly the wallet path this app already
   hand-rolls (evm.ts, injected EIP-1193). No extra private key
   management needed.
 - An MCP server exists for Nado/Vertex-engine venues (moltiverse-mcp,
@@ -54,7 +54,7 @@ the implementation plan at the end is the proposal to review.
 MCP servers are host processes (Node/Python over stdio or HTTP). A
 browser PWA cannot run them, and shipping a companion server would
 break the local-first, no-backend rule. But MCP servers are only a
-tool catalogue with typed calls — and this app already has the same
+tool catalogue with typed calls, and this app already has the same
 thing: the capability registry, the compact book the small models
 read, and the decide hop that picks one tool per hop. So we do not
 adopt MCP as a runtime; we adopt the MCP servers' TOOL SHAPES as
@@ -72,7 +72,7 @@ Phase A · reads (browser-safe, no keys, shippable now):
   market category so the 230M/350M pick them with the compact book.
 
 Phase B · execution (S9, approval-gated, Nado first):
-- Nado: order placement as a write-approval capability — the user
+- Nado: order placement as a write-approval capability, so the user
   sees the full order, approves, the injected wallet signs EIP-712 on
   Ink, no key custody in the app. This fits the wallet model and the
   approval card flow that already exists.
