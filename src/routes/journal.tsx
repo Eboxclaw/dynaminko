@@ -15,6 +15,7 @@ import { toast } from "sonner";
 import { Reconcile } from "@/components/pot/Reconcile";
 import { Panel, Shell } from "@/components/pot/Shell";
 import { VenueIcon } from "@/components/pot/VenueIcon";
+import { NullMark } from "@/components/pot/symbols";
 import { useAgent } from "@/hooks/useAgent";
 import { useDoc } from "@/hooks/useDoc";
 import { personalSign, currentAccounts } from "@/lib/chain/injected";
@@ -237,7 +238,7 @@ function JournalHub() {
         <button
           type="button"
           onClick={() => setComposing(true)}
-          className="inline-flex items-center gap-1.5 bg-ink px-3 py-1.5 text-[12px] font-medium text-paper"
+          className="inline-flex items-center gap-1.5 bg-ink px-3 py-1.5 text-soft font-medium text-paper"
         >
           <Plus className="h-3.5 w-3.5" /> Entry
         </button>
@@ -250,7 +251,7 @@ function JournalHub() {
             to="/journal"
             search={{ tab: t.id, filter: "all", venue }}
             className={cn(
-              "-mb-px flex items-center gap-2 border-b-2 px-3 py-2 text-[13px] transition",
+              "-mb-px flex items-center gap-2 border-b-2 px-3 py-2 text-body transition",
               tab === t.id
                 ? "border-ink text-ink"
                 : "border-transparent text-ink-faint hover:text-ink",
@@ -259,7 +260,7 @@ function JournalHub() {
             <t.icon className="h-3.5 w-3.5" />
             {t.label}
             {t.id === "inbox" && inbox.length > 0 && (
-              <span className="num text-[11px] text-ink-faint">{inbox.length}</span>
+              <span className="num text-caption text-ink-faint">{inbox.length}</span>
             )}
           </Link>
         ))}
@@ -272,7 +273,7 @@ function JournalHub() {
             type="button"
             onClick={() => void navigate({ search: { tab, filter: f.id, venue } })}
             className={cn(
-              "doodle-pill shrink-0 px-3 py-1 text-[11px] transition",
+              "doodle-pill shrink-0 px-3 py-1 text-caption transition",
               filter === f.id ? "bg-ink text-paper" : "text-ink-soft hover:border-ink",
             )}
           >
@@ -289,7 +290,7 @@ function JournalHub() {
               type="button"
               onClick={() => void navigate({ search: { tab, filter, venue: v.id } })}
               className={cn(
-                "doodle-pill flex shrink-0 items-center gap-1.5 px-3 py-1 text-[11px] transition",
+                "doodle-pill flex shrink-0 items-center gap-1.5 px-3 py-1 text-caption transition",
                 venue === v.id ? "bg-ink text-paper" : "text-ink-soft hover:border-ink",
               )}
             >
@@ -306,7 +307,7 @@ function JournalHub() {
         <div className="space-y-3">
           {visibleInbox.length === 0 && (
             <Panel eyebrow="Inbox // Empty">
-              <p className="p-6 text-center text-[13px] text-ink-faint">
+              <p className="p-6 text-center text-body text-ink-faint">
                 Nothing waiting. The agent files new on-chain moments here as they land.
               </p>
             </Panel>
@@ -314,7 +315,7 @@ function JournalHub() {
 
           {inbox.length > 0 && (
             <div className="sticky top-0 z-10 -mx-1 flex flex-wrap items-center gap-3 border border-stroke bg-surface px-3 py-2">
-              <label className="flex cursor-pointer items-center gap-2 text-[13px]">
+              <label className="flex cursor-pointer items-center gap-2 text-body">
                 <input
                   type="checkbox"
                   checked={allSelected}
@@ -328,7 +329,7 @@ function JournalHub() {
                 type="button"
                 disabled={selected.length === 0}
                 onClick={() => setActive(selectedSignals)}
-                className="bg-ink px-3 py-1.5 text-[12px] font-medium text-paper disabled:opacity-30"
+                className="bg-ink px-3 py-1.5 text-soft font-medium text-paper disabled:opacity-30"
               >
                 Resolve {selected.length || ""} together
               </button>
@@ -349,7 +350,7 @@ function JournalHub() {
                       aria-label="Select trade"
                       className="mt-1 h-4 w-4 accent-current"
                     />
-                    <p className="flex flex-1 items-center gap-2 text-[15px] font-medium">
+                    <p className="flex flex-1 items-center gap-2 text-head font-medium">
                       {s.venue && s.venue !== "evm" && (
                         <VenueIcon id={s.venue} className="h-3.5 w-3.5 shrink-0" />
                       )}
@@ -357,12 +358,12 @@ function JournalHub() {
                     </p>
                   </div>
                   <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2 sm:grid-cols-4">
-                    <Field label="Value" value={s.value != null ? usd(s.value, hidden) : "—"} />
+                    <Field label="Value" value={s.value != null ? usd(s.value, hidden) : null} />
                     <Field label="When" value={relativeTime(s.ts)} />
                     <div>
                       <dt className="eyebrow">{s.venue ? "ID" : "Tx"}</dt>
                       <dd className="mt-1 flex items-center gap-1.5">
-                        <span className="num text-[13px]" title={s.venue ? s.id : s.txHash}>
+                        <span className="num text-body" title={s.venue ? s.id : s.txHash}>
                           {s.venue
                             ? `${s.id.slice(0, 14)}${s.id.length > 14 ? `…${s.id.slice(-4)}` : ""}`
                             : `${s.txHash.slice(0, 6)}…${s.txHash.slice(-4)}`}
@@ -388,20 +389,21 @@ function JournalHub() {
                           ? usd(s.meta.feeUsd, hidden)
                           : s.gasUsd != null
                             ? usd(s.gasUsd, hidden)
-                            : "—"
+                            : null
                       }
                     />
-                    {s.meta?.price != null && (
-                      <Field label="Price" value={priceLabel(s.meta.price)} />
-                    )}
-                    {s.meta?.pnl != null && <Field label="PnL" value={usd(s.meta.pnl, hidden)} />}
+                    <Field
+                      label="Price"
+                      value={s.meta?.price != null ? priceLabel(s.meta.price) : null}
+                    />
+                    <Field label="PnL" value={s.meta?.pnl != null ? usd(s.meta.pnl, hidden) : null} />
                   </dl>
                   {hint && <p className="eyebrow mt-3">Agent suggests: {hint.title}</p>}
                   <div className="mt-4">
                     <button
                       type="button"
                       onClick={() => setActive([s])}
-                      className="bg-ink px-4 py-2 text-[12px] font-medium text-paper"
+                      className="doodle-pill border-ink px-4 py-1.5 text-soft font-medium text-ink hover:bg-ink hover:text-paper"
                     >
                       Complete the cycle
                     </button>
@@ -417,7 +419,7 @@ function JournalHub() {
         <div className="space-y-3">
           {visibleEntries.length === 0 && (
             <Panel eyebrow="Journal // Empty">
-              <p className="p-6 text-center text-[13px] text-ink-faint">No entries yet.</p>
+              <p className="p-6 text-center text-body text-ink-faint">No entries yet.</p>
             </Panel>
           )}
           {visibleEntries.map((e, i) => {
@@ -429,9 +431,9 @@ function JournalHub() {
                 delay={i * 30}
               >
                 <div className="p-4">
-                  <p className="text-[14px] font-medium">{e.headline}</p>
+                  <p className="text-head font-medium">{e.headline}</p>
                   {e.body && (
-                    <p className="mt-1.5 text-[14px] leading-relaxed text-ink-soft">{e.body}</p>
+                    <p className="mt-1.5 text-head leading-relaxed text-ink-soft">{e.body}</p>
                   )}
                   <div className="mt-3 flex flex-wrap gap-1.5">
                     {thesis && <Tag>{thesis.title}</Tag>}
@@ -443,7 +445,7 @@ function JournalHub() {
                     {e.finances && <Tag>{e.finances}</Tag>}
                   </div>
                   {e.tradeId && (
-                    <p className="num mt-2 truncate text-[10px] text-ink-faint" title={e.tradeId}>
+                    <p className="num mt-2 truncate text-micro text-ink-faint" title={e.tradeId}>
                       trade {e.tradeId}
                     </p>
                   )}
@@ -470,9 +472,9 @@ function JournalHub() {
                 value={newThesis}
                 onChange={(ev) => setNewThesis(ev.target.value)}
                 placeholder="What do you believe, and why now?"
-                className="min-w-0 flex-1 border border-stroke bg-paper px-3 py-2 text-[14px] outline-none placeholder:text-ink-faint focus:border-ink"
+                className="min-w-0 flex-1 border border-stroke bg-paper px-3 py-2 text-head outline-none placeholder:text-ink-faint focus:border-ink"
               />
-              <button type="submit" className="bg-ink px-4 text-[12px] font-medium text-paper">
+              <button type="submit" className="bg-ink px-4 text-soft font-medium text-paper">
                 Write
               </button>
             </form>
@@ -484,13 +486,13 @@ function JournalHub() {
               <Panel key={t.id} eyebrow={`Thesis // ${t.status.toUpperCase()}`} delay={i * 30}>
                 <div className="p-4">
                   <div className="flex items-start gap-2">
-                    <p className="min-w-0 flex-1 text-[14px] font-medium">{t.title}</p>
+                    <p className="min-w-0 flex-1 text-head font-medium">{t.title}</p>
                     {at ? (
                       <button
                         type="button"
                         onClick={() => t.attestation && copyHash(t.attestation.entryHash)}
                         title={`${at.entryHash}\nsigned by ${at.address} · ${new Date(at.signedAt).toLocaleString()}`}
-                        className="doodle-pill flex shrink-0 items-center gap-1 px-2 py-0.5 text-[11px] text-ink-soft hover:bg-accent-soft"
+                        className="doodle-pill flex shrink-0 items-center gap-1 px-2 py-0.5 text-caption text-ink-soft hover:bg-accent-soft"
                       >
                         <ShieldCheck className="h-3.5 w-3.5" strokeWidth={1.9} />
                         {copied === at.entryHash ? "copied" : "attested"}
@@ -500,13 +502,13 @@ function JournalHub() {
                         type="button"
                         onClick={() => doAttest(t.id)}
                         disabled={signing !== null}
-                        className="doodle-pill shrink-0 px-2.5 py-0.5 text-[11px] text-ink-soft hover:bg-accent-soft disabled:opacity-40"
+                        className="doodle-pill shrink-0 px-2.5 py-0.5 text-caption text-ink-soft hover:bg-accent-soft disabled:opacity-40"
                       >
                         {signing === t.id ? "signing…" : "attest"}
                       </button>
                     )}
                   </div>
-                  {t.body && <p className="mt-1 text-[13px] text-ink-soft">{t.body}</p>}
+                  {t.body && <p className="mt-1 text-body text-ink-soft">{t.body}</p>}
                   <p className="eyebrow mt-3">
                     {linked.length} linked {linked.length === 1 ? "entry" : "entries"} · updated{" "}
                     {relativeTime(t.updatedAt)}
@@ -517,7 +519,7 @@ function JournalHub() {
             );
           })}
           {visibleTheses.length === 0 && (
-            <p className="py-6 text-center text-[13px] text-ink-faint">No theses written yet.</p>
+            <p className="py-6 text-center text-body text-ink-faint">No theses written yet.</p>
           )}
         </div>
       )}
@@ -525,7 +527,7 @@ function JournalHub() {
       {tab === "ghosts" && (
         <div className="space-y-3">
           <Panel eyebrow="Ghosts // Never executed">
-            <p className="p-4 text-[13px] text-ink-soft">
+            <p className="p-4 text-body text-ink-soft">
               Theses and intents with no trade behind them. They still count against the index, a
               conviction you never acted on is a result too.
             </p>
@@ -533,7 +535,7 @@ function JournalHub() {
           {(filter === "entry" ? [] : ghostTheses).map((t, i) => (
             <Panel key={t.id} eyebrow="Ghost // Thesis" delay={i * 30}>
               <div className="p-4">
-                <p className="text-[14px]">{t.title}</p>
+                <p className="text-head">{t.title}</p>
                 <p className="eyebrow mt-2">written {relativeTime(t.createdAt)}</p>
               </div>
             </Panel>
@@ -541,13 +543,13 @@ function JournalHub() {
           {(filter === "thesis" ? [] : ghostEntries).map((e, i) => (
             <Panel key={e.id} eyebrow="Ghost // Entry" delay={i * 30}>
               <div className="p-4">
-                <p className="text-[14px]">{e.headline}</p>
+                <p className="text-head">{e.headline}</p>
                 <p className="eyebrow mt-2">{dayLabel(e.createdAt)}</p>
               </div>
             </Panel>
           ))}
           {ghostTheses.length === 0 && ghostEntries.length === 0 && (
-            <p className="py-6 text-center text-[13px] text-ink-faint">
+            <p className="py-6 text-center text-body text-ink-faint">
               No ghosts. Everything you wrote, you traded.
             </p>
           )}
@@ -570,18 +572,20 @@ function JournalHub() {
   );
 }
 
-function Field({ label, value }: { label: string; value: string }) {
+function Field({ label, value }: { label: string; value: string | null }) {
   return (
     <div>
       <dt className="eyebrow">{label}</dt>
-      <dd className="num mt-1 text-[13px]">{value}</dd>
+      <dd className="num mt-1 text-body">
+        {value ?? <NullMark label={`no ${label.toLowerCase()} on this moment`} />}
+      </dd>
     </div>
   );
 }
 
 function Tag({ children }: { children: React.ReactNode }) {
   return (
-    <span className="doodle-pill px-2.5 py-0.5 text-[11px] capitalize text-ink-soft">
+    <span className="doodle-pill px-2.5 py-0.5 text-caption capitalize text-ink-soft">
       {children}
     </span>
   );
