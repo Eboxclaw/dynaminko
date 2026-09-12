@@ -2,6 +2,7 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { Eye, EyeOff, Plus, RefreshCw } from "lucide-react";
 import { useState } from "react";
 
+import { BasketOrb } from "@/components/pot/BasketOrb";
 import { Reconcile } from "@/components/pot/Reconcile";
 import { Panel, Shell } from "@/components/pot/Shell";
 import { VenueIcon } from "@/components/pot/VenueIcon";
@@ -139,6 +140,16 @@ function Dashboard() {
               {top &&
                 ` · ${SECTOR_BY_ID[top.sector]?.label ?? top.sector} leads at ${Math.round(top.share * 100)}%`}
             </p>
+            {baskets.slices.length > 0 && (
+              <div className="mt-3 border-t border-stroke pt-2">
+                <BasketOrb
+                  slices={baskets.slices.map((s) => ({
+                    label: SECTOR_BY_ID[s.sector]?.label ?? s.sector,
+                    share: s.share,
+                  }))}
+                />
+              </div>
+            )}
           </div>
         </Panel>
 

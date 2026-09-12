@@ -8,11 +8,15 @@ export type OrbSlice = { label: string; share: number };
  * no per-frame work: the whole thing is one static paint plus a CSS fade.
  */
 
-const SIZE = 260;
-const CX = SIZE / 2;
-const CY = SIZE / 2;
-const R = 84;
+const SIZE_W = 360;
+const SIZE_H = 280;
+const CX = SIZE_W / 2;
+const CY = SIZE_H / 2;
+const R = 92;
 const RINGS = [0.25, 0.5, 0.75, 1];
+// Longest label that fits between the axis tip and the canvas edge before
+// the anchor flips it out of the viewBox.
+const MAX_LABEL = 10;
 
 function pointAt(angle: number, radius: number) {
   return [CX + Math.cos(angle) * radius, CY + Math.sin(angle) * radius] as const;
@@ -62,8 +66,8 @@ export function BasketOrb({ slices }: { slices: OrbSlice[] }) {
   return (
     <div className="animate-fade">
       <svg
-        viewBox={`0 0 ${SIZE} ${SIZE}`}
-        className="mx-auto block h-auto w-full max-w-[320px]"
+        viewBox={`0 0 ${SIZE_W} ${SIZE_H}`}
+        className="mx-auto block h-auto w-full max-w-[360px]"
         role="img"
         aria-label={`Basket allocation star: ${axes
           .map((a) => `${a.label} ${Math.round(a.share * 100)}%`)
@@ -113,8 +117,9 @@ export function BasketOrb({ slices }: { slices: OrbSlice[] }) {
 
         {/* labels */}
         {axes.map((a) => {
-          const [x, y] = pointAt(a.angle, R + 24);
+          const [x, y] = pointAt(a.angle, R + 20);
           const anchor = Math.abs(x - CX) < 6 ? "middle" : x > CX ? "start" : "end";
+          const label = a.label.length > MAX_LABEL ? `${a.label.slice(0, MAX_LABEL)}…` : a.label;
           return (
             <g key={`label-${a.label}`}>
               <text
@@ -122,17 +127,17 @@ export function BasketOrb({ slices }: { slices: OrbSlice[] }) {
                 y={y}
                 textAnchor={anchor}
                 fill="var(--ink-soft)"
-                style={{ fontSize: 8.5, letterSpacing: "0.12em", textTransform: "uppercase" }}
+                style={{ fontSize: 11, letterSpacing: "0.1em", textTransform: "uppercase" }}
                 fontFamily="var(--font-mono)"
               >
-                {a.label}
+                {label}
               </text>
               <text
                 x={x}
-                y={y + 10}
+                y={y + 12}
                 textAnchor={anchor}
                 fill="var(--ink-faint)"
-                style={{ fontSize: 9 }}
+                style={{ fontSize: 10 }}
                 fontFamily="var(--font-mono)"
               >
                 {Math.round(a.share * 100)}%
