@@ -40,9 +40,29 @@ text; the tool choice for this question is debatable either way.
   (per the NVIDIA SLM-agents method) is mining these logged raws into
   more deterministic routes.
 
-## Pending
+## 230M pass
 
-- 230M pass needs its 150MB model downloaded on this origin (awaiting
-  the user's go; no silent downloads).
-- Wider question set (journal, advice, meta) on both models before
-  any default flip.
+Downloaded through the app UI (0.15GB) and run through the same two
+arms with the same question.
+
+- HEAD arm: 2 decide attempts, both journal.search with the tool's
+  purpose text pasted as the query (identical repeats).
+- LEAN arm: 2 decide attempts, same shape — purpose text as query.
+- Read: at 230M there is no head/lean difference; the model pastes the
+  tool description verbatim in both views. Argument quality, not view
+  placement, is the 230M's ceiling.
+
+## F5 anomaly numbers (230M vs 350M, identical settings)
+
+- 230M: prefill 4.6ms/token (ttft 13844ms on 2994t), decode
+  72.7 tok/s, gpu layers 14 (its full count per the profile).
+- 350M: prefill about 1.1ms/token, decode 77 to 88 tok/s, full layers.
+- The anomaly is PREFILL only: the 230M decodes at 350M-class speed
+  but prefills about 4x slower per token on this WebGPU stack, with
+  full GPU placement confirmed. That is a model/runtime characteristic
+  (tensor shapes and the QAD quant against the wasm WebGPU kernels),
+  not a placement bug: the profile loads every layer for both.
+- Practical rule (already standing): the 350M is the default for
+  anything with a long prompt; the 230M suits short-prompt, decode
+  bound turns. Budget for the 230M: SAFE 1.25GB, f16 KV after the
+  dtype revert.
