@@ -66,3 +66,15 @@ arms with the same question.
   anything with a long prompt; the 230M suits short-prompt, decode
   bound turns. Budget for the 230M: SAFE 1.25GB, f16 KV after the
   dtype revert.
+
+## Learning loop closed live (bd0a4cb)
+
+The measured paste-forms became rejection rules, and the rule's
+enforcement landed in the hop loop (the recovered commit had shipped
+the function and its import without ever calling it). Live
+verification on the 230M: the same question now runs decide, the
+pasted-description query is rejected before execution (no
+journal.search card renders), the structured observation is pushed,
+and the rejected pick occupies the same-tool cap so the identical
+re-pick is caught by the repeat guard. The turn completes with a
+FACTS-only answer instead of junk search results.
