@@ -143,16 +143,19 @@ function SettingsPage() {
 
   return (
     <Shell title="Settings">
-      <section className="doodle-card animate-rise mb-4 sm:mb-5">
-        <WalletPanel
-          wallets={wallets}
-          activeKey={active ? walletKey(active.chainId, active.address) : null}
-        />
+      <section className="doodle-card animate-rise mb-4 p-4 sm:mb-5">
+        <p className="eyebrow">Wallets // Watch and connect</p>
+        <div className="mt-3">
+          <WalletPanel
+            wallets={wallets}
+            activeKey={active ? walletKey(active.chainId, active.address) : null}
+          />
+        </div>
       </section>
 
       <section className="doodle-card animate-rise mb-4 p-4 sm:mb-5">
         <p className="eyebrow">Privacy</p>
-        <label className="mt-3 flex items-center gap-3 text-[14px]">
+        <label className="mt-3 flex items-center gap-3 text-head">
           <input
             type="checkbox"
             className="h-[15px] w-[15px]"
@@ -166,26 +169,26 @@ function SettingsPage() {
       {/* ── Referrals ──────────────────────────────────────────────────────── */}
       <section className="doodle-card animate-rise mb-4 p-4 sm:mb-5">
         <p className="eyebrow">Referrals</p>
-        <p className="mt-1.5 max-w-prose text-[13px] leading-relaxed text-ink-soft">
+        <p className="mt-1.5 max-w-prose text-body leading-relaxed text-ink-soft">
           Track your referral progress, set codes, and see rewards earned on each venue.
         </p>
 
         {!active && (
-          <p className="mt-3 text-[13px] text-ink-soft">Add a wallet to see referral state.</p>
+          <p className="mt-3 text-body text-ink-soft">Add a wallet to see referral state.</p>
         )}
 
         {/* Hyperliquid */}
         {active && (
           <div className="mt-4 rounded-[3px] border border-stroke p-3">
-            <p className="text-[14px] font-semibold tracking-tight">Hyperliquid</p>
+            <p className="text-head font-semibold tracking-tight">Hyperliquid</p>
 
             {hlReferral ? (
               <>
                 {/* Progress toward 10k */}
                 <div className="mt-2.5">
                   <div className="flex items-baseline justify-between">
-                    <span className="text-[12px] text-ink-soft">Volume toward your own code</span>
-                    <span className="num text-[12px]">
+                    <span className="text-soft text-ink-soft">Volume toward your own code</span>
+                    <span className="num text-soft">
                       {usd(hlReferral.state.cumVolumeUsd, doc.settings.hideBalances)} / $10,000
                     </span>
                   </div>
@@ -196,7 +199,7 @@ function SettingsPage() {
                     />
                   </div>
                   {hlReferral.canGenerateCode && (
-                    <p className="mt-1 text-[11px] text-gain">
+                    <p className="mt-1 text-caption text-gain">
                       You qualify. Visit{" "}
                       <a
                         href="https://app.hyperliquid.xyz/referrals"
@@ -213,7 +216,7 @@ function SettingsPage() {
 
                 {/* Referred by */}
                 {hlReferral.state.referredBy && (
-                  <p className="mt-2 text-[12px] text-ink-soft">
+                  <p className="mt-2 text-soft text-ink-soft">
                     Referred by <span className="text-ink">{hlReferral.state.referredBy.code}</span>
                   </p>
                 )}
@@ -221,28 +224,28 @@ function SettingsPage() {
                 {/* Rewards */}
                 <div className="mt-2.5 grid grid-cols-2 gap-1.5">
                   <div className="rounded-[2px] border border-stroke p-1.5 text-center">
-                    <p className="eyebrow text-[10px]">Unclaimed</p>
-                    <p className="num mt-0.5 text-[12px]">
+                    <p className="eyebrow ">Unclaimed</p>
+                    <p className="num mt-0.5 text-soft">
                       {usd(hlReferral.state.unclaimedReferralRewardsUsd, doc.settings.hideBalances)}
                     </p>
                   </div>
                   <div className="rounded-[2px] border border-stroke p-1.5 text-center">
-                    <p className="eyebrow text-[10px]">Claimed</p>
-                    <p className="num mt-0.5 text-[12px]">
+                    <p className="eyebrow ">Claimed</p>
+                    <p className="num mt-0.5 text-soft">
                       {usd(hlReferral.state.claimedReferralRewardsUsd, doc.settings.hideBalances)}
                     </p>
                   </div>
                 </div>
               </>
             ) : (
-              <p className="mt-2 text-[12px] text-ink-soft">
+              <p className="mt-2 text-soft text-ink-soft">
                 {hlFetching ? "Reading referral state…" : "No referral data yet."}
               </p>
             )}
 
             {/* Set referral code */}
             <div className="mt-3">
-              <p className="text-[12px] font-medium">Referral code</p>
+              <p className="text-soft font-medium">Referral code</p>
               <div className="mt-1 flex gap-2">
                 <input
                   type="text"
@@ -254,31 +257,31 @@ function SettingsPage() {
                     setHlError(null);
                   }}
                   placeholder={hlCodeFromStore ?? DEFAULT_HL_REFERRAL_CODE}
-                  className="min-w-0 flex-1 rounded-[2px] border border-stroke bg-paper px-2.5 py-1 text-[12px] outline-none focus:border-ink disabled:opacity-50"
+                  className="min-w-0 flex-1 rounded-[2px] border border-stroke bg-paper px-2.5 py-1 text-soft outline-none focus:border-ink disabled:opacity-50"
                 />
                 <button
                   type="button"
                   disabled={settingHl || !hlCode.trim() || hlLocked}
                   onClick={handleSetHlCode}
-                  className="doodle-pill shrink-0 px-3 py-1 text-[12px] hover:bg-accent-soft disabled:opacity-40"
+                  className="doodle-pill shrink-0 px-3 py-1 text-soft hover:bg-accent-soft disabled:opacity-40"
                 >
                   {settingHl ? "Setting…" : "Set"}
                 </button>
               </div>
               {hlLocked ? (
-                <p className="mt-1 text-[11px] text-ink-faint">
+                <p className="mt-1 text-caption text-ink-faint">
                   Referred by {referredByCode} · Hyperliquid bindings are permanent and cannot be
                   changed.
                 </p>
               ) : (
                 !isConnected && (
-                  <p className="mt-1 text-[11px] text-ink-faint">
+                  <p className="mt-1 text-caption text-ink-faint">
                     Connect a wallet to sign the action. Without it, the code is saved locally.
                   </p>
                 )
               )}
-              {hlError && <p className="mt-1 text-[11px] text-loss">{hlError}</p>}
-              {hlOk && <p className="mt-1 text-[11px] text-gain">Code saved.</p>}
+              {hlError && <p className="mt-1 text-caption text-loss">{hlError}</p>}
+              {hlOk && <p className="mt-1 text-caption text-gain">Code saved.</p>}
             </div>
           </div>
         )}
@@ -286,11 +289,11 @@ function SettingsPage() {
         {/* Nado */}
         {active && onInk && (
           <div className="mt-3 rounded-[3px] border border-stroke p-3">
-            <p className="text-[14px] font-semibold tracking-tight">Nado</p>
+            <p className="text-head font-semibold tracking-tight">Nado</p>
 
             {nadoReferral ? (
               <>
-                <p className="mt-2 text-[12px] text-ink-soft">
+                <p className="mt-2 text-soft text-ink-soft">
                   {nadoReferral.binding.bound
                     ? `Bound to code: ${nadoReferral.binding.code}`
                     : "Not bound to any referral code."}
@@ -298,7 +301,7 @@ function SettingsPage() {
 
                 {!nadoReferral.binding.bound && (
                   <div className="mt-2">
-                    <p className="text-[12px] text-ink-soft">
+                    <p className="text-soft text-ink-soft">
                       Nado requires binding via their dashboard. Open the link, enter your code,
                       then come back and confirm.
                     </p>
@@ -307,7 +310,7 @@ function SettingsPage() {
                         href={buildNadoReferralDeepLink(doc.settings.referrals.nado?.referralCode)}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="doodle-pill px-3 py-1 text-[12px] hover:bg-accent-soft"
+                        className="doodle-pill px-3 py-1 text-soft hover:bg-accent-soft"
                       >
                         Open Nado Referrals
                       </a>
@@ -315,7 +318,7 @@ function SettingsPage() {
                         type="button"
                         onClick={() => void nadoRefetch()}
                         disabled={nadoFetching}
-                        className="doodle-pill px-3 py-1 text-[12px] hover:bg-accent-soft disabled:opacity-40"
+                        className="doodle-pill px-3 py-1 text-soft hover:bg-accent-soft disabled:opacity-40"
                       >
                         {nadoFetching ? "Checking…" : "Re-check"}
                       </button>
@@ -325,7 +328,7 @@ function SettingsPage() {
               </>
             ) : (
               <div className="mt-2">
-                <p className="text-[12px] text-ink-soft">
+                <p className="text-soft text-ink-soft">
                   {nadoFetching
                     ? "Checking binding…"
                     : "Binding status unavailable: Nado's referral query is not live on their public API yet. Bind on their dashboard and track rewards there."}
@@ -335,7 +338,7 @@ function SettingsPage() {
                     href={buildNadoReferralDeepLink(doc.settings.referrals.nado?.referralCode)}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="doodle-pill px-3 py-1 text-[12px] hover:bg-accent-soft"
+                    className="doodle-pill px-3 py-1 text-soft hover:bg-accent-soft"
                   >
                     Open Nado Referrals
                   </a>
@@ -343,7 +346,7 @@ function SettingsPage() {
                     type="button"
                     onClick={() => void nadoRefetch()}
                     disabled={nadoFetching}
-                    className="doodle-pill px-3 py-1 text-[12px] hover:bg-accent-soft disabled:opacity-40"
+                    className="doodle-pill px-3 py-1 text-soft hover:bg-accent-soft disabled:opacity-40"
                   >
                     {nadoFetching ? "Checking…" : "Re-check"}
                   </button>
@@ -353,7 +356,7 @@ function SettingsPage() {
 
             {/* Set referral code preference (saved locally only) */}
             <div className="mt-3">
-              <p className="text-[12px] font-medium">Affiliate code</p>
+              <p className="text-soft font-medium">Affiliate code</p>
               <div className="mt-1 flex gap-2">
                 <input
                   type="text"
@@ -366,20 +369,20 @@ function SettingsPage() {
                   placeholder={
                     doc.settings.referrals.nado?.referralCode ?? DEFAULT_NADO_REFERRAL_CODE
                   }
-                  className="min-w-0 flex-1 rounded-[2px] border border-stroke bg-paper px-2.5 py-1 text-[12px] outline-none focus:border-ink"
+                  className="min-w-0 flex-1 rounded-[2px] border border-stroke bg-paper px-2.5 py-1 text-soft outline-none focus:border-ink"
                 />
                 <button
                   type="button"
                   disabled={settingNado || !nadoCode.trim()}
                   onClick={handleSetNadoCode}
-                  className="doodle-pill shrink-0 px-3 py-1 text-[12px] hover:bg-accent-soft disabled:opacity-40"
+                  className="doodle-pill shrink-0 px-3 py-1 text-soft hover:bg-accent-soft disabled:opacity-40"
                 >
                   {settingNado ? "Saving…" : "Save"}
                 </button>
               </div>
-              {nadoError && <p className="mt-1 text-[11px] text-loss">{nadoError}</p>}
+              {nadoError && <p className="mt-1 text-caption text-loss">{nadoError}</p>}
               {nadoOk && (
-                <p className="mt-1 text-[11px] text-gain">
+                <p className="mt-1 text-caption text-gain">
                   Code saved. Open Nado Referrals above and enter it on their site to bind.
                 </p>
               )}
@@ -388,7 +391,7 @@ function SettingsPage() {
         )}
 
         {active && !onInk && (
-          <p className="mt-3 text-[12px] text-ink-faint">
+          <p className="mt-3 text-soft text-ink-faint">
             Nado referral tracking requires Ink mainnet.
           </p>
         )}
@@ -396,13 +399,13 @@ function SettingsPage() {
 
       <section className="doodle-card animate-rise mb-4 p-4 sm:mb-5">
         <p className="eyebrow">Assistant &amp; agents</p>
-        <p className="mt-1.5 max-w-prose text-[13px] leading-relaxed text-ink-soft">
+        <p className="mt-1.5 max-w-prose text-body leading-relaxed text-ink-soft">
           Models, skills, tools and the activity log now live in their own console.
         </p>
         <Link
           to="/agents"
           search={{ tab: "agents" as const }}
-          className="doodle-pill mt-3 inline-flex px-4 py-1.5 text-[13px] hover:bg-accent-soft"
+          className="doodle-pill mt-3 inline-flex px-4 py-1.5 text-body hover:bg-accent-soft"
         >
           Open Agents
         </Link>
@@ -410,7 +413,7 @@ function SettingsPage() {
 
       <section className="doodle-card animate-rise p-4">
         <p className="eyebrow">Your data</p>
-        <p className="mt-1.5 max-w-prose text-[13px] leading-relaxed text-ink-soft">
+        <p className="mt-1.5 max-w-prose text-body leading-relaxed text-ink-soft">
           Everything lives in this browser. Export it before clearing your site data.
         </p>
         <div className="mt-3 flex gap-2">
@@ -425,7 +428,7 @@ function SettingsPage() {
               a.click();
               URL.revokeObjectURL(url);
             }}
-            className="doodle-pill px-4 py-1.5 text-[13px] hover:bg-accent-soft"
+            className="doodle-pill px-4 py-1.5 text-body hover:bg-accent-soft"
           >
             Export
           </button>
@@ -434,7 +437,7 @@ function SettingsPage() {
             onClick={() => {
               if (confirm("Delete every thesis, entry and alert on this device?")) wipe();
             }}
-            className="doodle-pill px-4 py-1.5 text-[13px] text-loss hover:bg-accent-soft"
+            className="doodle-pill px-4 py-1.5 text-body text-loss hover:bg-accent-soft"
           >
             Delete everything
           </button>
