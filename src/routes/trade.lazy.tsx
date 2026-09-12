@@ -1,4 +1,5 @@
-import { Link, createLazyFileRoute, type LazyRouteOptions } from "@tanstack/react-router";
+import { Link, createLazyFileRoute } from "@tanstack/react-router";
+import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 
 import { Panel, Shell } from "@/components/pot/Shell";
@@ -10,35 +11,12 @@ import { fetchHLQuotes, fetchQuotes, type Quote } from "@/lib/prices";
 import { feeBreakdown, swapReceiveEstimate } from "@/lib/trade/fees";
 import { symbols as nadoSymbols } from "@/lib/venues/nado";
 
-// Lazy route: the venue readers and market fetches stay out of the entry
-// chunk. The LazyRouteOptions type in this router release only models
-// component props; the runtime merges every lazy option when the chunk
-// loads, so head and validateSearch behave as on the eager route.
-export const Route = createLazyFileRoute("/trade")(
-  {
-    head: () => ({
-      meta: [
-        { title: "Trading · Proof of Thesis" },
-        {
-          name: "description",
-          content: "Light per-venue trading surface: positions, activity and live marks.",
-        },
-        { property: "og:title", content: "Trading · Proof of Thesis" },
-        { property: "og:description", content: "Light per-venue trading surface." },
-      ],
-    }),
-    validateSearch: (search: Record<string, unknown>) => {
-      const venue = search.venue === "nado" ? "nado" : "hyperliquid";
-      const section = ["trade", "swap", "positions", "activity", "market"].includes(
-        String(search.section),
-      )
-        ? (search.section as TradeSection)
-        : ("trade" as TradeSection);
-      return { venue, section } as { venue: TradeVenue; section: TradeSection };
-    },
-    component: TradePage,
-  } as LazyRouteOptions,
-);
+// Lazy component only: head and validateSearch live in trade.tsx so a hard
+// load serves the real title on first paint (the router merges the two
+// definitions of the /trade route).
+export const Route = createLazyFileRoute("/trade")({
+  component: TradePage,
+});
 
 type TradeVenue = "hyperliquid" | "nado";
 type TradeSection = "trade" | "swap" | "positions" | "activity" | "market";
@@ -74,8 +52,15 @@ function TradePage() {
     section: TradeSection;
   };
   const navigate = Route.useNavigate();
+  const queryClient = useQueryClient();
   const { reports, accounts, actions, isFetching } = useVenues();
   const { wallets } = useActiveWallet();
+
+  // The tab consumes the cached venue read; a mount refresh keeps it from
+  // contradicting the Baskets tab for minutes when the cache has gone stale.
+  useEffect(() => {
+    void queryClient.invalidateQueries({ queryKey: ["venues"] });
+  }, [queryClient]);
 
   const report = reports.find((r) => r.venueId === venue);
   const positions = report?.positions ?? [];
