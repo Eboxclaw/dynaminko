@@ -6,6 +6,7 @@ import { TradeDetail } from "@/components/pot/TradeDetail";
 import { HelpDot } from "@/components/pot/HelpDot";
 import { Panel, Shell } from "@/components/pot/Shell";
 import { VenueIcon } from "@/components/pot/VenueIcon";
+import { NullMark } from "@/components/pot/symbols";
 
 import { useDoc } from "@/hooks/useDoc";
 import { useBaskets } from "@/hooks/useBaskets";
@@ -62,7 +63,11 @@ function PortfolioPage() {
     const holdings = baskets.holdings.filter((h) => h.sector === id);
     const value = holdings.reduce((sum, h) => sum + (h.value ?? 0), 0);
     return { id, holdings, value, share: baskets.total > 0 ? value / baskets.total : 0 };
-  }).filter((g) => g.holdings.length > 0);
+  })
+    .filter((g) => g.holdings.length > 0)
+    // Money order: the basket holding 88% of the wallet must not sit at the
+    // bottom of the page because the curated sectors come first by default.
+    .sort((a, b) => b.value - a.value);
 
   const lpVenues = VENUES.filter((v) => v.kind === "lp");
   const tradingVenues = VENUES.filter((v) => v.kind === "trading");
@@ -90,15 +95,13 @@ function PortfolioPage() {
         <button
           type="button"
           onClick={refresh}
-          className="doodle-pill px-3 py-1.5 text-[12px] text-ink-soft hover:bg-accent-soft"
+          className="doodle-pill px-3 py-1.5 text-soft text-ink-soft hover:bg-accent-soft"
         >
           {isFetching ? "Reading…" : "Refresh"}
         </button>
       }
     >
-      {status === "pending" && (
-        <p className="font-hand text-xl text-ink-faint">reading the chain…</p>
-      )}
+      {status === "pending" && <p className="text-body text-ink-faint">reading the chain…</p>}
 
       <Panel
         eyebrow="Holdings // Detail"
@@ -111,7 +114,7 @@ function PortfolioPage() {
                 type="button"
                 onClick={() => setSort(mode)}
                 aria-pressed={sort === mode}
-                className={`doodle-pill px-2.5 py-1 text-[11px] ${
+                className={`doodle-pill px-2.5 py-1 text-caption ${
                   sort === mode ? "bg-ink text-paper" : "text-ink-soft"
                 }`}
               >
@@ -122,9 +125,9 @@ function PortfolioPage() {
         }
       >
         {grouped.length === 0 ? (
-          <p className="p-4 text-[13px] text-ink-soft">No balances found on this wallet yet.</p>
+          <p className="p-4 text-body text-ink-soft">No balances found on this wallet yet.</p>
         ) : sort === "asset" ? (
-          <ul className="grid gap-x-6 sm:grid-cols-2 lg:grid-cols-3">
+          <ul className="grid gap-x-6 sm:grid-cols-2">
             {[...baskets.holdings]
               .sort((a, b) => (b.value ?? 0) - (a.value ?? 0))
               .map((h) => (
@@ -142,20 +145,30 @@ function PortfolioPage() {
             {grouped.map((g) => (
               <section key={g.id}>
                 <header className="flex items-baseline gap-3 border-y border-stroke bg-sunken px-4 py-1.5 first:border-t-0">
-                  <span className="flex-1 text-[13px] font-medium">
+                  <span className="flex-1 text-body font-medium">
                     {SECTOR_BY_ID[g.id]?.label}
                     {g.id === "unsorted" && (
-                      <span className="ml-2 text-[11px] font-normal normal-case text-ink-faint">
-                        sort from the by-asset view
-                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setSort("asset")}
+                        className="ml-2 text-caption font-normal normal-case text-ink-faint underline decoration-stroke-strong underline-offset-2 hover:text-ink"
+                      >
+                        file these from the by-asset view
+                      </button>
                     )}
                   </span>
-                  <span className="num text-[13px] font-medium">{usd(g.value, hidden)}</span>
-                  <span className="num w-10 text-right text-[11px] text-ink-faint">
+                  <span className="num text-body font-medium">
+                    {g.value > 0 ? (
+                      usd(g.value, hidden)
+                    ) : (
+                      <NullMark label="nothing priced in this basket yet" />
+                    )}
+                  </span>
+                  <span className="num w-10 text-right text-caption text-ink-faint">
                     {Math.round(g.share * 100)}%
                   </span>
                 </header>
-                <ul className="grid gap-x-6 sm:grid-cols-2 lg:grid-cols-3">
+                <ul className="grid gap-x-6 sm:grid-cols-2">
                   {g.holdings.map((h) => (
                     <HoldingRow
                       key={h.key}
@@ -322,13 +335,13 @@ function VenueCard({
           <VenueIcon id={id} />
         </span>
         <span className="min-w-0 flex-1">
-          <span className="block truncate text-[14px] font-medium">
+          <span className="block truncate text-head font-medium">
             {venue?.label}
             {report?.stale && <span className="eyebrow ml-2">cached</span>}
           </span>
           <span className="eyebrow block truncate">{venue?.blurb}</span>
         </span>
-        <span className="num shrink-0 text-right text-[13px]">
+        <span className="num shrink-0 text-right text-body">
           {headline > 0 ? usd(headline, hidden) : <span className="text-ink-faint">{state}</span>}
         </span>
         {notes.length > 0 && (
@@ -351,7 +364,7 @@ function VenueCard({
           {chips.map((c) => (
             <li
               key={c.label}
-              className="doodle-pill num px-2 py-0.5 text-[11px] uppercase tracking-[0.14em] text-ink-soft"
+              className="doodle-pill num px-2 py-0.5 text-caption uppercase tracking-[0.14em] text-ink-soft"
             >
               {c.label}
               <span className="ml-1 text-ink">{c.value}</span>
@@ -376,15 +389,15 @@ function VenueCard({
           {(showEmpty ? accounts : funded).length > 0 && (
             <ul className="grid gap-1.5">
               {(showEmpty ? accounts : funded).map((a: AccountSummary) => (
-                <li key={a.id} className="flex items-baseline gap-3 text-[13px]">
+                <li key={a.id} className="flex items-baseline gap-3 text-body">
                   <span className="min-w-0 flex-1 truncate text-ink-soft">{a.label}</span>
                   {a.detail && (
-                    <span className="num hidden text-[11px] text-ink-faint sm:inline">
+                    <span className="num hidden text-caption text-ink-faint sm:inline">
                       {a.detail}
                     </span>
                   )}
                   <span className="num w-24 shrink-0 text-right">
-                    {a.equity != null ? usd(a.equity, hidden) : "—"}
+                    {a.equity != null ? usd(a.equity, hidden) : <NullMark label="no equity read" />}
                   </span>
                 </li>
               ))}
@@ -455,19 +468,19 @@ function PositionRow({
           className="w-full border border-stroke bg-paper px-3 py-2.5 text-left transition hover:border-stroke-strong"
         >
           <span className="flex items-center gap-2.5">
-            <span className="min-w-0 flex-1 truncate text-[13px] font-medium">
+            <span className="min-w-0 flex-1 truncate text-body font-medium">
               {clean(p.symbol)}
             </span>
-            <span className="doodle-pill shrink-0 px-2 py-0.5 text-[11px] uppercase tracking-[0.12em] text-ink-soft">
+            <span className="doodle-pill shrink-0 px-2 py-0.5 text-caption uppercase tracking-[0.12em] text-ink-soft">
               {trade.side}
               {trade.leverage != null && ` · ${trade.leverage}x`}
             </span>
-            <span className="num w-24 shrink-0 text-right text-[13px] font-medium">
-              {trade.notional != null ? usd(trade.notional, hidden) : "—"}
+            <span className="num w-24 shrink-0 text-right text-body font-medium">
+              {trade.notional != null ? usd(trade.notional, hidden) : <NullMark label="no notional" />}
             </span>
           </span>
           <span className="mt-1.5 flex items-center gap-2.5">
-            <span className="num min-w-0 flex-1 truncate text-[11px] text-ink-faint">
+            <span className="num min-w-0 flex-1 truncate text-caption text-ink-faint">
               {trade.size.toLocaleString()}
               {trade.entryPrice != null &&
                 ` @ ${trade.entryPrice.toLocaleString(undefined, { maximumFractionDigits: trade.entryPrice >= 1000 ? 0 : 4 })}`}
@@ -476,11 +489,11 @@ function PositionRow({
               {trade.margin != null && ` · ${usd(trade.margin, hidden)} margin`}
             </span>
             <span
-              className={`num w-24 shrink-0 text-right text-[12px] ${
+              className={`num w-24 shrink-0 text-right text-soft ${
                 (pnl ?? 0) >= 0 ? "text-gain" : "text-loss"
               }`}
             >
-              {pnl != null ? usd(pnl, hidden) : "—"}
+              {pnl != null ? usd(pnl, hidden) : <NullMark label="pnl not reported" />}
             </span>
           </span>
         </button>
@@ -496,7 +509,7 @@ function PositionRow({
         type="button"
         onClick={() => meta.length > 0 && setOpen((v) => !v)}
         aria-expanded={open}
-        className="w-full text-left text-[13px]"
+        className="w-full text-left text-body"
       >
         <span className="flex items-baseline gap-3">
           <span className="min-w-0 flex-1 truncate">
@@ -505,14 +518,18 @@ function PositionRow({
           </span>
           {range && <span className="eyebrow shrink-0">{range}</span>}
           {!range && !legs && p.detail && (
-            <span className="num hidden text-[11px] text-ink-faint sm:inline">{p.detail}</span>
+            <span className="num hidden text-caption text-ink-faint sm:inline">{p.detail}</span>
           )}
           <span className="num w-24 shrink-0 text-right">
-            {p.notionalValue != null ? usd(p.notionalValue, hidden) : "—"}
+            {p.notionalValue != null ? (
+              usd(p.notionalValue, hidden)
+            ) : (
+              <NullMark label="no usd price reported" />
+            )}
           </span>
         </span>
         {legs && (
-          <span className="mt-0.5 flex items-baseline gap-2 text-[11px] text-ink-faint">
+          <span className="mt-0.5 flex items-baseline gap-2 text-caption text-ink-faint">
             <span className="num min-w-0 flex-1 truncate">
               {legs.map((l, i) => (
                 <span key={l.symbol + i} className={l.zero ? "opacity-45" : undefined}>
@@ -529,7 +546,7 @@ function PositionRow({
           {meta.map(([k, v]) => (
             <div key={k} className="contents">
               <dt className="eyebrow truncate">{k}</dt>
-              <dd className="num truncate text-right text-[11px]">{String(v)}</dd>
+              <dd className="num truncate text-right text-caption">{String(v)}</dd>
             </div>
           ))}
         </dl>
@@ -600,19 +617,19 @@ function HoldingRow({
   return (
     <li className="flex items-center gap-3 border-b border-stroke px-4 py-3 last:border-0">
       <span className="min-w-0 flex-1">
-        <span className="block truncate text-[14px] font-medium">{h.symbol}</span>
-        <span className="block truncate text-[12px] text-ink-faint">
+        <span className="block truncate text-head font-medium">{h.symbol}</span>
+        <span className="block truncate text-soft text-ink-faint">
           {showBasket ? (SECTOR_BY_ID[h.sector]?.label ?? h.name) : h.name}
         </span>
       </span>
       <span className="text-right">
-        <span className="num block text-[14px]">{amount(h.amount, hidden)}</span>
-        <span className="num block text-[12px] text-ink-faint">
+        <span className="num block text-head">{amount(h.amount, hidden)}</span>
+        <span className="num block text-soft text-ink-faint">
           {h.value != null ? usd(h.value, hidden) : "unpriced"}
         </span>
       </span>
       <span
-        className={`num w-16 text-right text-[12px] ${
+        className={`num w-16 text-right text-soft ${
           (h.change24h ?? 0) >= 0 ? "text-gain" : "text-loss"
         }`}
       >
@@ -707,7 +724,7 @@ function BasketPicker({
           key={sct.id}
           type="button"
           onClick={() => set(sct.id)}
-          className="flex w-full items-center gap-2 rounded-[2px] px-2 py-2 text-left text-[13px] hover:bg-sunken"
+          className="flex w-full items-center gap-2 rounded-[2px] px-2 py-2 text-left text-body hover:bg-sunken"
         >
           <span
             className="h-2.5 w-2.5 shrink-0 rounded-full"
@@ -774,6 +791,6 @@ function stateLabel(status?: string) {
     case "error":
       return "unavailable";
     default:
-      return "—";
+      return "no data";
   }
 }
