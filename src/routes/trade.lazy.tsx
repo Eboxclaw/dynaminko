@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 
 import { Panel, Shell } from "@/components/pot/Shell";
 import { VenueIcon } from "@/components/pot/VenueIcon";
+import { useActiveWallet } from "@/hooks/usePortfolio";
 import { useVenues } from "@/hooks/useVenues";
 import { relativeTime } from "@/lib/format";
 import { fetchHLQuotes, fetchQuotes, type Quote } from "@/lib/prices";
@@ -61,7 +62,7 @@ function fmtUsd(n: number | null | undefined, digits = 2): string {
 }
 
 function fmtPx(n: number | null | undefined): string {
-  if (n == null || !Number.isFinite(n)) return "—";
+  if (n == null || !Number.isFinite(n)) return "-";
   if (n >= 1000) return n.toLocaleString("en-US", { maximumFractionDigits: 2 });
   if (n >= 1) return n.toFixed(4);
   return n.toFixed(6);
@@ -74,6 +75,7 @@ function TradePage() {
   };
   const navigate = Route.useNavigate();
   const { reports, accounts, actions, isFetching } = useVenues();
+  const { wallets } = useActiveWallet();
 
   const report = reports.find((r) => r.venueId === venue);
   const positions = report?.positions ?? [];
@@ -86,7 +88,7 @@ function TradePage() {
       subtitle="light per-venue surface · hype and nado, charts later"
       action={
         isFetching ? (
-          <span className="doodle-pill px-3 py-1 text-[11px] text-ink-faint">reading venues…</span>
+          <span className="doodle-pill px-3 py-1 text-caption text-ink-faint">reading venues…</span>
         ) : undefined
       }
     >
@@ -96,7 +98,7 @@ function TradePage() {
             key={v.id}
             to="/trade"
             search={{ venue: v.id, section }}
-            className={`doodle-pill flex items-center gap-1.5 px-3 py-1.5 text-[12px] ${
+            className={`doodle-pill flex items-center gap-1.5 px-3 py-1.5 text-soft ${
               venue === v.id ? "bg-ink text-paper" : "text-ink-soft hover:border-ink"
             }`}
           >
@@ -112,7 +114,7 @@ function TradePage() {
             key={s.id}
             to="/trade"
             search={{ venue, section: s.id }}
-            className={`doodle-pill px-3 py-1 text-[11px] ${
+            className={`doodle-pill px-3 py-1 text-caption ${
               section === s.id ? "bg-ink text-paper" : "text-ink-soft hover:border-ink"
             }`}
           >
@@ -125,7 +127,15 @@ function TradePage() {
         <TradeTicket venue={venue} positions={positions} available={venueAccounts.reduce((s, a) => s + (a.available ?? 0), 0)} />
       )}
       {section === "swap" && <SwapTicket venue={venue} />}
-      {section === "positions" && <Positions venue={venue} report={report} positions={positions} accounts={venueAccounts} />}
+      {section === "positions" && (
+        <Positions
+          venue={venue}
+          report={report}
+          positions={positions}
+          accounts={venueAccounts}
+          hasWallet={wallets.length > 0}
+        />
+      )}
       {section === "activity" && <Activity venue={venue} actions={venueActions} />}
       {section === "market" && <Market venue={venue} positions={positions} />}
     </Shell>
@@ -137,16 +147,22 @@ function Positions({
   report,
   positions,
   accounts,
+  hasWallet,
 }: {
   venue: TradeVenue;
   report: ReturnType<typeof useVenues>["reports"][number] | undefined;
   positions: ReturnType<typeof useVenues>["reports"][number]["positions"];
   accounts: { id: string; accountId?: string; label: string; equity: number | null; available: number | null; marginUsed: number | null }[];
+  hasWallet: boolean;
 }) {
   if (!report && positions.length === 0) {
     return (
       <Panel eyebrow={`Positions // ${venue}`} title="Nothing loaded yet">
-        <p className="empty">Connect a wallet on the dashboard and the venue reads land here.</p>
+        <p className="empty">
+          {hasWallet
+            ? `The ${venue} read has not landed yet. Refresh from the Baskets tab or reopen this page.`
+            : "Connect a wallet on the dashboard and the venue reads land here."}
+        </p>
       </Panel>
     );
   }
@@ -160,11 +176,11 @@ function Positions({
             {positions.map((p) => (
               <li key={p.id} className="border-b border-stroke px-4 py-3 last:border-0">
                 <div className="flex items-baseline justify-between gap-3">
-                  <span className="flex items-center gap-1.5 text-[13px] font-medium">
+                  <span className="flex items-center gap-1.5 text-body font-medium">
                     <VenueIcon id={p.venue} className="h-3 w-3 shrink-0 text-ink-faint" />
                     {p.symbol}
                   </span>
-                  <span className={`num text-[13px] ${(p.unrealizedPnl ?? 0) >= 0 ? "text-gain" : "text-loss"}`}>
+                  <span className={`num text-body ${(p.unrealizedPnl ?? 0) >= 0 ? "text-gain" : "text-loss"}`}>
                     {p.unrealizedPnl != null ? fmtUsd(p.unrealizedPnl) : "—"}
                   </span>
                 </div>
@@ -172,7 +188,7 @@ function Positions({
                   {p.side ?? "position"} · size {p.size ?? "—"}
                   {p.leverage != null ? ` · ${p.leverage}x` : ""}
                 </p>
-                <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-ink-faint">
+                <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-caption text-ink-faint">
                   <span>entry {fmtPx(p.entryPrice)}</span>
                   <span>mark {fmtPx(p.markPrice)}</span>
                   <span>notional {fmtUsd(p.notionalValue)}</span>
@@ -189,8 +205,8 @@ function Positions({
             {accounts.map((a) => (
               <li key={a.id} className="border-b border-stroke px-4 py-3 last:border-0">
                 <div className="flex items-baseline justify-between gap-3">
-                  <span className="text-[13px] font-medium">{a.label || a.accountId}</span>
-                  <span className="num text-[13px]">{fmtUsd(a.equity)}</span>
+                  <span className="text-body font-medium">{a.label || a.accountId}</span>
+                  <span className="num text-body">{fmtUsd(a.equity)}</span>
                 </div>
                 <p className="eyebrow mt-1">
                   available {fmtUsd(a.available)} · margin used {fmtUsd(a.marginUsed)}
@@ -220,13 +236,13 @@ function Activity({
           {actions.map((a) => (
             <li key={a.id} className="border-b border-stroke px-4 py-3 last:border-0">
               <div className="flex items-baseline justify-between gap-3">
-                <span className="text-[13px] font-medium">
+                <span className="text-body font-medium">
                   {a.symbol}{" "}
-                  <span className={`doodle-pill px-1.5 py-0.5 text-[10px] ${a.side === "in" ? "text-gain" : "text-loss"}`}>
+                  <span className={`doodle-pill px-1.5 py-0.5 text-micro ${a.side === "in" ? "text-gain" : "text-loss"}`}>
                     {a.side}
                   </span>
                 </span>
-                <span className="num text-[13px]">{fmtUsd(a.value)}</span>
+                <span className="num text-body">{fmtUsd(a.value)}</span>
               </div>
               <p className="eyebrow mt-1">
                 {a.action} · {String(a.amount)} · fee {fmtUsd(a.feeUsd)} · {relativeTime(a.ts)}
@@ -272,11 +288,11 @@ function Market({ venue, positions }: { venue: TradeVenue; positions: { id: stri
           <ul>
             {quotes.map((q) => (
               <li key={q.symbol} className="flex items-baseline justify-between gap-3 border-b border-stroke px-4 py-3 last:border-0">
-                <span className="flex items-center gap-1.5 text-[13px] font-medium">
+                <span className="flex items-center gap-1.5 text-body font-medium">
                   <VenueIcon id="hyperliquid" className="h-3 w-3 shrink-0 text-ink-faint" />
                   {q.symbol}
                 </span>
-                <span className="num text-[13px]">{fmtPx(q.usd)}</span>
+                <span className="num text-body">{fmtPx(q.usd)}</span>
               </li>
             ))}
           </ul>
@@ -292,8 +308,8 @@ function Market({ venue, positions }: { venue: TradeVenue; positions: { id: stri
         <ul>
           {positions.map((p) => (
             <li key={p.id} className="flex items-baseline justify-between gap-3 border-b border-stroke px-4 py-3 last:border-0">
-              <span className="text-[13px] font-medium">{p.symbol}</span>
-              <span className="num text-[13px]">{fmtPx(p.markPrice)}</span>
+              <span className="text-body font-medium">{p.symbol}</span>
+              <span className="num text-body">{fmtPx(p.markPrice)}</span>
             </li>
           ))}
         </ul>
@@ -355,14 +371,21 @@ function TradeTicket({
 
   return (
     <div className="grid gap-4 md:grid-cols-2">
-      <Panel eyebrow={`Order ticket // ${venue}`}>
+      <Panel
+        eyebrow={`Order ticket // ${venue}`}
+        foot={
+          <p className="eyebrow text-ink-faint">
+            paper only · signing arrives with the execution wallet
+          </p>
+        }
+      >
         <div className="grid grid-cols-2 gap-2">
           {SIDE_META.map((s) => (
             <button
               key={s.id}
               type="button"
               onClick={() => setSide(s.id)}
-              className={`doodle-card px-3 py-2.5 text-[13px] font-medium ${
+              className={`doodle-card px-3 py-2.5 text-body font-medium ${
                 side === s.id ? s.active : "text-ink-faint hover:border-ink"
               }`}
             >
@@ -374,7 +397,7 @@ function TradeTicket({
           <select
             value={symbol}
             onChange={(e) => setSymbol(e.target.value)}
-            className="doodle-card num flex-1 bg-surface px-2 py-2 text-[13px] outline-none"
+            className="doodle-card num flex-1 bg-surface px-2 py-2 text-body outline-none"
           >
             {(positions.length ? positions.map((p) => p.symbol.replace("-PERP", "")) : ["BTC", "ETH", "HYPE"]).map((s) => (
               <option key={s} value={s}>
@@ -388,7 +411,7 @@ function TradeTicket({
                 key={m}
                 type="button"
                 onClick={() => setMode(m)}
-                className={`doodle-pill px-2.5 py-1.5 text-[11px] capitalize ${
+                className={`doodle-pill px-2.5 py-1.5 text-caption capitalize ${
                   mode === m ? "bg-ink text-paper" : "text-ink-faint"
                 }`}
               >
@@ -403,7 +426,7 @@ function TradeTicket({
             onChange={(e) => setLimitPx(e.target.value)}
             inputMode="decimal"
             placeholder="limit price"
-            className="num mt-2 w-full doodle-card bg-surface px-2 py-2 text-[13px] outline-none"
+            className="num mt-2 w-full doodle-card bg-surface px-2 py-2 text-body outline-none"
           />
         )}
         <div className="mt-2 flex items-center gap-2">
@@ -412,14 +435,14 @@ function TradeTicket({
             onChange={(e) => setSize(e.target.value)}
             inputMode="decimal"
             placeholder={`size (${symbol})`}
-            className="num min-w-0 flex-1 doodle-card bg-surface px-2 py-2 text-[13px] outline-none"
+            className="num min-w-0 flex-1 doodle-card bg-surface px-2 py-2 text-body outline-none"
           />
           {[25, 50, 100].map((p) => (
             <button
               key={p}
               type="button"
               onClick={() => sizePct(p)}
-              className="doodle-pill px-2 py-1 text-[10px] text-ink-faint hover:text-ink"
+              className="doodle-pill px-2 py-1 text-micro text-ink-faint hover:text-ink"
             >
               {p}%
             </button>
@@ -433,7 +456,7 @@ function TradeTicket({
             {fees.rows.map((r) => (
               <div key={r.label} className="flex items-baseline justify-between py-0.5">
                 <span className="eyebrow">{r.label}</span>
-                <span className="num text-[12px]">
+                <span className="num text-soft">
                   {r.usd.toFixed(2)} · {r.bps} bps
                 </span>
               </div>
@@ -444,35 +467,37 @@ function TradeTicket({
           type="button"
           onClick={() => setSlip(true)}
           disabled={!fees}
-          className={`mt-3 w-full px-3 py-2.5 text-[13px] font-medium ${
+          className={`mt-3 w-full px-3 py-2.5 text-body font-medium ${
             fees ? "bg-ink text-paper" : "doodle-pill text-ink-faint"
           }`}
         >
           Build order slip
         </button>
-        <p className="eyebrow mt-2 text-ink-faint">
-          paper only · signing arrives with the execution wallet
-        </p>
       </Panel>
       {slip && fees && (
-        <Panel eyebrow="Order slip // paper" delay={60}>
+        <Panel
+          eyebrow="Order slip // paper"
+          delay={60}
+          foot={
+            <p className="eyebrow text-ink-faint">
+              nothing is sent: the slip is paper until the execution wallet exists (S9)
+            </p>
+          }
+        >
           <p className="font-hand text-2xl text-accent">
             {side === "long" ? "LONG" : "SHORT"} {size} {symbol}
           </p>
-          <p className="num mt-1 text-[13px]">
+          <p className="num mt-1 text-body">
             {mode} @ {fmtPx(refPx)} · notional {fmtUsd(notional)}
           </p>
           <div className="mt-3 border-t border-stroke pt-2">
             {fees.rows.map((r) => (
               <div key={r.label} className="flex items-baseline justify-between py-0.5">
                 <span className="eyebrow">{r.label}</span>
-                <span className="num text-[12px]">{fmtUsd(r.usd)}</span>
+                <span className="num text-soft">{fmtUsd(r.usd)}</span>
               </div>
             ))}
           </div>
-          <p className="eyebrow mt-3 text-ink-faint">
-            nothing is sent: the slip is paper until the execution wallet exists (S9)
-          </p>
         </Panel>
       )}
     </div>
@@ -529,12 +554,19 @@ function SwapTicket({ venue }: { venue: TradeVenue }) {
 
   return (
     <div className="grid gap-4 md:grid-cols-2">
-      <Panel eyebrow={`Swap ticket // ${venue} spot`}>
+      <Panel
+        eyebrow={`Swap ticket // ${venue} spot`}
+        foot={
+          <p className="eyebrow text-ink-faint">
+            paper only · signing arrives with the execution wallet
+          </p>
+        }
+      >
         <div className="space-y-2">
           <select
             value={from}
             onChange={(e) => setFrom(e.target.value)}
-            className="doodle-card num w-full bg-surface px-2 py-2 text-[13px] outline-none"
+            className="doodle-card num w-full bg-surface px-2 py-2 text-body outline-none"
           >
             {(spotList ?? ["USD₮0"]).map((s) => (
               <option key={s} value={s}>
@@ -545,9 +577,12 @@ function SwapTicket({ venue }: { venue: TradeVenue }) {
           <select
             value={to}
             onChange={(e) => setTo(e.target.value)}
-            className="doodle-card num w-full bg-surface px-2 py-2 text-[13px] outline-none"
+            className="doodle-card num w-full bg-surface px-2 py-2 text-body outline-none"
           >
-            {(spotList ?? []).filter((s) => s !== from).map((s) => (
+            {/* Same fallback family as the from-select: without it the box
+                renders empty on venues with no spot list yet and reads as
+                broken. */}
+            {(spotList ?? ["USD₮0", "BTC", "ETH"]).filter((s) => s !== from).map((s) => (
               <option key={s} value={s}>
                 {s}
               </option>
@@ -558,20 +593,20 @@ function SwapTicket({ venue }: { venue: TradeVenue }) {
             onChange={(e) => setAmount(e.target.value)}
             inputMode="decimal"
             placeholder={`amount (${from})`}
-            className="num w-full doodle-card bg-surface px-2 py-2 text-[13px] outline-none"
+            className="num w-full doodle-card bg-surface px-2 py-2 text-body outline-none"
           />
           <input
             value={price}
             onChange={(e) => setPrice(e.target.value)}
             inputMode="decimal"
             placeholder={`price of ${to} in ${from}`}
-            className="num w-full doodle-card bg-surface px-2 py-2 text-[13px] outline-none"
+            className="num w-full doodle-card bg-surface px-2 py-2 text-body outline-none"
           />
         </div>
         <div className="mt-2 flex items-center gap-1.5">
           <span className="eyebrow">slippage</span>
           {[0.5, 1, 3].map((s) => (
-            <button key={s} type="button" className="doodle-pill px-2 py-0.5 text-[10px] text-ink-faint">
+            <button key={s} type="button" className="doodle-pill px-2 py-0.5 text-micro text-ink-faint">
               {s}%
             </button>
           ))}
@@ -581,7 +616,7 @@ function SwapTicket({ venue }: { venue: TradeVenue }) {
             {fees.rows.map((r) => (
               <div key={r.label} className="flex items-baseline justify-between py-0.5">
                 <span className="eyebrow">{r.label}</span>
-                <span className="num text-[12px]">
+                <span className="num text-soft">
                   {r.usd.toFixed(2)} · {r.bps} bps
                 </span>
               </div>
@@ -592,33 +627,35 @@ function SwapTicket({ venue }: { venue: TradeVenue }) {
           type="button"
           onClick={() => setSlip(true)}
           disabled={!fees}
-          className={`mt-3 w-full px-3 py-2.5 text-[13px] font-medium ${
+          className={`mt-3 w-full px-3 py-2.5 text-body font-medium ${
             fees ? "bg-ink text-paper" : "doodle-pill text-ink-faint"
           }`}
         >
           Build swap slip
         </button>
-        <p className="eyebrow mt-2 text-ink-faint">
-          paper only · signing arrives with the execution wallet
-        </p>
       </Panel>
       {slip && estimate && !("problem" in estimate) && (
-        <Panel eyebrow="Swap slip // paper" delay={60}>
+        <Panel
+          eyebrow="Swap slip // paper"
+          delay={60}
+          foot={
+            <p className="eyebrow text-ink-faint">
+              nothing is sent: the slip is paper until the execution wallet exists (S9)
+            </p>
+          }
+        >
           <p className="font-hand text-2xl text-accent">
             {from} to {to}
           </p>
-          <p className="num mt-1 text-[13px]">
+          <p className="num mt-1 text-body">
             {amount} {from} at {fmtPx(px)} = {estimate.receiveAmount} {to}
           </p>
           <div className="mt-3 border-t border-stroke pt-2">
             <div className="flex items-baseline justify-between py-0.5">
               <span className="eyebrow">app fee</span>
-              <span className="num text-[12px]">{fmtUsd(estimate.feeUsd)}</span>
+              <span className="num text-soft">{fmtUsd(estimate.feeUsd)}</span>
             </div>
           </div>
-          <p className="eyebrow mt-3 text-ink-faint">
-            nothing is sent: the slip is paper until the execution wallet exists (S9)
-          </p>
         </Panel>
       )}
     </div>
