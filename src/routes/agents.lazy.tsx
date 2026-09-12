@@ -18,6 +18,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { FlowStrip } from "@/components/pot/FlowStrip";
 import { ModelPanel } from "@/components/pot/ModelPanel";
 import { ModelSwitch } from "@/components/pot/ModelSwitch";
+import { RichText } from "@/components/pot/RichText";
 import { Panel, Shell } from "@/components/pot/Shell";
 import { useAi } from "@/hooks/useAi";
 import { useTurn } from "@/hooks/useTurn";
@@ -238,13 +239,13 @@ function AgentsPage() {
 
   return (
     <Shell
-      title="Assistant"
+      title="Agents"
       subtitle="tools answer first · the model only when reasoning is needed"
       action={
         <button
           type="button"
           onClick={() => setRailOpen((v) => !v)}
-          className="doodle-pill px-3 py-1 text-[11px] hover:border-ink"
+          className="doodle-pill px-3 py-1 text-caption hover:border-ink"
         >
           {railOpen ? "Close" : "Panels"}
         </button>
@@ -267,7 +268,7 @@ function AgentsPage() {
                 type="button"
                 onClick={() => void navigate({ search: { tab: t.id } })}
                 className={cn(
-                  "doodle-pill shrink-0 px-3 py-1 text-[11px] transition",
+                  "doodle-pill shrink-0 px-3 py-1 text-caption transition",
                   tab === t.id ? "bg-ink text-paper" : "text-ink-soft hover:border-ink",
                 )}
               >
@@ -2442,7 +2443,7 @@ function ChatConsole({
             <button
               type="button"
               onClick={() => startSession()}
-              className="doodle-pill px-2.5 py-0.5 text-[11px] hover:border-ink"
+              className="doodle-pill px-2.5 py-0.5 text-caption hover:border-ink"
             >
               New
             </button>
@@ -2456,7 +2457,7 @@ function ChatConsole({
                   if (rest[0]) openSession(rest[0].id);
                   else startSession();
                 }}
-                className="doodle-pill px-2.5 py-0.5 text-[11px] hover:border-ink"
+                className="doodle-pill px-2.5 py-0.5 text-caption hover:border-ink"
               >
                 Delete
               </button>
@@ -2465,14 +2466,16 @@ function ChatConsole({
         }
       >
         {sessions.length > 1 && (
-          <div className="flex gap-1 overflow-x-auto border-b border-stroke px-3 py-2">
+          <div className="flex items-center gap-1 overflow-x-auto border-b border-stroke px-3 py-2">
+            <span className="eyebrow shrink-0 pr-1">{sessions.length} sessions</span>
             {sessions.map((s) => (
               <button
                 key={s.id}
                 type="button"
                 onClick={() => openSession(s.id)}
+                title={`${s.title} · ${s.turns} turns · ${relativeTime(s.updatedAt)}`}
                 className={cn(
-                  "doodle-pill shrink-0 max-w-[160px] truncate px-2.5 py-0.5 text-[11px]",
+                  "doodle-pill shrink-0 max-w-[200px] truncate px-2.5 py-0.5 text-caption",
                   s.id === activeId ? "bg-ink text-paper" : "text-ink-soft hover:border-ink",
                 )}
               >
@@ -2483,13 +2486,13 @@ function ChatConsole({
         )}
         <div ref={boxRef} className="max-h-[52vh] min-h-[240px] overflow-y-auto px-4 py-3">
           {messages.length === 0 && (
-            <p className="py-6 text-[13px] text-ink-soft">
+            <p className="py-6 text-body text-ink-soft">
               Ask in plain words, or press / for a command.
             </p>
           )}
           {(semanticChip === "offer" || semanticChip === "downloading") && (
             <div className="doodle-inset mb-3 flex flex-wrap items-center gap-2 px-3 py-2">
-              <p className="text-[13px]">
+              <p className="text-body">
                 {semanticChip === "downloading"
                   ? `semantic engine · ${Math.round(chipProgress * 100)}%`
                   : "Make routing semantic? 90 MB, downloaded once, then always ready on this device."}
@@ -2499,14 +2502,14 @@ function ChatConsole({
                   <button
                     type="button"
                     onClick={() => void installSemantic()}
-                    className="doodle-pill bg-ink px-3 py-1 text-[11px] text-paper"
+                    className="doodle-pill bg-ink px-3 py-1 text-caption text-paper"
                   >
                     Install
                   </button>
                   <button
                     type="button"
                     onClick={dismissSemantic}
-                    className="doodle-pill px-3 py-1 text-[11px] text-ink-faint hover:border-ink"
+                    className="doodle-pill px-3 py-1 text-caption text-ink-faint hover:border-ink"
                   >
                     Not now
                   </button>
@@ -2518,7 +2521,7 @@ function ChatConsole({
             {messages.map((m) => (
               <li key={m.id}>
                 {m.role === "user" && (
-                  <p className="ml-auto max-w-[85%] rounded-xl bg-ink px-3 py-2 text-[13px] text-paper">
+                  <p className="ml-auto max-w-[85%] rounded-xl bg-ink px-3 py-2 text-body text-paper">
                     {m.text}
                   </p>
                 )}
@@ -2532,7 +2535,7 @@ function ChatConsole({
                             key={o}
                             type="button"
                             onClick={() => void submit(o)}
-                            className="doodle-pill px-3 py-1 text-[12px]"
+                            className="doodle-pill px-3 py-1 text-soft"
                           >
                             {o}
                           </button>
@@ -2546,12 +2549,12 @@ function ChatConsole({
                     {m.thinking && (
                       <details className="doodle-inset mb-2 px-3 py-2">
                         <summary className="eyebrow cursor-pointer">thinking</summary>
-                        <p className="mt-1 whitespace-pre-wrap text-[12px] text-ink-soft">
+                        <p className="mt-1 whitespace-pre-wrap text-soft text-ink-soft">
                           {m.thinking}
                         </p>
                       </details>
                     )}
-                    <p className="whitespace-pre-wrap text-[13px] leading-relaxed">{m.text}</p>
+                    <RichText text={m.text} className="text-body leading-relaxed" />
                   </div>
                 )}
                 {m.role === "tool" && (
@@ -2578,7 +2581,7 @@ function ChatConsole({
                   className="flex w-full items-baseline gap-2 px-4 py-2 text-left hover:bg-sunken"
                 >
                   <span className="eyebrow">{r.kind}</span>
-                  <span className="min-w-0 flex-1 truncate text-[12px]">{r.title}</span>
+                  <span className="min-w-0 flex-1 truncate text-soft">{r.title}</span>
                 </button>
               </li>
             ))}
@@ -2594,8 +2597,8 @@ function ChatConsole({
                   onClick={() => apply(s)}
                   className="flex w-full items-baseline gap-2 px-4 py-2 text-left hover:bg-sunken"
                 >
-                  <span className="num text-[12px] font-medium">{s.label}</span>
-                  <span className="min-w-0 flex-1 truncate text-[12px] text-ink-soft">
+                  <span className="num text-soft font-medium">{s.label}</span>
+                  <span className="min-w-0 flex-1 truncate text-soft text-ink-soft">
                     {s.hint}
                   </span>
                   {s.badge && <span className="eyebrow">{s.badge}</span>}
@@ -2610,7 +2613,7 @@ function ChatConsole({
           {turn.error && (
             <div className="flex items-start gap-2 border-b border-loss/40 bg-loss/5 px-4 py-2">
               <span className="eyebrow shrink-0 text-loss">{PHASE_LABEL[turn.error.phase]}</span>
-              <span className="min-w-0 flex-1 text-[12px] text-loss">{turn.error.message}</span>
+              <span className="min-w-0 flex-1 text-soft text-loss">{turn.error.message}</span>
               <button
                 type="button"
                 onClick={turn.clearError}
@@ -2640,13 +2643,13 @@ function ChatConsole({
                 }}
                 disabled={switchBusy}
                 placeholder={switchBusy ? "Loading model…" : "Ask, or / for commands"}
-                className="min-h-[38px] flex-1 resize-none bg-transparent text-[13px] outline-none disabled:opacity-50"
+                className="min-h-[38px] flex-1 resize-none bg-transparent text-body outline-none disabled:opacity-50"
               />
               {busy ? (
                 <button
                   type="button"
                   onClick={ai.abort}
-                  className="doodle-pill px-3 py-1.5 text-[11px]"
+                  className="doodle-pill px-3 py-1.5 text-caption"
                 >
                   Stop
                 </button>
@@ -2704,7 +2707,7 @@ function ChatConsole({
                 <button
                   type="button"
                   onClick={() => fileRef.current?.click()}
-                  className="doodle-pill inline-flex items-center gap-1 px-2.5 py-1 text-[11px] hover:border-ink"
+                  className="doodle-pill inline-flex items-center gap-1 px-2.5 py-1 text-caption hover:border-ink"
                 >
                   <ImagePlus className="h-3 w-3" /> {image ? "Image attached" : "Attach"}
                 </button>
@@ -2723,7 +2726,7 @@ function ChatConsole({
                 type="button"
                 onClick={() => setHelp((h) => !h)}
                 className={cn(
-                  "doodle-pill ml-auto inline-flex items-center gap-1 px-2.5 py-1 text-[11px]",
+                  "doodle-pill ml-auto inline-flex items-center gap-1 px-2.5 py-1 text-caption",
                   help ? "bg-ink text-paper" : "text-ink-faint hover:border-ink",
                 )}
               >
@@ -2881,7 +2884,7 @@ function ToolCard({
       {card && (
         <ul className="mt-1 grid gap-1">
           {shown.map((f, i) => (
-            <li key={i} className="break-words text-[13px] leading-relaxed">
+            <li key={i} className="break-words text-body leading-relaxed">
               {/* Auto-linkify http(s) urls in plain text */}
               {f.split(/(https?:\/\/[^\s]+)/g).map((part, j) =>
                 /^https?:\/\//i.test(part) ? (
@@ -2906,7 +2909,7 @@ function ToolCard({
         <button
           type="button"
           onClick={() => setExpanded((v) => !v)}
-          className="doodle-pill mt-1.5 px-2.5 py-0.5 text-[11px]"
+          className="doodle-pill mt-1.5 px-2.5 py-0.5 text-caption"
         >
           {expanded ? "less" : `+${hidden} more`}
         </button>
@@ -2919,12 +2922,12 @@ function ToolCard({
               setFullOpen((v) => !v);
               if (!fullOpen) void loadFull();
             }}
-            className="doodle-pill mt-1.5 px-2.5 py-0.5 text-[11px]"
+            className="doodle-pill mt-1.5 px-2.5 py-0.5 text-caption"
           >
             {loadingFull ? "loading…" : fullOpen ? "less" : "show full result"}
           </button>
           {fullOpen && fullText != null && (
-            <pre className="doodle-inset mt-1.5 max-h-72 overflow-auto whitespace-pre-wrap break-all p-2 text-[11px] leading-snug text-ink-soft">
+            <pre className="doodle-inset mt-1.5 max-h-72 overflow-auto whitespace-pre-wrap break-all p-2 text-caption leading-snug text-ink-soft">
               {fullText}
             </pre>
           )}
@@ -2941,7 +2944,7 @@ function ToolCard({
             href={(card.data as Record<string, { url: string }>).result?.url ?? "#"}
             target="_blank"
             rel="noopener noreferrer"
-            className="doodle-pill mt-1.5 inline-flex px-2.5 py-0.5 text-[11px]"
+            className="doodle-pill mt-1.5 inline-flex px-2.5 py-0.5 text-caption"
             onClick={(e) => e.stopPropagation()}
           >
             open site ↗
@@ -2949,7 +2952,7 @@ function ToolCard({
         )}
       {approval && (
         <div className="mt-1">
-          <p className="break-words text-[13px]">
+          <p className="break-words text-body">
             {text} · target {approval.target}
           </p>
           <p className="eyebrow mt-1">access {approval.access} · approval required: YES</p>
@@ -2958,14 +2961,14 @@ function ToolCard({
               <button
                 type="button"
                 onClick={() => onApprove(true)}
-                className="doodle-pill bg-ink px-3 py-1 text-[11px] text-paper"
+                className="doodle-pill bg-ink px-3 py-1 text-caption text-paper"
               >
                 Approve
               </button>
               <button
                 type="button"
                 onClick={() => onApprove(false)}
-                className="doodle-pill px-3 py-1 text-[11px]"
+                className="doodle-pill px-3 py-1 text-caption"
               >
                 Reject
               </button>
@@ -3026,11 +3029,11 @@ function HelpPanel({
         value={query}
         onChange={(e) => onQuery(e.target.value)}
         placeholder="Search commands, skills and tools"
-        className="w-full border-b border-stroke bg-transparent px-4 py-2 text-[12px] outline-none"
+        className="w-full border-b border-stroke bg-transparent px-4 py-2 text-soft outline-none"
       />
       <ul className="max-h-[280px] overflow-y-auto">
         {rows.length === 0 && (
-          <li className="px-4 py-3 text-[12px] text-ink-soft">Nothing matches that.</li>
+          <li className="px-4 py-3 text-soft text-ink-soft">Nothing matches that.</li>
         )}
         {rows.map((r) => (
           <li key={r.key}>
@@ -3039,8 +3042,8 @@ function HelpPanel({
               onClick={() => onPick(r.insert)}
               className="flex w-full items-baseline gap-2 px-4 py-2 text-left hover:bg-sunken"
             >
-              <span className="num text-[12px] font-medium">{r.label}</span>
-              <span className="min-w-0 flex-1 truncate text-[12px] text-ink-soft">{r.hint}</span>
+              <span className="num text-soft font-medium">{r.label}</span>
+              <span className="min-w-0 flex-1 truncate text-soft text-ink-soft">{r.hint}</span>
               <span className="eyebrow">{r.group}</span>
             </button>
           </li>
@@ -3070,7 +3073,7 @@ function Toggle({
       onClick={onClick}
       title={disabled ? `${label} needs a model that supports it` : label}
       className={cn(
-        "doodle-pill inline-flex items-center gap-1 px-2.5 py-1 text-[11px]",
+        "doodle-pill inline-flex items-center gap-1 px-2.5 py-1 text-caption",
         on ? "bg-ink text-paper" : "text-ink-faint hover:border-ink",
         disabled && "opacity-40",
       )}
@@ -3161,19 +3164,19 @@ function AgentsRail() {
           return (
             <li key={a.id} className="border-b border-stroke px-4 py-3 last:border-0">
               <div className="flex items-baseline gap-2">
-                <span className="flex-1 text-[13px] font-medium">{a.name}</span>
+                <span className="flex-1 text-body font-medium">{a.name}</span>
                 <button
                   type="button"
                   onClick={() => setAutomation(a.id, !on)}
                   className={cn(
-                    "doodle-pill px-2.5 py-0.5 text-[11px]",
+                    "doodle-pill px-2.5 py-0.5 text-caption",
                     on ? "bg-ink text-paper" : "text-ink-faint",
                   )}
                 >
                   {on ? "On" : "Off"}
                 </button>
               </div>
-              <p className="mt-1 text-[12px] text-ink-soft">{a.job}</p>
+              <p className="mt-1 text-soft text-ink-soft">{a.job}</p>
               <p className="eyebrow mt-1">runs {a.trigger}</p>
             </li>
           );
@@ -3192,12 +3195,12 @@ function SkillsRail() {
         {SKILLS.map((s) => (
           <li key={s.id} className="border-b border-stroke px-4 py-3 last:border-0">
             <div className="flex items-baseline gap-2">
-              <span className="flex-1 text-[13px] font-medium">{s.label}</span>
+              <span className="flex-1 text-body font-medium">{s.label}</span>
               <button
                 type="button"
                 onClick={() => toggleAssistantItem("skills", s.id)}
                 className={cn(
-                  "doodle-pill px-2.5 py-0.5 text-[11px]",
+                  "doodle-pill px-2.5 py-0.5 text-caption",
                   selected.includes(s.id) ? "bg-ink text-paper" : "text-ink-faint",
                 )}
               >
@@ -3205,7 +3208,7 @@ function SkillsRail() {
               </button>
             </div>
             <p className="num eyebrow mt-1">/skill {s.id}</p>
-            <p className="mt-1 text-[12px] text-ink-soft">{s.purpose}</p>
+            <p className="mt-1 text-soft text-ink-soft">{s.purpose}</p>
             <p className="eyebrow mt-1">{s.aiRequired ? "needs a model" : "no model"}</p>
           </li>
         ))}
@@ -3223,11 +3226,11 @@ function ToolsRail() {
             {TOOLS.filter((t) => t.group === group).map((t) => (
               <li key={t.id} className="border-b border-stroke px-4 py-2.5 last:border-0">
                 <div className="flex items-baseline gap-2">
-                  <span className="num flex-1 text-[12px] font-medium">{t.id}</span>
+                  <span className="num flex-1 text-soft font-medium">{t.id}</span>
                   <span className="eyebrow">{t.access}</span>
                   <span className="eyebrow">{t.live ? "live" : "not built"}</span>
                 </div>
-                <p className="mt-0.5 text-[12px] text-ink-soft">{t.purpose}</p>
+                <p className="mt-0.5 text-soft text-ink-soft">{t.purpose}</p>
                 <p className="eyebrow mt-0.5">
                   approval {POLICY[t.access].approval} ·{" "}
                   {POLICY[t.access].logged ? "always logged" : "log optional"}
@@ -3252,7 +3255,7 @@ function LogsRail() {
           <button
             type="button"
             onClick={clearLogs}
-            className="doodle-pill px-2.5 py-0.5 text-[11px] hover:border-ink"
+            className="doodle-pill px-2.5 py-0.5 text-caption hover:border-ink"
           >
             Clear
           </button>
@@ -3264,7 +3267,7 @@ function LogsRail() {
           <li key={l.id} className="border-b border-stroke px-4 py-2 last:border-0">
             <div className="flex items-baseline gap-2">
               <span className={cn("eyebrow", l.level === "error" && "text-loss")}>{l.level}</span>
-              <span className="num flex-1 truncate text-[12px]">
+              <span className="num flex-1 truncate text-soft">
                 {l.agent} · {l.event}
               </span>
               <span className="eyebrow">{relativeTime(l.ts)}</span>
@@ -3272,7 +3275,7 @@ function LogsRail() {
           </li>
         ))}
         {logs.length === 0 && (
-          <li className="px-4 py-6 text-center text-[12px] text-ink-faint">Nothing yet.</li>
+          <li className="px-4 py-6 text-center text-soft text-ink-faint">Nothing yet.</li>
         )}
       </ul>
     </Panel>
