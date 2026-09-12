@@ -61,8 +61,8 @@ function Permission() {
         </HelpDot>
       }
     >
-      <div className="space-y-3 px-4 py-4 text-[13px]">
-        <ul className="space-y-1.5 text-[12px]">
+      <div className="space-y-3 px-4 py-4 text-body">
+        <ul className="space-y-1.5 text-soft">
           <Row label="In-app toasts" value="always on" ok />
           <Row
             label="Browser notifications"
@@ -102,7 +102,7 @@ function Permission() {
                 setState(next);
                 if (next === "granted") patchSettings({ notifications: true });
               }}
-              className="doodle-pill bg-ink px-4 py-1.5 text-[12px] font-medium text-paper disabled:opacity-40"
+              className="doodle-pill bg-ink px-4 py-1.5 text-soft font-medium text-paper disabled:opacity-40"
             >
               {state === "denied" ? "Blocked, unblock in browser" : "Allow notifications"}
             </button>
@@ -112,7 +112,7 @@ function Permission() {
               <button
                 type="button"
                 onClick={() => patchSettings({ notifications: !doc.settings.notifications })}
-                className="doodle-pill px-4 py-1.5 text-[12px] hover:bg-accent-soft"
+                className="doodle-pill px-4 py-1.5 text-soft hover:bg-accent-soft"
               >
                 {doc.settings.notifications ? "Turn off" : "Turn on"}
               </button>
@@ -121,7 +121,7 @@ function Permission() {
                 onClick={() =>
                   void show("Proof of Thesis", "Notifications are working on this device.", "test")
                 }
-                className="doodle-pill px-4 py-1.5 text-[12px] hover:bg-accent-soft"
+                className="doodle-pill px-4 py-1.5 text-soft hover:bg-accent-soft"
               >
                 Send a test
               </button>
@@ -155,12 +155,12 @@ function PriceForm() {
           value={symbol}
           onChange={(e) => setSymbol(e.target.value.toUpperCase())}
           placeholder="ETH"
-          className="num doodle-inset w-24 bg-transparent px-3 py-2 text-[13px] outline-none"
+          className="num doodle-inset w-24 bg-transparent px-3 py-2 text-body outline-none"
         />
         <select
           value={direction}
           onChange={(e) => setDirection(e.target.value as "above" | "below")}
-          className="doodle-inset bg-transparent px-3 py-2 text-[13px] outline-none"
+          className="doodle-inset bg-transparent px-3 py-2 text-body outline-none"
         >
           <option value="above">goes above</option>
           <option value="below">drops below</option>
@@ -170,7 +170,7 @@ function PriceForm() {
           onChange={(e) => setTarget(e.target.value)}
           inputMode="decimal"
           placeholder="4200"
-          className="num doodle-inset w-28 bg-transparent px-3 py-2 text-[13px] outline-none"
+          className="num doodle-inset w-28 bg-transparent px-3 py-2 text-body outline-none"
         />
         <button
           type="button"
@@ -180,12 +180,12 @@ function PriceForm() {
             setSymbol("");
             setTarget("");
           }}
-          className="doodle-pill bg-ink px-4 py-2 text-[13px] font-medium text-paper disabled:opacity-40"
+          className="doodle-pill bg-ink px-4 py-2 text-body font-medium text-paper disabled:opacity-40"
         >
           Add
         </button>
       </div>
-      <p className="mt-2 text-[12px] text-ink-faint">
+      <p className="mt-2 text-soft text-ink-faint">
         Checked against live quotes each time prices refresh.
       </p>
     </div>
@@ -201,7 +201,7 @@ function OnchainForm() {
           value={symbol}
           onChange={(e) => setSymbol(e.target.value.toUpperCase())}
           placeholder="any asset"
-          className="num doodle-inset w-36 bg-transparent px-3 py-2 text-[13px] outline-none"
+          className="num doodle-inset w-36 bg-transparent px-3 py-2 text-body outline-none"
         />
         <button
           type="button"
@@ -209,12 +209,12 @@ function OnchainForm() {
             addAlert({ kind: "onchain", symbol: symbol.trim() || null });
             setSymbol("");
           }}
-          className="doodle-pill bg-ink px-4 py-2 text-[13px] font-medium text-paper"
+          className="doodle-pill bg-ink px-4 py-2 text-body font-medium text-paper"
         >
           Add
         </button>
       </div>
-      <p className="mt-2 text-[12px] text-ink-faint">
+      <p className="mt-2 text-soft text-ink-faint">
         Fires when the watcher reads a new trade from your wallet that is still unreconciled.
       </p>
     </div>
@@ -232,7 +232,7 @@ function ThesisForm() {
         <select
           value={thesisId}
           onChange={(e) => setThesisId(e.target.value)}
-          className="doodle-inset min-w-0 max-w-full flex-1 bg-transparent px-3 py-2 text-[13px] outline-none"
+          className="doodle-inset min-w-0 max-w-full flex-1 bg-transparent px-3 py-2 text-body outline-none"
         >
           <option value="">every open thesis</option>
           {doc.theses.map((t) => (
@@ -244,7 +244,7 @@ function ThesisForm() {
         <select
           value={everyDays}
           onChange={(e) => setEveryDays(e.target.value)}
-          className="doodle-inset bg-transparent px-3 py-2 text-[13px] outline-none"
+          className="doodle-inset bg-transparent px-3 py-2 text-body outline-none"
         >
           {[7, 14, 30, 60, 90].map((d) => (
             <option key={d} value={d}>
@@ -261,12 +261,12 @@ function ThesisForm() {
               everyDays: Number(everyDays),
             })
           }
-          className="doodle-pill bg-ink px-4 py-2 text-[13px] font-medium text-paper"
+          className="doodle-pill bg-ink px-4 py-2 text-body font-medium text-paper"
         >
           Add
         </button>
       </div>
-      <p className="mt-2 text-[12px] text-ink-faint">
+      <p className="mt-2 text-soft text-ink-faint">
         A quiet nudge to re-read what you wrote and decide whether it still holds.
       </p>
     </div>
@@ -297,7 +297,7 @@ function AlertsPage() {
                 type="button"
                 onClick={() => setKind(k.id)}
                 className={cn(
-                  "doodle-pill shrink-0 px-3 py-1 text-[12px]",
+                  "doodle-pill shrink-0 px-3 py-1 text-soft",
                   kind === k.id ? "bg-ink text-paper" : "text-ink-soft hover:border-ink",
                 )}
               >
@@ -320,7 +320,7 @@ function AlertsPage() {
                   className="flex items-center gap-3 border-b border-stroke px-4 py-3 last:border-0"
                 >
                   <span className="min-w-0 flex-1">
-                    <span className="block truncate text-[13px]">
+                    <span className="block truncate text-body">
                       {a.kind === "price" &&
                         `${a.symbol} ${a.direction === "above" ? "above" : "below"} `}
                       {a.kind === "price" && <span className="num">{a.target}</span>}
@@ -338,7 +338,7 @@ function AlertsPage() {
                     type="button"
                     onClick={() => patchAlert(a.id, { enabled: !a.enabled })}
                     className={cn(
-                      "doodle-pill px-3 py-1 text-[12px]",
+                      "doodle-pill px-3 py-1 text-soft",
                       a.enabled ? "bg-ink text-paper" : "text-ink-faint",
                     )}
                   >
@@ -347,7 +347,7 @@ function AlertsPage() {
                   <button
                     type="button"
                     onClick={() => removeAlert(a.id)}
-                    className="text-[12px] text-ink-faint hover:text-loss"
+                    className="text-soft text-ink-faint hover:text-loss"
                   >
                     Delete
                   </button>
@@ -355,7 +355,7 @@ function AlertsPage() {
               );
             })}
             {doc.alerts.length === 0 && (
-              <li className="px-4 py-8 text-center text-[13px] text-ink-faint">No alerts yet.</li>
+              <li className="px-4 py-6 text-center text-body text-ink-faint">No alerts yet.</li>
             )}
           </ul>
         </Panel>
