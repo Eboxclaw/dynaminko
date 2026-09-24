@@ -11,49 +11,39 @@
 import { createFileRoute } from '@tanstack/react-router'
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as TradeRouteImport } from './routes/trade'
 import { Route as ThesesRouteImport } from './routes/theses'
+import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as PotRouteImport } from './routes/pot'
 import { Route as PortfolioRouteImport } from './routes/portfolio'
 import { Route as OrbPreviewRouteImport } from './routes/orb-preview'
 import { Route as JournalRouteImport } from './routes/journal'
+import { Route as EarnRouteImport } from './routes/earn'
+import { Route as AgentsRouteImport } from './routes/agents'
 import { Route as IndexRouteImport } from './routes/index'
 
-const TradeLazyRouteImport = createFileRoute('/trade')()
-const SettingsLazyRouteImport = createFileRoute('/settings')()
-const EarnLazyRouteImport = createFileRoute('/earn')()
 const AlertsLazyRouteImport = createFileRoute('/alerts')()
-const AgentsLazyRouteImport = createFileRoute('/agents')()
 
-const TradeLazyRoute = TradeLazyRouteImport.update({
-  id: '/trade',
-  path: '/trade',
-  getParentRoute: () => rootRouteImport,
-} as any).lazy(() => import('./routes/trade.lazy').then((d) => d.Route))
-const SettingsLazyRoute = SettingsLazyRouteImport.update({
-  id: '/settings',
-  path: '/settings',
-  getParentRoute: () => rootRouteImport,
-} as any).lazy(() => import('./routes/settings.lazy').then((d) => d.Route))
-const EarnLazyRoute = EarnLazyRouteImport.update({
-  id: '/earn',
-  path: '/earn',
-  getParentRoute: () => rootRouteImport,
-} as any).lazy(() => import('./routes/earn.lazy').then((d) => d.Route))
 const AlertsLazyRoute = AlertsLazyRouteImport.update({
   id: '/alerts',
   path: '/alerts',
   getParentRoute: () => rootRouteImport,
 } as any).lazy(() => import('./routes/alerts.lazy').then((d) => d.Route))
-const AgentsLazyRoute = AgentsLazyRouteImport.update({
-  id: '/agents',
-  path: '/agents',
+const TradeRoute = TradeRouteImport.update({
+  id: '/trade',
+  path: '/trade',
   getParentRoute: () => rootRouteImport,
-} as any).lazy(() => import('./routes/agents.lazy').then((d) => d.Route))
+} as any).lazy(() => import('./routes/trade.lazy').then((d) => d.Route))
 const ThesesRoute = ThesesRouteImport.update({
   id: '/theses',
   path: '/theses',
   getParentRoute: () => rootRouteImport,
 } as any)
+const SettingsRoute = SettingsRouteImport.update({
+  id: '/settings',
+  path: '/settings',
+  getParentRoute: () => rootRouteImport,
+} as any).lazy(() => import('./routes/settings.lazy').then((d) => d.Route))
 const PotRoute = PotRouteImport.update({
   id: '/pot',
   path: '/pot',
@@ -74,6 +64,16 @@ const JournalRoute = JournalRouteImport.update({
   path: '/journal',
   getParentRoute: () => rootRouteImport,
 } as any)
+const EarnRoute = EarnRouteImport.update({
+  id: '/earn',
+  path: '/earn',
+  getParentRoute: () => rootRouteImport,
+} as any).lazy(() => import('./routes/earn.lazy').then((d) => d.Route))
+const AgentsRoute = AgentsRouteImport.update({
+  id: '/agents',
+  path: '/agents',
+  getParentRoute: () => rootRouteImport,
+} as any).lazy(() => import('./routes/agents.lazy').then((d) => d.Route))
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
@@ -82,123 +82,102 @@ const IndexRoute = IndexRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/agents': typeof AgentsRoute
+  '/earn': typeof EarnRoute
   '/journal': typeof JournalRoute
   '/orb-preview': typeof OrbPreviewRoute
   '/portfolio': typeof PortfolioRoute
   '/pot': typeof PotRoute
+  '/settings': typeof SettingsRoute
   '/theses': typeof ThesesRoute
-  '/agents': typeof AgentsLazyRoute
+  '/trade': typeof TradeRoute
   '/alerts': typeof AlertsLazyRoute
-  '/earn': typeof EarnLazyRoute
-  '/settings': typeof SettingsLazyRoute
-  '/trade': typeof TradeLazyRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/agents': typeof AgentsRoute
+  '/earn': typeof EarnRoute
   '/journal': typeof JournalRoute
   '/orb-preview': typeof OrbPreviewRoute
   '/portfolio': typeof PortfolioRoute
   '/pot': typeof PotRoute
+  '/settings': typeof SettingsRoute
   '/theses': typeof ThesesRoute
-  '/agents': typeof AgentsLazyRoute
+  '/trade': typeof TradeRoute
   '/alerts': typeof AlertsLazyRoute
-  '/earn': typeof EarnLazyRoute
-  '/settings': typeof SettingsLazyRoute
-  '/trade': typeof TradeLazyRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/agents': typeof AgentsRoute
+  '/earn': typeof EarnRoute
   '/journal': typeof JournalRoute
   '/orb-preview': typeof OrbPreviewRoute
   '/portfolio': typeof PortfolioRoute
   '/pot': typeof PotRoute
+  '/settings': typeof SettingsRoute
   '/theses': typeof ThesesRoute
-  '/agents': typeof AgentsLazyRoute
+  '/trade': typeof TradeRoute
   '/alerts': typeof AlertsLazyRoute
-  '/earn': typeof EarnLazyRoute
-  '/settings': typeof SettingsLazyRoute
-  '/trade': typeof TradeLazyRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/agents'
+    | '/earn'
     | '/journal'
     | '/orb-preview'
     | '/portfolio'
     | '/pot'
-    | '/theses'
-    | '/agents'
-    | '/alerts'
-    | '/earn'
     | '/settings'
+    | '/theses'
     | '/trade'
+    | '/alerts'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/agents'
+    | '/earn'
     | '/journal'
     | '/orb-preview'
     | '/portfolio'
     | '/pot'
-    | '/theses'
-    | '/agents'
-    | '/alerts'
-    | '/earn'
     | '/settings'
+    | '/theses'
     | '/trade'
+    | '/alerts'
   id:
     | '__root__'
     | '/'
+    | '/agents'
+    | '/earn'
     | '/journal'
     | '/orb-preview'
     | '/portfolio'
     | '/pot'
-    | '/theses'
-    | '/agents'
-    | '/alerts'
-    | '/earn'
     | '/settings'
+    | '/theses'
     | '/trade'
+    | '/alerts'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  AgentsRoute: typeof AgentsRoute
+  EarnRoute: typeof EarnRoute
   JournalRoute: typeof JournalRoute
   OrbPreviewRoute: typeof OrbPreviewRoute
   PortfolioRoute: typeof PortfolioRoute
   PotRoute: typeof PotRoute
+  SettingsRoute: typeof SettingsRoute
   ThesesRoute: typeof ThesesRoute
-  AgentsLazyRoute: typeof AgentsLazyRoute
+  TradeRoute: typeof TradeRoute
   AlertsLazyRoute: typeof AlertsLazyRoute
-  EarnLazyRoute: typeof EarnLazyRoute
-  SettingsLazyRoute: typeof SettingsLazyRoute
-  TradeLazyRoute: typeof TradeLazyRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
-    '/trade': {
-      id: '/trade'
-      path: '/trade'
-      fullPath: '/trade'
-      preLoaderRoute: typeof TradeLazyRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/settings': {
-      id: '/settings'
-      path: '/settings'
-      fullPath: '/settings'
-      preLoaderRoute: typeof SettingsLazyRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/earn': {
-      id: '/earn'
-      path: '/earn'
-      fullPath: '/earn'
-      preLoaderRoute: typeof EarnLazyRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/alerts': {
       id: '/alerts'
       path: '/alerts'
@@ -206,11 +185,11 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AlertsLazyRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/agents': {
-      id: '/agents'
-      path: '/agents'
-      fullPath: '/agents'
-      preLoaderRoute: typeof AgentsLazyRouteImport
+    '/trade': {
+      id: '/trade'
+      path: '/trade'
+      fullPath: '/trade'
+      preLoaderRoute: typeof TradeRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/theses': {
@@ -218,6 +197,13 @@ declare module '@tanstack/react-router' {
       path: '/theses'
       fullPath: '/theses'
       preLoaderRoute: typeof ThesesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/settings': {
+      id: '/settings'
+      path: '/settings'
+      fullPath: '/settings'
+      preLoaderRoute: typeof SettingsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/pot': {
@@ -248,6 +234,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof JournalRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/earn': {
+      id: '/earn'
+      path: '/earn'
+      fullPath: '/earn'
+      preLoaderRoute: typeof EarnRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/agents': {
+      id: '/agents'
+      path: '/agents'
+      fullPath: '/agents'
+      preLoaderRoute: typeof AgentsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/': {
       id: '/'
       path: '/'
@@ -260,16 +260,16 @@ declare module '@tanstack/react-router' {
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  AgentsRoute: AgentsRoute,
+  EarnRoute: EarnRoute,
   JournalRoute: JournalRoute,
   OrbPreviewRoute: OrbPreviewRoute,
   PortfolioRoute: PortfolioRoute,
   PotRoute: PotRoute,
+  SettingsRoute: SettingsRoute,
   ThesesRoute: ThesesRoute,
-  AgentsLazyRoute: AgentsLazyRoute,
+  TradeRoute: TradeRoute,
   AlertsLazyRoute: AlertsLazyRoute,
-  EarnLazyRoute: EarnLazyRoute,
-  SettingsLazyRoute: SettingsLazyRoute,
-  TradeLazyRoute: TradeLazyRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

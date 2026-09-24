@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   beginTurn,
+  clearCompletedTurn,
   completedTurn,
   markAnswerDone,
   markFirstUsefulAction,
@@ -86,5 +87,15 @@ describe("perf trace", () => {
     // And the next beginTurn does not erase it (same guarantee as success).
     beginTurn();
     expect(completedTurn()?.failed).toBe("chat timed out");
+  });
+
+  it("clears the completed snapshot at a chat-session boundary", () => {
+    beginTurn();
+    tagTurn("old session");
+    markAnswerDone();
+    expect(completedTurn()?.question).toBe("old session");
+
+    clearCompletedTurn();
+    expect(completedTurn()).toBeUndefined();
   });
 });

@@ -78,6 +78,13 @@ export function useTurn() {
 
   const clearError = useCallback(() => setError(null), []);
 
+  const reset = useCallback(() => {
+    phaseRef.current = "idle";
+    setPhase("idle");
+    setNodes([]);
+    setError(null);
+  }, []);
+
   return {
     phase,
     phaseRef,
@@ -90,6 +97,7 @@ export function useTurn() {
     settle,
     fail,
     complete,
+    reset,
     clearError,
   };
 }

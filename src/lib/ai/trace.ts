@@ -212,6 +212,13 @@ export function completedTurn(): PerfTrace["turn"] | undefined {
   return perf.completed;
 }
 
+/** Clear session-scoped turn diagnostics when the visible chat changes. */
+export function clearCompletedTurn() {
+  perf.turn = undefined;
+  perf.completed = undefined;
+  mirror();
+}
+
 // ── window mirror (browser only, SSR-safe) ─────────────────────────────
 
 function mirror() {
@@ -219,4 +226,5 @@ function mirror() {
   const w = window as unknown as { __perf?: unknown; __lastPerf?: unknown };
   w.__perf = perf;
   if (lastTurn()) w.__lastPerf = lastTurn();
+  else delete w.__lastPerf;
 }

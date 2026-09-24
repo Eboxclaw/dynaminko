@@ -128,6 +128,14 @@ describe("suppressedAdviceRead", () => {
     }
   });
 
+  it("returns the withheld read for advice-shaped portfolio wording outside the alias list", () => {
+    const pick = suppressedAdviceRead("give me a net worth update and recommend improvements");
+    expect(pick).toEqual({
+      id: "portfolio.snapshot",
+      why: "portfolio-status domain behind the advice gate",
+    });
+  });
+
   it("returns null for pure status, pure advice, and write commands", () => {
     // Pure status runs as a terminal command turn (no read was withheld);
     // pure advice never matched a status alias; non-adviceGated PRE_EXECUTE
