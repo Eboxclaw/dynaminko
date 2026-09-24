@@ -1,7 +1,4 @@
-import {
-  createLazyFileRoute,
-  type LazyRouteOptions,
-} from "@tanstack/react-router";
+import { createLazyFileRoute } from "@tanstack/react-router";
 import {
   Brain,
   Eye,
@@ -57,6 +54,7 @@ const DECIDE_VIEW: "head" | "lean" = (() => {
   return p === "lean" ? "lean" : "head";
 })();
 import { DECIDE_SYSTEM, decideUserContent, hopEvidence, hopKey, hopToolId, isRepeatHop } from "@/lib/agent/hops";
+import { nativePromotion } from "@/lib/agent/nativePromotion";
 import { captureResult, readOffloaded, type CapturedResult } from "@/lib/agent/offload";
 import {
   capabilityCatalogue,
@@ -67,7 +65,7 @@ import {
   type CapabilityDefinition,
 } from "@/lib/capabilities/catalogue";
 import { routeMessage, routeSemantic, classifyIntent, normalizeRoutingText, suppressedAdviceRead } from "@/lib/chat/route";
-import { PHASE_LABEL } from "@/lib/chat/pipeline";
+import { isBusyPhase, PHASE_LABEL } from "@/lib/chat/pipeline";
 import { useDoc } from "@/hooks/useDoc";
 import { relativeTime } from "@/lib/format";
 import {
@@ -104,8 +102,10 @@ import type { NativeToolTurn } from "@/lib/ai";
 import { AGENTS, automationOn } from "@/lib/agents/registry";
 import { COMMANDS, parseCommand, suggestions, type Suggestion } from "@/lib/chat/commands";
 import { allocateContext, estimateTokens, factLines, portfolioFactLines } from "@/lib/chat/context";
+import type { AgentRailTab } from "@/lib/chat/agentRail";
 import {
   beginTurn,
+  clearCompletedTurn,
   completedTurn,
   markTurnFailed,
   markAnswerDone,
@@ -155,7 +155,7 @@ const RAIL = [
   { id: "logs", label: "Log" },
 ] as const;
 
-type RailTab = (typeof RAIL)[number]["id"];
+type RailTab = AgentRailTab;
 
 /**
  * First http(s) URL from a captured web.search result. The observation's data
@@ -186,40 +186,12 @@ function searchResultUrl(data: unknown): string | null {
   return null;
 }
 
-// Router version note: this release's LazyRouteOptions type only models the
-// component props, but the runtime merges every lazy option into
-// route.options when the chunk loads (Object.assign in load-matches.js), so
-// validateSearch and head behave exactly as on the eager route. The cast
-// below documents that type gap, not a runtime difference.
-export const Route = createLazyFileRoute("/agents")(
-  {
-    validateSearch: (s: Record<string, unknown>) => ({
-      tab: (RAIL.some((t) => t.id === s.tab) ? s.tab : "model") as RailTab,
-    }),
-    head: () => ({
-      meta: [
-        { title: "Assistant · Proof of Thesis" },
-        {
-          name: "description",
-          content:
-            "An inline console over your journal: slash commands run deterministic tools first, and the on-device model only speaks when reasoning is actually needed.",
-        },
-        { property: "og:title", content: "Assistant · Proof of Thesis" },
-        {
-          property: "og:description",
-          content: "Slash commands, real tools, and a local model you control.",
-        },
-        { property: "og:type", content: "website" },
-        { name: "twitter:card", content: "summary" },
-      ],
-    }),
-    component: AgentsPage,
-  } as LazyRouteOptions,
-);
+export const Route = createLazyFileRoute("/agents")({
+  component: AgentsPage,
+});
 
 function AgentsPage() {
-  // useSearch() types as {} under LazyRoute (the validator generic cannot
-  // survive the lazy factory); the shape comes from validateSearch above.
+  // The eager route shell validates this before SSR and lazy hydration.
   const { tab } = Route.useSearch() as { tab: RailTab };
   const navigate = Route.useNavigate();
   const [railOpen, setRailOpen] = useState(false);
@@ -314,7 +286,10 @@ function ChatConsole({
   const [help, setHelp] = useState(false);
   const [helpQuery, setHelpQuery] = useState("");
   const [switchBusy, setSwitchBusy] = useState(false);
+  const [turnActive, setTurnActive] = useState(false);
+  const turnActiveRef = useRef(false);
   const turn = useTurn();
+  const sessionSwitchLocked = turnActive || busy || switchBusy;
 
   const boxRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -473,6 +448,23 @@ function ChatConsole({
     return msg;
   };
 
+  const resetSessionDiagnostics = () => {
+    observationsRef.current = [];
+    lastPromptRef.current = null;
+    lastBuildRef.current = null;
+    lastLedgerRef.current = null;
+    clearCompletedTurn();
+    turn.reset();
+    if (typeof window !== "undefined") {
+      const diagnostics = window as unknown as {
+        __lastDecide?: unknown;
+        __lastRaw?: unknown;
+      };
+      delete diagnostics.__lastDecide;
+      delete diagnostics.__lastRaw;
+    }
+  };
+
   /** Format search results into card facts with clickable links. */
   const searchFacts = (results: unknown, why: string): string[] => {
     const rows = (results as { results?: { title: string; url: string; snippet: string }[] })
@@ -511,20 +503,19 @@ function ChatConsole({
   };
 
   const openSession = (id: string) => {
+    if (turnActiveRef.current || busy || switchBusy || id === activeId) return;
     setActiveId(id);
     setMessages(readSession(id));
-    // A session switch starts a clean evidence slate: submit() resets per
-    // turn, this keeps a mid-flight page from ever mixing sessions even
-    // before the next submit.
-    observationsRef.current = [];
+    resetSessionDiagnostics();
   };
 
-  const startSession = (title?: string) => {
+  const startSession = (title?: string, allowActiveTurn = false) => {
+    if ((turnActiveRef.current || busy || switchBusy) && !allowActiveTurn) return;
     const meta = createSession(title || "New session");
     setSessions(listSessions());
     setActiveId(meta.id);
     setMessages([]);
-    observationsRef.current = [];
+    resetSessionDiagnostics();
   };
 
   /**
@@ -1397,10 +1388,8 @@ function ChatConsole({
       let leakRetry = false;
       if (!text) {
         const call = extractNativeToolCall(raw);
-        const def = call
-          ? selection.selected.find((d) => d.id === call.id) ??
-            capabilityCatalogue().find((d) => d.id === call.id)
-          : undefined;
+        const promotion = call ? nativePromotion(call.id, hopAllowed) : null;
+        const def = promotion?.def;
         const wired =
           call !== null && def !== undefined && (def.kind !== "tool" || !!TOOL_BY_ID[call.id]);
         if (call && def && wired) {
@@ -1416,41 +1405,62 @@ function ChatConsole({
           const key = hopKey(call.id, input);
           if (!isRepeatHop(key, executedKeys) && executedKeys.length < LIMITS.maxToolHops) {
             turn.stage("tool", `${call.id} (native call)`);
-            turn.settle("tool", "ok", `${call.id} · promoted from the answer`);
-            try {
-              const hopTool = def.kind === "tool" ? TOOL_BY_ID[call.id] : null;
-              const out = hopTool
-                ? await runTool(hopTool, input)
-                : await runCommand(call.id, input);
-              const summary =
-                def.kind === "command"
-                  ? ((out as CommandResult).summary ?? (out as CommandResult).status)
-                  : summarise(out);
-              const capture = captureResult(out);
+            if (promotion?.approvalRequired && def.access !== "NONE") {
+              turn.settle("tool", "ok", `${call.id} · approval requested`);
               push({
                 role: "tool",
-                text: `${call.id} · follow-up`,
-                card: {
-                  source: `${call.id} (native call)`,
-                  facts: [summary].filter(Boolean),
-                  data: { result: capture.clamped } as Record<string, unknown>,
-                  offloadKey: capture.offloadKey,
+                text: `${call.id} needs your approval`,
+                approval: {
+                  toolId: call.id,
+                  ...(def.kind !== "tool" ? { kind: "command" as const } : {}),
+                  access: def.access,
+                  target:
+                    Object.entries(input)
+                      .map(([k, v]) => `${k}=${String(v)}`)
+                      .join(" ") || "—",
+                  input,
+                  state: "pending",
                 },
               });
-              observationsRef.current.push({
-                id: call.id,
-                kind: def.kind === "command" ? "command" : "tool",
-                source: call.id,
-                status: "ok",
-                summary,
-                data: capture.clamped,
-                offloadKey: capture.offloadKey,
-                args: input,
-              });
               executedKeys.push(key);
-              leakRetry = true;
-            } catch (err) {
-              turn.settle("tool", "error", err instanceof Error ? err.message : "tool failed");
+              text = `I prepared ${call.id}. Review the details and approve it before it runs.`;
+            } else {
+              turn.settle("tool", "ok", `${call.id} · promoted from the answer`);
+              try {
+                const hopTool = def.kind === "tool" ? TOOL_BY_ID[call.id] : null;
+                const out = hopTool
+                  ? await runTool(hopTool, input)
+                  : await runCommand(call.id, input);
+                const summary =
+                  def.kind === "command"
+                    ? ((out as CommandResult).summary ?? (out as CommandResult).status)
+                    : summarise(out);
+                const capture = captureResult(out);
+                push({
+                  role: "tool",
+                  text: `${call.id} · follow-up`,
+                  card: {
+                    source: `${call.id} (native call)`,
+                    facts: [summary].filter(Boolean),
+                    data: { result: capture.clamped } as Record<string, unknown>,
+                    offloadKey: capture.offloadKey,
+                  },
+                });
+                observationsRef.current.push({
+                  id: call.id,
+                  kind: def.kind === "command" ? "command" : "tool",
+                  source: call.id,
+                  status: "ok",
+                  summary,
+                  data: capture.clamped,
+                  offloadKey: capture.offloadKey,
+                  args: input,
+                });
+                executedKeys.push(key);
+                leakRetry = true;
+              } catch (err) {
+                turn.settle("tool", "error", err instanceof Error ? err.message : "tool failed");
+              }
             }
           } else if (call) {
             // Repeat of a hop that already ran (or budget gone): do not
@@ -1970,25 +1980,14 @@ function ChatConsole({
     );
   };
 
-  const submit = async (override?: string) => {
-    const text = (override ?? input).trim();
-    if (!text || busy || switchBusy) return;
-    setInput("");
-    // The user acted: any in-flight idle prewarm yields immediately.
-    prewarmCancelRef.current = true;
-    // Step-by-step flows (the inbox resolution wizard) intercept the turn
-    // before routing: the whole point is deterministic questions with
-    // tappable options, no model tokens and no phrasing ambiguity.
-    if (wizardRef.current) {
-      push({ role: "user", text });
-      advanceWizard(text);
-      return;
-    }
-    if (startWizardIfRequested(text)) return;
+  const executeSubmit = async (text: string) => {
     observationsRef.current = [];
     turn.begin();
     beginTurn();
     tagTurn(text);
+    if (typeof window !== "undefined") {
+      delete (window as unknown as { __lastDecide?: unknown }).__lastDecide;
+    }
     push({ role: "user", text });
 
     // One-time semantic engine offer: only when nothing is cached and no
@@ -2013,7 +2012,7 @@ function ChatConsole({
         return;
       }
       if (name === "new") {
-        startSession(rest);
+        startSession(rest, true);
         return;
       }
       if (name === "sessions") {
@@ -2271,7 +2270,7 @@ function ChatConsole({
           summary?.replace(/^summary:\s*/i, "").slice(0, 2000) ??
           "session compressed without a model summary";
         const saved = addMemory(`session summary: ${summaryText}`);
-        startSession();
+        startSession(undefined, true);
         push({
           role: "note",
           text: saved.ok
@@ -2306,7 +2305,7 @@ function ChatConsole({
 
       if (name === "run") {
         const [id, ...tail] = rest.split(/\s+/);
-        return void runCommandTurn(id, tail.join(" "));
+        return await runCommandTurn(id, tail.join(" "));
       }
       if (name === "goal") {
         push({
@@ -2315,11 +2314,11 @@ function ChatConsole({
         });
         return;
       }
-      if (name === "pot") return void runSkillTurn("journal.review");
-      if (name === "skill") return void runSkillTurn(rest.split(/\s+/)[0]);
+      if (name === "pot") return await runSkillTurn("journal.review");
+      if (name === "skill") return await runSkillTurn(rest.split(/\s+/)[0]);
       if (name === "tool") {
         const [id, ...tail] = rest.split(/\s+/);
-        return void runToolTurn(id, tail.join(" "));
+        return await runToolTurn(id, tail.join(" "));
       }
       if (name === "journal") {
         const cards = searchCards(rest, 12);
@@ -2344,7 +2343,7 @@ function ChatConsole({
       if (name === "thesis") {
         const t = getDoc().theses.find((x) => x.title.toLowerCase().includes(rest.toLowerCase()));
         if (!t) return push({ role: "note", text: `No thesis matching "${rest}".` });
-        return void runSkillTurn("thesis.review", { thesisId: t.id });
+        return await runSkillTurn("thesis.review", { thesisId: t.id });
       }
       push({ role: "note", text: `Unknown command /${name}. Try /help.` });
       return;
@@ -2354,7 +2353,7 @@ function ChatConsole({
     const routed = routeMessage(text);
     if (routed.kind === "command") {
       turn.settle("route", "ok", routed.why);
-      return void runCommandTurn(
+      return await runCommandTurn(
         routed.commandId,
         routed.args ? JSON.stringify(routed.args) : "",
         { question: text },
@@ -2362,7 +2361,7 @@ function ChatConsole({
     }
     if (routed.kind === "skill") {
       turn.settle("route", "ok", routed.why);
-      return void runSkillTurn(
+      return await runSkillTurn(
         routed.skillId,
         { thesisId: routed.thesisId },
         { question: text, alwaysSpeak: true },
@@ -2396,14 +2395,14 @@ function ChatConsole({
       );
       turn.settle("route", "ok");
       if (semantic.kind === "command") {
-        return void runCommandTurn(
+        return await runCommandTurn(
           semantic.commandId,
           semantic.args ? JSON.stringify(semantic.args) : "",
           { question: text },
         );
       }
       if (semantic.kind === "skill") {
-        return void runSkillTurn(semantic.skillId, {}, { question: text, alwaysSpeak: true });
+        return await runSkillTurn(semantic.skillId, {}, { question: text, alwaysSpeak: true });
       }
     }
 
@@ -2412,6 +2411,33 @@ function ChatConsole({
       text,
       true,
     );
+  };
+
+  const submit = async (override?: string) => {
+    const text = (override ?? input).trim();
+    if (!text || busy || switchBusy || turnActiveRef.current) return;
+    setInput("");
+    // The user acted: any in-flight idle prewarm yields immediately.
+    prewarmCancelRef.current = true;
+    // Step-by-step flows (the inbox resolution wizard) intercept the turn
+    // before routing: the whole point is deterministic questions with
+    // tappable options, no model tokens and no phrasing ambiguity.
+    if (wizardRef.current) {
+      push({ role: "user", text });
+      advanceWizard(text);
+      return;
+    }
+    if (startWizardIfRequested(text)) return;
+
+    turnActiveRef.current = true;
+    setTurnActive(true);
+    try {
+      await executeSubmit(text);
+    } finally {
+      if (isBusyPhase(turn.phaseRef.current)) turn.complete();
+      turnActiveRef.current = false;
+      setTurnActive(false);
+    }
   };
 
   const apply = (s: Suggestion) => {
@@ -2443,21 +2469,24 @@ function ChatConsole({
             <button
               type="button"
               onClick={() => startSession()}
-              className="doodle-pill px-2.5 py-0.5 text-caption hover:border-ink"
+              disabled={sessionSwitchLocked}
+              className="doodle-pill px-2.5 py-0.5 text-caption hover:border-ink disabled:cursor-not-allowed disabled:opacity-40"
             >
               New
             </button>
             {activeId && sessions.length > 1 && (
               <button
                 type="button"
+                disabled={sessionSwitchLocked}
                 onClick={() => {
+                  if (sessionSwitchLocked) return;
                   deleteSession(activeId);
                   const rest = listSessions();
                   setSessions(rest);
                   if (rest[0]) openSession(rest[0].id);
                   else startSession();
                 }}
-                className="doodle-pill px-2.5 py-0.5 text-caption hover:border-ink"
+                className="doodle-pill px-2.5 py-0.5 text-caption hover:border-ink disabled:cursor-not-allowed disabled:opacity-40"
               >
                 Delete
               </button>
@@ -2472,11 +2501,13 @@ function ChatConsole({
               <button
                 key={s.id}
                 type="button"
+                disabled={sessionSwitchLocked || s.id === activeId}
                 onClick={() => openSession(s.id)}
                 title={`${s.title} · ${s.turns} turns · ${relativeTime(s.updatedAt)}`}
                 className={cn(
                   "doodle-pill shrink-0 max-w-[200px] truncate px-2.5 py-0.5 text-caption",
                   s.id === activeId ? "bg-ink text-paper" : "text-ink-soft hover:border-ink",
+                  sessionSwitchLocked ? "cursor-not-allowed opacity-40" : "",
                 )}
               >
                 {s.title}

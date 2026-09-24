@@ -124,17 +124,23 @@ const PORTFOLIO_DOMAIN_WORD =
   /\b(portfolio|holdings|exposure|allocation|positions|net\s?worth|wallet)\b/;
 const PORTFOLIO_STATUS_SHAPE =
   /\b(how|what|status|doing|look(?:ing|s)?|state|check|overview|summary|update|value|worth|am i|did i|perform)\b/;
-const PORTFOLIO_WRITE_SHAPE = /\b(move|sell|buy|swap|transfer|deposit|withdraw|rebalance|close|open)\b/;
+const PORTFOLIO_WRITE_SHAPE =
+  /\b(move|sell|buy|swap|transfer|deposit|withdraw|rebalance|close|open)\b/;
 
 /**
  * Whether the (already normalized) text asks about CURRENT portfolio state.
  * False for advice (the ADVICE_MARKER gate keeps the model in the loop) and
  * for write intents (those are approval flows, never a status read).
  */
-export function isPortfolioStatusQuery(norm: string): boolean {
+function isPortfolioStatusShape(norm: string): boolean {
   if (!PORTFOLIO_DOMAIN_WORD.test(norm)) return false;
   if (!PORTFOLIO_STATUS_SHAPE.test(norm)) return false;
   if (PORTFOLIO_WRITE_SHAPE.test(norm)) return false;
+  return true;
+}
+
+export function isPortfolioStatusQuery(norm: string): boolean {
+  if (!isPortfolioStatusShape(norm)) return false;
   if (ADVICE_MARKER.test(norm)) return false;
   return true;
 }
@@ -161,7 +167,7 @@ export function suppressedAdviceRead(text: string): { id: string; why: string } 
   }
   // First-class domain: an advice question about current portfolio state
   // still owes the user the status half deterministically.
-  if (isPortfolioStatusQuery(q) && ADVICE_MARKER.test(q)) {
+  if (isPortfolioStatusShape(q) && ADVICE_MARKER.test(q)) {
     return { id: "portfolio.snapshot", why: "portfolio-status domain behind the advice gate" };
   }
   return null;
